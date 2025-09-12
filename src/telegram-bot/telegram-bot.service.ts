@@ -45,7 +45,7 @@ export class TelegramBotService {
         this.logger.debug(`Commands set: ${inspect(commands)}`);
     }
 
-    middleware() {
-        return webhookCallback(this.bot, 'express');
-    }
+    // middleware() {
+    //     return webhookCallback(this.bot, 'express');
+    // }
 }
