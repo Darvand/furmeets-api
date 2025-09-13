@@ -6,7 +6,11 @@ import { TelegramBotServer } from './telegram-bot/telegram-bot.server';
 import { Logger } from '@nestjs/common';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: process.env.NODE_ENV === 'production'
+      ? ['error', 'warn', 'log']
+      : ['error', 'warn', 'log', 'debug', 'verbose'],
+  });
   const bot = app.get(TelegramBotService);
   const config = app.get(telegramBotConfig.KEY);
   app.connectMicroservice(
