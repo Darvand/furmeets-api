@@ -8,6 +8,6 @@ export class TelegramBotMiddleware implements NestMiddleware {
 
     use(req: any, res: any, next: (error?: any) => void) {
         this.logger.debug('Middleware called', req.body);
-        return this.bot.middleware()(req, res);
+        // return this.bot.middleware()(req, res);
     }
 }
