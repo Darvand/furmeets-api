@@ -7,9 +7,7 @@ import { Logger } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: process.env.NODE_ENV === 'production'
-      ? ['error', 'warn', 'log']
-      : ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: process.env.LOGGER_OPTIONS?.split(',') as any || ['error', 'warn', 'log'],
   });
   const bot = app.get(TelegramBotService);
   const config = app.get(telegramBotConfig.KEY);

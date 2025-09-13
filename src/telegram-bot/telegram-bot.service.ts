@@ -20,6 +20,10 @@ export class TelegramBotService {
             this.logger.debug(
                 `User with id ${ctx.message.from.id} sent a message: ${ctx.message.text}`,
             );
+            if (ctx.chat.type === 'group') {
+                this.logger.debug('Message received in a group chat', ctx.chat);
+                return;
+            }
         });
         this.bot.catch((err) => {
             this.logger.error('Bot Error: ', err);
