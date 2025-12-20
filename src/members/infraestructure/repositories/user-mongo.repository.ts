@@ -23,4 +23,20 @@ export class UserMongoRepository implements UserRepository {
         }
         return UserMapper.fromDb(userDoc);
     }
+
+    async save(user: UserEntity): Promise<UserEntity> {
+        const dbUser = UserMapper.toDb(user);
+        this.logger.debug(`Saving user with ID: ${dbUser._id}`);
+        await this.userModel.updateOne({ _id: dbUser._id }, dbUser, { upsert: true });
+        return user;
+    }
+
+    async getByTelegramId(telegramId: number): Promise<UserEntity | null> {
+        this.logger.debug(`Fetching user with Telegram ID: ${telegramId}`);
+        const userDoc = await this.userModel.findOne({ telegramId }).exec();
+        if (!userDoc) {
+            return null;
+        }
+        return UserMapper.fromDb(userDoc);
+    }
 }

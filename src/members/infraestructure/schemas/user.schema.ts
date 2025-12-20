@@ -10,12 +10,19 @@ export class User {
         default: () => mongoose.Types.UUID.generate(),
     })
     _id: string;
+
     @Prop()
     username: string;
+
     @Prop()
     avatarUrl: string;
+
     @Prop()
     name: string;
+
+    @Prop()
+    telegramId: number;
+
     @Prop({ default: Date.now })
     createdAt?: Date;
 }

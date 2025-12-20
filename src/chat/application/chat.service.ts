@@ -51,4 +51,8 @@ export class ChatService {
         return messageEntity;
     }
 
+    async getAllRequestChats(): Promise<RequestChatEntity[]> {
+        this.logger.debug(`Fetching all request chats`);
+        return this.requestChatRepository.getAllRequestChats();
+    }
 }

@@ -41,4 +41,14 @@ export class ChatMongoRepository implements ChatRepository {
         const requestChatEntity = RequestChatMapper.fromDb(dbRequestChat);
         return requestChatEntity;
     }
+
+    async getAllRequestChats(): Promise<RequestChatEntity[]> {
+        this.logger.debug(`Fetching all request chats from database`);
+        const dbRequestChats = await this.requestChatModel
+            .find()
+            .populate('requester')
+            .populate('messages.user')
+            .exec();
+        return dbRequestChats.map(RequestChatMapper.fromDb);
+    }
 }

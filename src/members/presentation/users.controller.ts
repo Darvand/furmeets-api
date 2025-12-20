@@ -1,7 +1,8 @@
-import { Controller, Get, Param } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post } from "@nestjs/common";
 import { UserService } from "../application/user.service";
-import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import { UserMapper } from "../mappers/user.mapper";
+import { CreateUserDto } from "./dtos/create-user.dto";
+import { GetUserDto } from "./dtos/get-user.dto";
 
 @Controller('users')
 export class UsersController {
@@ -9,9 +10,15 @@ export class UsersController {
         private readonly userService: UserService,
     ) { }
 
-    @Get('/:userId')
-    async getUser(@Param('userId') userId: string) {
-        const user = await this.userService.getUserByUUID(UUID.from(userId));
+    @Get('/:telegramId')
+    async getUserByTelegramId(@Param('telegramId') telegramId: number) {
+        const user = await this.userService.getUserByTelegramId(telegramId);
+        return UserMapper.toDto(user);
+    }
+
+    @Post()
+    async createUser(@Body() createUserDto: CreateUserDto): Promise<GetUserDto> {
+        const user = await this.userService.createUser(createUserDto);
         return UserMapper.toDto(user);
     }
 }

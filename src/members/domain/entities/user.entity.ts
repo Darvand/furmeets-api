@@ -5,6 +5,7 @@ export interface UserProps {
     username: string;
     avatarUrl: string;
     name: string;
+    telegramId: number;
     createdAt?: Date;
 }
 
@@ -30,5 +31,13 @@ export class UserEntity extends Entity<UserProps> {
 
     get name(): string {
         return this.props.name;
+    }
+
+    get telegramId(): number {
+        return this.props.telegramId;
+    }
+
+    get createdAt(): Date | undefined {
+        return this.props.createdAt;
     }
 }

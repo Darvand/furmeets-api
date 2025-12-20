@@ -1,7 +1,6 @@
-export class GetUserDto {
-    uuid: string;
-    name: string;
+export class CreateUserDto {
     username: string;
+    name: string;
     avatarUrl: string;
     telegramId: number;
 }

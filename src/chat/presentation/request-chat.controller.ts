@@ -4,6 +4,7 @@ import { CreateRequestChatDto } from "./dtos/create-request-chat.dto";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import { GetRequestChatDto } from "./dtos/get-request-chat.dto";
 import { RequestChatMapper } from "../mappers/request-chat.mapper";
+import { ListRequestChatDto } from "./dtos/list-request-chat.dto";
 
 @Controller('request-chats')
 export class RequestChatController {
@@ -16,10 +17,15 @@ export class RequestChatController {
         return this.chatService.createRequestChat(createRequestChatDto);
     }
 
-
     @Get(':id')
     async getRequestChatById(@Param('id') id: string): Promise<GetRequestChatDto> {
         const requestChat = await this.chatService.getRequestChatByUUID(UUID.from(id));
         return RequestChatMapper.toDto(requestChat);
+    }
+
+    @Get()
+    async getAllRequestChats(): Promise<ListRequestChatDto> {
+        const requestChats = await this.chatService.getAllRequestChats();
+        return RequestChatMapper.toDtoList(requestChats);
     }
 }

@@ -3,6 +3,8 @@ import { MEMBERS_PROVIDERS } from "../members.providers";
 import { UserEntity } from "../domain/entities/user.entity";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import type { UserRepository } from "../domain/services/user.repository";
+import { UserMapper } from "../mappers/user.mapper";
+import { CreateUserDto } from "../presentation/dtos/create-user.dto";
 
 @Injectable()
 export class UserService {
@@ -16,5 +18,18 @@ export class UserService {
             throw new NotFoundException(`User with UUID ${uuid.value} not found`);
         }
         return user;
+    }
+
+    async getUserByTelegramId(telegramId: number): Promise<UserEntity> {
+        const user = await this.userRepository.getByTelegramId(telegramId);
+        if (!user) {
+            throw new NotFoundException(`User with Telegram ID ${telegramId} not found`);
+        }
+        return user;
+    }
+
+    async createUser(createUserDto: CreateUserDto): Promise<UserEntity> {
+        const user = UserMapper.fromDtoToDomain(createUserDto);
+        return this.userRepository.save(user);
     }
 }

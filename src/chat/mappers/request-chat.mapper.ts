@@ -1,14 +1,12 @@
 import { UserEntity } from "src/members/domain/entities/user.entity";
 import { RequestChatEntity } from "../domain/entities/request-chat.entity";
 import { RequestChat } from "../infraestructure/schemas/request-chat.schema";
-import { User } from "../../members/infraestructure/schemas/user.schema";
-import { RequestChatMessage } from "../infraestructure/schemas/request-chat-message.schema";
 import { RequestChatMessageEntity } from "../domain/entities/request-chat-message.entity";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import { GetRequestChatDto } from "../presentation/dtos/get-request-chat.dto";
 import { UserMapper } from "src/members/mappers/user.mapper";
-import { request } from "http";
 import { RequestChatMessageMapper } from "./request-chat-message.mapper";
+import { ListRequestChatDto } from "../presentation/dtos/list-request-chat.dto";
 
 export class RequestChatMapper {
     static toDb(requestChat: RequestChatEntity): RequestChat {
@@ -30,6 +28,7 @@ export class RequestChatMapper {
                 avatarUrl: dbRequestChat.requester.avatarUrl,
                 name: dbRequestChat.requester.name,
                 username: dbRequestChat.requester.username,
+                telegramId: dbRequestChat.requester.telegramId,
             }, UUID.from(dbRequestChat.requester._id)),
             createdAt: dbRequestChat.createdAt!,
             messages: dbRequestChat.messages.map(msg => {
@@ -39,6 +38,7 @@ export class RequestChatMapper {
                         avatarUrl: msg.user.avatarUrl,
                         name: msg.user.name,
                         username: msg.user.username,
+                        telegramId: msg.user.telegramId,
                     }, UUID.from(msg.user._id)),
                     createdAt: msg.createdAt,
                 }, UUID.from(msg._id));
@@ -53,6 +53,12 @@ export class RequestChatMapper {
             requester: UserMapper.toDto(requestChat.props.requester),
             createdAt: requestChat.props.createdAt,
             messages: requestChat.props.messages.map(message => RequestChatMessageMapper.toDto(message)),
+        }
+    }
+
+    static toDtoList(requestChats: RequestChatEntity[]): ListRequestChatDto {
+        return {
+            items: requestChats.map(this.toDto),
         }
     }
 }

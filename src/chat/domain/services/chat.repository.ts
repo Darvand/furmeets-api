@@ -5,4 +5,5 @@ export interface ChatRepository {
     saveRequestChat(requestChat: RequestChatEntity): Promise<void>;
     createRequestChat(requestChat: RequestChatEntity): Promise<void>;
     getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null>;
+    getAllRequestChats(): Promise<RequestChatEntity[]>;
 }
