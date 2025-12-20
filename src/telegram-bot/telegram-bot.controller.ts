@@ -1,4 +1,4 @@
-import { Controller, Logger, UseGuards } from '@nestjs/common';
+import { Controller, Get, Logger, UseGuards } from '@nestjs/common';
 import { TelegramBotService } from './telegram-bot.service';
 import { MessagePattern } from '@nestjs/microservices';
 import { Context } from 'grammy';

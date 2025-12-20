@@ -40,13 +40,17 @@ export class TelegramBotService {
         this.bot.stop();
     }
 
-    getAdmins() {
-        return this.bot.api.getChatAdministrators(this.config.chatId);
-    }
-
     async setCommands(commands: Command[]) {
         await this.bot.api.setMyCommands(commands);
         this.logger.debug(`Commands set: ${inspect(commands)}`);
+    }
+
+    async getMemberFromMainChat(telegramId: number) {
+        return this.bot.api.getChatMember(this.config.mainChatId, telegramId);
+    }
+
+    async getMemberFromWelcomeForumChat(telegramId: number) {
+        return this.bot.api.getChatMember(this.config.welcomeForumChatId, telegramId);
     }
 
     // middleware() {

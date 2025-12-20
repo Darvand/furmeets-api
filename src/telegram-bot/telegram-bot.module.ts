@@ -7,6 +7,7 @@ import { TelegramBotMiddleware } from './telegram-bot.middleware';
     imports: [],
     controllers: [TelegramBotController],
     providers: [TelegramBotService],
+    exports: [TelegramBotService],
 })
 export class TelegramBotModule implements NestModule {
     configure(consumer: MiddlewareConsumer) {

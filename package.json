@@ -26,6 +26,8 @@
     "@nestjs/microservices": "^11.1.6",
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/platform-socket.io": "^11.1.9",
+    "@nestjs/websockets": "^11.1.9",
     "grammy": "^1.38.2",
     "joi": "^18.0.1",
     "mongoose": "^8.18.0",

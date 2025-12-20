@@ -10,7 +10,6 @@ import databaseConfig from './database.config';
                 Logger.log(`Connecting to database: ${config.uri}`);
                 return {
                     uri: config.uri,
-                    dbName: config.dbName,
                 };
             },
             inject: [databaseConfig.KEY],

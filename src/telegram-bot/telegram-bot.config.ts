@@ -4,12 +4,16 @@ import * as Joi from 'joi';
 export default registerAs('telegramBot', () => {
     const values = {
         token: process.env.TELEGRAM_BOT_TOKEN!,
-        chatId: process.env.TELEGRAM_CHAT_ID!,
+        mainChatId: process.env.TELEGRAM_MAIN_CHAT_ID!,
+        welcomeForumChatId: process.env.TELEGRAM_WELCOME_FORUM_CHAT_ID!,
     };
     const schema = Joi.object({
         token: Joi.string().required(),
-        chatId: Joi.string().required(),
+        mainChatId: Joi.string().required(),
+        welcomeForumChatId: Joi.string().required(),
     });
+
+    console.log("telegram values:", values);
 
     const { error } = schema.validate(values, { abortEarly: false });
     if (error) {

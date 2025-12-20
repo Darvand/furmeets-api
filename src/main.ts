@@ -9,6 +9,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: process.env.LOGGER_OPTIONS?.split(',') as any || ['error', 'warn', 'log'],
   });
+  app.enableCors({
+    origin: process.env.FRONTEND_URL || '*',
+    credentials: true,
+  });
   const bot = app.get(TelegramBotService);
   const config = app.get(telegramBotConfig.KEY);
   app.connectMicroservice(
