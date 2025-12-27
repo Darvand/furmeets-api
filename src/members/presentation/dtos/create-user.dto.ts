@@ -1,6 +1,8 @@
 export class CreateUserDto {
-    username: string;
+    username?: string;
     name: string;
-    avatarUrl: string;
+    avatarUrl?: string;
     telegramId: number;
+    species?: string;
+    birthdate?: Date;
 }

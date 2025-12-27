@@ -5,10 +5,10 @@ import { ChatMongoRepository } from "./infraestructure/repositories/chat-mongo.r
 import { MembersModule } from "src/members/members.module";
 import { MongooseModule } from "@nestjs/mongoose";
 import { RequestChat, RequestChatSchema } from "./infraestructure/schemas/request-chat.schema";
-import { RequestChatMessage, RequestChatMessageSchema } from "./infraestructure/schemas/request-chat-message.schema";
 import { DatabaseModule } from "src/database/database.module";
 import { ChatService } from "./application/chat.service";
 import { RequestChatController } from "./presentation/request-chat.controller";
+import { TelegramBotModule } from "src/telegram-bot/telegram-bot.module";
 
 @Module({
     providers: [
@@ -23,6 +23,7 @@ import { RequestChatController } from "./presentation/request-chat.controller";
     imports: [
         DatabaseModule,
         MembersModule,
+        TelegramBotModule,
         MongooseModule.forFeature([
             { name: RequestChat.name, schema: RequestChatSchema },
         ])

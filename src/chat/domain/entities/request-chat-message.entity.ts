@@ -1,12 +1,14 @@
 import { UserEntity } from "src/members/domain/entities/user.entity";
 import { Entity } from "src/shared/domain/entities/entity";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
-import { TelegramUser } from "src/telegram-bot/domain/entities/telegram-user.entity";
+import { ChatDate } from "../value-objects/chat-date.value-object";
+import { ChatMessageViewedByEntity } from "./chat-message-viewed-by.entity";
 
 export interface RequestChatMessageProps {
     user: UserEntity;
     content: string;
-    createdAt?: Date;
+    viewedBy: ChatMessageViewedByEntity[];
+    createdAt: ChatDate;
 }
 
 export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
@@ -18,15 +20,21 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
         return new RequestChatMessageEntity(props, id);
     }
 
+    markAsViewedBy(user: UserEntity): void {
+        if (!this.props.viewedBy.find(u => u.by.equals(user))) {
+            this.props.viewedBy.push(ChatMessageViewedByEntity.create({ by: user, at: ChatDate.now() }));
+        }
+    }
+
+    viewedByUser(user: UserEntity): boolean {
+        return this.props.viewedBy.some(u => u.by.equals(user));
+    }
+
     get id(): UUID {
         return this._id;
     }
 
-    get userId(): UUID {
-        return this.props.user.id;
-    }
-
-    get content(): string {
-        return this.props.content;
+    get at(): string {
+        return this.props.createdAt.at;
     }
 }

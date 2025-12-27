@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, NotFoundException, Param, Post } from "@nestjs/common";
 import { UserService } from "../application/user.service";
 import { UserMapper } from "../mappers/user.mapper";
 import { CreateUserDto } from "./dtos/create-user.dto";
@@ -13,6 +13,9 @@ export class UsersController {
     @Get('/:telegramId')
     async getUserByTelegramId(@Param('telegramId') telegramId: number) {
         const user = await this.userService.getUserByTelegramId(telegramId);
+        if (!user) {
+            throw new NotFoundException(`User with Telegram ID ${telegramId} not found`);
+        }
         return UserMapper.toDto(user);
     }
 

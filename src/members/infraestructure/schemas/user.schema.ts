@@ -12,16 +12,27 @@ export class User {
     _id: string;
 
     @Prop()
-    username: string;
+    username?: string;
 
     @Prop()
-    avatarUrl: string;
+    avatarUrl?: string;
 
     @Prop()
     name: string;
 
     @Prop()
     telegramId: number;
+
+    @Prop({
+        default: false,
+    })
+    isMember: boolean;
+
+    @Prop()
+    birthdate?: Date;
+
+    @Prop()
+    species?: string;
 
     @Prop({ default: Date.now })
     createdAt?: Date;

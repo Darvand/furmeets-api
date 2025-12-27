@@ -34,6 +34,8 @@ export class ChatMongoRepository implements ChatRepository {
             .findOne({ _id: id.value })
             .populate('requester')
             .populate('messages.user')
+            .populate('votes.from')
+            .populate('messages.viewedBy.by')
             .exec();
         if (!dbRequestChat) {
             return null;
@@ -48,6 +50,8 @@ export class ChatMongoRepository implements ChatRepository {
             .find()
             .populate('requester')
             .populate('messages.user')
+            .populate('votes.from')
+            .populate('messages.viewedBy.by')
             .exec();
         return dbRequestChats.map(RequestChatMapper.fromDb);
     }

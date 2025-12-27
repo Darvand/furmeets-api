@@ -4,5 +4,6 @@ export class GetRequestChatMessageDto {
     uuid: string;
     content: string;
     user: GetUserDto;
-    createdAt: Date;
+    viewedByRequester: boolean;
+    sentAt: string;
 }

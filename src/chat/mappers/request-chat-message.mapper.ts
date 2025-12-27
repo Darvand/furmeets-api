@@ -3,6 +3,7 @@ import { RequestChatMessageEntity } from "../domain/entities/request-chat-messag
 import { CreateRequestChatMessageDto } from "../presentation/dtos/create-request-chat-message.dto";
 import { GetRequestChatMessageDto } from "../presentation/dtos/get-request-chat-message.dto";
 import { RequestChatMessage } from "../infraestructure/schemas/request-chat-message.schema";
+import { UserEntity } from "src/members/domain/entities/user.entity";
 
 export class RequestChatMessageMapper {
     // static toDomain(dto: RequestChatMessageDto): RequestChatMessage {
@@ -12,12 +13,13 @@ export class RequestChatMessageMapper {
     //     });
     // }
 
-    static toDto(message: RequestChatMessageEntity): GetRequestChatMessageDto {
+    static toDto(message: RequestChatMessageEntity, viewer: UserEntity): GetRequestChatMessageDto {
         return {
             uuid: message.id.value,
             content: message.props.content,
             user: UserMapper.toDto(message.props.user),
-            createdAt: message.props.createdAt!,
+            sentAt: message.at,
+            viewedByRequester: message.viewedByUser(viewer),
         }
     }
 
@@ -26,7 +28,10 @@ export class RequestChatMessageMapper {
             _id: message.id.value,
             content: message.props.content,
             user: message.props.user.id.value as any,
-            createdAt: message.props.createdAt,
+            viewedBy: message.props.viewedBy.map(viewedBy => ({
+                by: viewedBy.by.id.value as any,
+                viewedAt: viewedBy.at.toJSDate(),
+            })),
         }
     }
 }

@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
 import { User } from 'src/members/infraestructure/schemas/user.schema';
+import { ViewedBy, ViewedBySchema } from './viewed-by.schema';
 
 export type RequestChatMessageDocument = HydratedDocument<RequestChatMessage>;
 
@@ -18,8 +19,14 @@ export class RequestChatMessage {
     @Prop()
     content: string;
 
+    @Prop({ type: [ViewedBySchema], default: [] })
+    viewedBy: ViewedBy[];
+
     @Prop({ default: Date.now })
     createdAt?: Date;
+
+    @Prop({ default: Date.now })
+    updatedAt?: Date;
 }
 
 export const RequestChatMessageSchema = SchemaFactory.createForClass(RequestChatMessage);

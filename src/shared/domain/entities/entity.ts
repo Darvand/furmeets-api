@@ -8,4 +8,11 @@ export abstract class Entity<T> {
         this._id = id ? id : UUID.generate();
         this.props = props;
     }
+
+    equals(entity?: Entity<T>): boolean {
+        if (entity === null || entity === undefined) {
+            return false;
+        }
+        return this._id.value === entity._id.value;
+    }
 }
