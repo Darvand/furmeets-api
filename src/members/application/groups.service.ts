@@ -36,10 +36,15 @@ export class GroupsService {
     async sync(userTelegramId: number): Promise<void> {
         const group = await this.groupRepository.sync();
         const user = await this.userService.sync(userTelegramId);
-        if (!group.hasMember(user)) {
+        if (user.isMember && !group.hasMember(user)) {
             group.addMember(user);
             await this.saveGroup(group);
             this.logger.debug(`Added user with Telegram ID ${userTelegramId} to the group.`);
+        }
+        if (!user.isMember && group.hasMember(user)) {
+            this.logger.debug(`User with Telegram ID ${userTelegramId} is no longer a member of the group.`);
+            group.removeMember(user);
+            await this.saveGroup(group);
         }
         await this.userService.createBotUser();
     }

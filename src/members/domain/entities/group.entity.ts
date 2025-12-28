@@ -29,6 +29,10 @@ export class GroupEntity extends Entity<GroupEntityProps> {
         }
     }
 
+    removeMember(user: UserEntity): void {
+        this.props.members = this.props.members.filter(member => !member.equals(user));
+    }
+
     hasMember(user: UserEntity): boolean {
         return this.props.members.some(member => member.equals(user));
     }
