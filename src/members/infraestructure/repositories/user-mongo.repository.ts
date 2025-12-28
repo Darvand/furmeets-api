@@ -50,10 +50,10 @@ export class UserMongoRepository implements UserRepository {
         const dbUser = await this.getByTelegramId(telegramId);
         const telegramUser = await this.telegramBotService.getMemberFromGroup(telegramId);
         this.logger.debug(`Fetched Telegram user: ${JSON.stringify(telegramUser)}`);
-        this.logger.debug(`User is member: ${!!telegramUser}`);
+        this.logger.debug(`User is member: ${telegramUser ? (telegramUser.status !== 'left' && telegramUser.status !== 'kicked') : false}`);
         const updatedUser = UserEntity.create({
             telegramId: telegramUser.user.id,
-            isMember: !!telegramUser,
+            isMember: telegramUser ? (telegramUser.status !== 'left' && telegramUser.status !== 'kicked') : false,
             username: telegramUser.user.username || '',
             name: telegramUser.user.first_name + (telegramUser.user.last_name ? ` ${telegramUser.user.last_name}` : ''),
             avatarUrl: await this.telegramBotService.getProfilePhotoPath(telegramUser.user.id),
