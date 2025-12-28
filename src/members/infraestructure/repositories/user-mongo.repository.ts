@@ -49,6 +49,8 @@ export class UserMongoRepository implements UserRepository {
     async sync(telegramId: number): Promise<UserEntity> {
         const dbUser = await this.getByTelegramId(telegramId);
         const telegramUser = await this.telegramBotService.getMemberFromGroup(telegramId);
+        this.logger.debug(`Fetched Telegram user: ${JSON.stringify(telegramUser)}`);
+        this.logger.debug(`User is member: ${!!telegramUser}`);
         const updatedUser = UserEntity.create({
             telegramId: telegramUser.user.id,
             isMember: !!telegramUser,
