@@ -30,6 +30,10 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
         return this.props.viewedBy.some(u => u.by.equals(user));
     }
 
+    fromUser(user: UserEntity): boolean {
+        return this.props.user.equals(user);
+    }
+
     get id(): UUID {
         return this._id;
     }

@@ -69,6 +69,9 @@ export class ChatService {
         });
         requestChat.addMessage(messageEntity);
         await this.requestChatRepository.saveRequestChat(requestChat);
+        if (messageEntity.fromUser(requestChat.props.requester)) {
+            await this.telegramBotService.sendMessageToGroup(`Nuevo mensaje de ${requestChat.props.requester.name} en el chat de solicitud`);
+        }
         return messageEntity;
     }
 
