@@ -31,9 +31,7 @@ export class RequestChatController {
             throw new NotFoundException(`User with Telegram ID ${telegramId} not found`);
         }
         const requestChat = await this.chatService.getRequestChatByUUID(UUID.from(id), viewerEntity);
-        console.log('Fetched request chat:', requestChat);
         const dto = RequestChatMapper.toDto(requestChat, viewerEntity);
-        console.log('Mapped DTO:', dto);
         return dto;
     }
 

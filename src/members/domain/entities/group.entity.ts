@@ -24,12 +24,12 @@ export class GroupEntity extends Entity<GroupEntityProps> {
     }
 
     addMember(user: UserEntity): void {
-        if (!this.props.members.find(member => member.id.equals(user.id))) {
+        if (!this.props.members.find(member => member.equals(user))) {
             this.props.members.push(user);
         }
     }
 
     hasMember(user: UserEntity): boolean {
-        return this.props.members.some(member => member.id.equals(user.id));
+        return this.props.members.some(member => member.equals(user));
     }
 }
