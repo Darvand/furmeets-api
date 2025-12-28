@@ -1,7 +1,4 @@
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
-import { MainGroupAggregate } from "../domain/entities/main-group-aggregate.entity";
-import { MemberMapper } from "./member.mapper";
-import { GroupDto } from "../presentation/dtos/group.dto";
 import { GroupEntity } from "../domain/entities/group.entity";
 import { GetGroupDto } from "../presentation/dtos/get-group.dto";
 import { UserMapper } from "./user.mapper";

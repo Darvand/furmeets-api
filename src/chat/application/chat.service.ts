@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { CHAT_PROVIDERS } from "../chat.providers";
 import { RequestChatEntity } from "../domain/entities/request-chat.entity";
 import type { ChatRepository } from "../domain/services/chat.repository";
@@ -30,15 +30,11 @@ export class ChatService {
     async createRequestChat(createRequestChatDto: CreateRequestChatDto): Promise<RequestChatEntity> {
         this.logger.debug(`Creating request chat for requester UUID: ${createRequestChatDto.requesterUUID}`);
         const requester = await this.userService.getUserByUUID(UUID.from(createRequestChatDto.requesterUUID));
-        const requestChat = RequestChatEntity.create({
-            requester,
-            messages: [],
-            createdAt: DateTime.now(),
-            state: RequestChatState.InProgress(),
-            votes: [],
-            interests: createRequestChatDto.interests,
-            whereYouFoundUs: createRequestChatDto.whereYouFoundUs,
-        });
+        const alreadyExisting = await this.requestChatRepository.chatAlreadyExistsForRequester(requester.id);
+        if (alreadyExisting) {
+            throw new ConflictException(`User with ID ${requester.id} has already created a request chat`);
+        }
+        const requestChat = RequestChatEntity.asNew(requester, createRequestChatDto.interests, createRequestChatDto.whereYouFoundUs);
         const bot = await this.userService.getBotUser();
         requestChat.addWelcomeMessage(bot);
         await this.requestChatRepository.createRequestChat(requestChat);
@@ -61,6 +57,9 @@ export class ChatService {
         this.logger.debug(`Adding message to request chat UUID: ${requestChatUUID} from user UUID: ${userUUID}`);
         const user = await this.userService.getUserByUUID(userUUID);
         const requestChat = await this.getRequestChatByUUID(requestChatUUID, user);
+        if (!requestChat.isInProgress()) {
+            throw new ConflictException(`Cannot add messages to a request chat that is not in progress`);
+        }
         const messageEntity = RequestChatMessageEntity.create({
             content,
             user,
@@ -70,7 +69,7 @@ export class ChatService {
         requestChat.addMessage(messageEntity);
         await this.requestChatRepository.saveRequestChat(requestChat);
         if (messageEntity.fromUser(requestChat.props.requester)) {
-            await this.telegramBotService.sendMessageToGroup(`Nuevo mensaje de ${requestChat.props.requester.name} en el chat de solicitud`);
+            await this.telegramBotService.sendMessageToGroup(`Nuevo mensaje de *${requestChat.props.requester.name}* en el chat de solicitud`);
         }
         return messageEntity;
     }
@@ -84,6 +83,9 @@ export class ChatService {
         this.logger.debug(`User UUID: ${userUUID} voting on request chat UUID: ${requestChatUUID} with type: ${type}`);
         const user = await this.userService.getUserByUUID(userUUID);
         const requestChat = await this.getRequestChatByUUID(requestChatUUID, user);
+        if (!requestChat.isInProgress()) {
+            throw new ConflictException(`Cannot vote on a request chat that is not in progress`);
+        }
         const voteEntity = RequestChatVoteEntity.create({
             createdAt: DateTime.now(),
             user,

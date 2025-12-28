@@ -6,12 +6,6 @@ import { RequestChatMessage } from "../infraestructure/schemas/request-chat-mess
 import { UserEntity } from "src/members/domain/entities/user.entity";
 
 export class RequestChatMessageMapper {
-    // static toDomain(dto: RequestChatMessageDto): RequestChatMessage {
-    //     return RequestChatMessage.create({
-    //         content: dto.content,
-    //         userId: dto.userId,
-    //     });
-    // }
 
     static toDto(message: RequestChatMessageEntity, viewer: UserEntity): GetRequestChatMessageDto {
         return {

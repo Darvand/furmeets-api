@@ -32,6 +32,18 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
         return new RequestChatEntity(props, id);
     }
 
+    static asNew(requester: UserEntity, interests?: string, whereYouFoundUs?: string): RequestChatEntity {
+        return new RequestChatEntity({
+            requester,
+            messages: [],
+            interests,
+            whereYouFoundUs,
+            state: RequestChatState.InProgress(),
+            createdAt: DateTime.now(),
+            votes: [],
+        });
+    }
+
     addMessage(message: RequestChatMessageEntity): void {
         this.props.messages.push(message);
     }
@@ -137,6 +149,10 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
     isRejected(): boolean {
         return this.props.state.isRejected();
+    }
+
+    isInProgress(): boolean {
+        return !this.isApproved() && !this.isRejected();
     }
 
     countApproves(): number {

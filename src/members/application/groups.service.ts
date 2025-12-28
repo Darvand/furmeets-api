@@ -1,14 +1,8 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { GroupMember } from "../domain/entities/group-member.entity";
 import { MEMBERS_PROVIDERS } from "../members.providers";
 import type { GroupRepository } from "../domain/services/group.repository";
-import { MainGroupAggregate } from "../domain/entities/main-group-aggregate.entity";
-import { GroupDto } from "../presentation/dtos/group.dto";
-import { GroupMapper } from "../mappers/group.mapper";
-import { GetGroupDto } from "../presentation/dtos/get-group.dto";
 import { GroupEntity } from "../domain/entities/group.entity";
 import { UserService } from "./user.service";
-import { TelegramBotService } from "src/telegram-bot/telegram-bot.service";
 
 @Injectable()
 export class GroupsService {
@@ -18,7 +12,6 @@ export class GroupsService {
     constructor(
         @Inject(MEMBERS_PROVIDERS.GroupRepository) private readonly groupRepository: GroupRepository,
         private readonly userService: UserService,
-        private readonly telegramBotService: TelegramBotService,
     ) { }
 
     async getGroup(): Promise<GroupEntity> {

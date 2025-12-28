@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ChatGateway } from "./presentation/chat.gateway";
 import { CHAT_PROVIDERS } from "./chat.providers";
 import { ChatMongoRepository } from "./infraestructure/repositories/chat-mongo.repository";
@@ -9,6 +9,7 @@ import { DatabaseModule } from "src/database/database.module";
 import { ChatService } from "./application/chat.service";
 import { RequestChatController } from "./presentation/request-chat.controller";
 import { TelegramBotModule } from "src/telegram-bot/telegram-bot.module";
+import { UserMiddleware } from "src/shared/middlewares/user.middleware";
 
 @Module({
     providers: [
@@ -29,4 +30,10 @@ import { TelegramBotModule } from "src/telegram-bot/telegram-bot.module";
         ])
     ]
 })
-export class ChatModule { }
+export class ChatModule implements NestModule {
+    configure(consumer: MiddlewareConsumer) {
+        consumer
+            .apply(UserMiddleware)
+            .forRoutes(RequestChatController)
+    }
+}

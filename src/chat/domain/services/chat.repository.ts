@@ -5,5 +5,6 @@ export interface ChatRepository {
     saveRequestChat(requestChat: RequestChatEntity): Promise<void>;
     createRequestChat(requestChat: RequestChatEntity): Promise<void>;
     getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null>;
+    chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean>;
     getAllRequestChats(): Promise<RequestChatEntity[]>;
 }

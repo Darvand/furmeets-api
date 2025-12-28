@@ -3,10 +3,9 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { RequestChatEntity } from "src/chat/domain/entities/request-chat.entity";
 import { ChatRepository } from "src/chat/domain/services/chat.repository";
-import { RequestChat, RequestChatSchema } from "../schemas/request-chat.schema";
+import { RequestChat } from "../schemas/request-chat.schema";
 import { RequestChatMapper } from "src/chat/mappers/request-chat.mapper";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
-import { User } from "../../../members/infraestructure/schemas/user.schema";
 
 @Injectable()
 export class ChatMongoRepository implements ChatRepository {
@@ -15,7 +14,6 @@ export class ChatMongoRepository implements ChatRepository {
 
     constructor(
         @InjectModel(RequestChat.name) private readonly requestChatModel: Model<RequestChat>,
-        @InjectModel(User.name) private readonly userModel: Model<User>,
     ) { }
 
     async saveRequestChat(requestChat: RequestChatEntity): Promise<void> {
@@ -54,5 +52,10 @@ export class ChatMongoRepository implements ChatRepository {
             .populate('messages.viewedBy.by')
             .exec();
         return dbRequestChats.map(RequestChatMapper.fromDb);
+    }
+
+    async chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean> {
+        const count = await this.requestChatModel.countDocuments({ requester: requesterUUID.value }).exec();
+        return count > 0;
     }
 }

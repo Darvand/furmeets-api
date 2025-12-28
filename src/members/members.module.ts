@@ -11,6 +11,7 @@ import { GroupsController } from "./presentation/groups.controller";
 import { GroupsService } from "./application/groups.service";
 import { GroupAdapterRepository } from "./infraestructure/repositories/group-adapter.repository";
 import { Group, GroupSchema } from "./infraestructure/schemas/group.schema";
+import { UserMiddleware } from "../shared/middlewares/user.middleware";
 
 @Module({
     providers: [
@@ -42,4 +43,11 @@ import { Group, GroupSchema } from "./infraestructure/schemas/group.schema";
         ])
     ]
 })
-export class MembersModule { }
+export class MembersModule implements NestModule {
+    configure(consumer: MiddlewareConsumer) {
+        consumer
+            .apply(UserMiddleware)
+            .exclude('groups/sync')
+            .forRoutes(GroupsController, UsersController)
+    }
+}

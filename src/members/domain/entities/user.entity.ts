@@ -1,7 +1,6 @@
 import { Entity } from "src/shared/domain/entities/entity";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 
-// type Species = "Bird" | "Feline" | "Canine" | "Dragon" | "Deer" | "Other";
 export const Species = Object.freeze({
     Bird: "Bird",
     Feline: "Feline",
