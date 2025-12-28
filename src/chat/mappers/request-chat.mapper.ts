@@ -74,20 +74,22 @@ export class RequestChatMapper {
 
     static toDtoList(requestChats: RequestChatEntity[], viewer: UserEntity): ListRequestChatDto {
         return {
-            items: requestChats.map(chat => {
-                const lastMessage = chat.lastMessage();
-                return {
-                    uuid: chat.id.value,
-                    requester: UserMapper.toDto(chat.props.requester),
-                    lastMessage: {
-                        at: lastMessage.props.createdAt.at,
-                        content: lastMessage.props.content,
-                        from: UserMapper.toDto(lastMessage.props.user),
-                    },
-                    state: chat.state,
-                    unreadMessagesCount: chat.unreadMessagesCount(viewer),
-                }
-            }),
+            items: requestChats
+                .sort((a, b) => b.props.createdAt.toMillis() - a.props.createdAt.toMillis())
+                .map(chat => {
+                    const lastMessage = chat.lastMessage();
+                    return {
+                        uuid: chat.id.value,
+                        requester: UserMapper.toDto(chat.props.requester),
+                        lastMessage: {
+                            at: lastMessage.props.createdAt.at,
+                            content: lastMessage.props.content,
+                            from: UserMapper.toDto(lastMessage.props.user),
+                        },
+                        state: chat.state,
+                        unreadMessagesCount: chat.unreadMessagesCount(viewer),
+                    }
+                }),
         }
     }
 }

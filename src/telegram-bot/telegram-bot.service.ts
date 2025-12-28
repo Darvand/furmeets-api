@@ -21,6 +21,11 @@ export class TelegramBotService {
                 `User with id ${ctx.message.from.id} sent a message: ${ctx.message.text}`,
             );
         });
+        this.bot.on(':new_chat_members', async (ctx) => {
+            this.logger.debug(
+                `New members in chat ${ctx.chat.id}: ${inspect(ctx)}`,
+            );
+        })
         this.bot.catch((err) => {
             this.logger.error('Bot Error: ', err);
         });
