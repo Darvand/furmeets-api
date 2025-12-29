@@ -44,16 +44,13 @@ export class UserService {
     async createBotUser(): Promise<UserEntity> {
         const botUser = await this.telegramBotService.getBotMemberFromGroup();
         const bot = await this.userRepository.getByTelegramId(botUser.user.id)
-        if (bot) {
-            return bot;
-        }
         const user = UserEntity.create({
             telegramId: botUser.user.id,
             isMember: true,
             username: botUser.user.username!,
             name: botUser.user.first_name + (botUser.user.last_name ? ` ${botUser.user.last_name}` : ''),
             avatarUrl: await this.telegramBotService.getProfilePhotoPath(botUser.user.id),
-        })
+        }, bot ? bot.id : UUID.generate());
         return this.userRepository.save(user);
     }
     async sync(telegramId: number): Promise<UserEntity> {
