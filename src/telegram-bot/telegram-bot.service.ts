@@ -85,6 +85,12 @@ export class TelegramBotService {
         });
     }
 
+    async sendMessageToUser(telegramId: number, text: string): Promise<void> {
+        await this.bot.api.sendMessage(telegramId, text, {
+            parse_mode: 'Markdown',
+        });
+    }
+
     async sendInviteLinkToUser(telegramId: number): Promise<void> {
         const inviteLink = await this.bot.api.createChatInviteLink(this.config.mainChatId, { member_limit: 1 });
         await this.bot.api.sendMessage(telegramId, `Aquí tienes tu enlace de invitación al grupo: ${inviteLink.invite_link}`, {

@@ -175,4 +175,8 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     get id(): UUID {
         return this._id;
     }
+
+    getNewMessageNotificationText(): string {
+        return `${this.props.requester.name}, tienes un mensaje nuevo en el [chat](${TELEGRAM_BOT_LINK}).`;
+    }
 }
