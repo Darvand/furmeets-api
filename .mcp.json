@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "github-server": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx -y dotenv-cli -e .env -- npx -y @modelcontextprotocol/server-github@latest"
+      ]
+    }
+  }
+}
