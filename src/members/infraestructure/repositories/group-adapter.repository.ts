@@ -25,6 +25,7 @@ export class GroupAdapterRepository implements GroupRepository {
         const groupDoc = await this.groupModel
             .findOne({ telegramId: this.config.mainChatId })
             .populate('members')
+            .lean<Group>()
             .exec();
         if (groupDoc) {
             return GroupMapper.fromDbToDomain(groupDoc);
@@ -44,7 +45,9 @@ export class GroupAdapterRepository implements GroupRepository {
         const groupDoc = await this.groupModel
             .findOne({ telegramId: this.config.mainChatId })
             .populate('members')
+            .lean<Group>()
             .exec();
+        const currentGroup = groupDoc ? GroupMapper.fromDbToDomain(groupDoc) : null;
         const telegramGroup = await this.telegramBotService.getGroup();
         if (!telegramGroup) {
             throw new NotFoundException("Group could not be fetched from Telegram");
@@ -57,8 +60,8 @@ export class GroupAdapterRepository implements GroupRepository {
             name: telegramGroup.title || 'Grupo sin nombre',
             description: telegramGroup.description || 'Grupo sin descripción',
             photoUrl: telegramGroupPhotoPath || '',
-            members: groupDoc ? GroupMapper.fromDbToDomain(groupDoc).props.members : [],
-        }, groupDoc ? UUID.from(groupDoc._id) : UUID.generate());
+            members: currentGroup ? currentGroup.props.members : [],
+        }, currentGroup ? currentGroup.id : UUID.generate());
         return this.save(group);
     }
 }
