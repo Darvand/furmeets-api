@@ -9,7 +9,9 @@
 
 ---
 
-## Fase 0 — Seguridad y datos
+## Fase 0 — Seguridad, datos y latencia
+
+> Las tareas aparecen en orden de ejecución. T37–T43 son las de latencia (el porqué está en la tabla de causas de [plan.md](plan.md)); los IDs anteriores se mantienen.
 
 ## Task 01: Revocar el token del bot y rotar secretos
 
@@ -30,6 +32,60 @@
 **Files likely touched:** ninguno (configuración externa)
 
 **Estimated scope:** XS
+
+---
+
+## Task 37: Línea base de latencia
+
+**Repo:** API · **RNF:** OBS-03, REN-07
+
+**Description:** Medir antes de optimizar. Un interceptor global registra la duración de cada ruta HTTP y un wrapper hace lo mismo con cada evento de socket, separando el tiempo de Mongo y de Telegram cuando sea posible. Un script mide, contra staging con el servidor despierto, el arranque de la App (peticiones y tiempo total), abrir un chat, enviar un mensaje y votar. Los números actuales se anotan en este documento como línea base.
+
+**Acceptance criteria:**
+- [ ] Cada petición y evento deja una línea de log con ruta/evento y duración en ms (sin datos personales)
+- [ ] El script reporta p50 y p95 de arranque, abrir chat, enviar y votar
+- [ ] La línea base queda anotada abajo, con fecha
+
+**Verification:**
+- [ ] Correr el script dos veces en staging y obtener números consistentes
+
+**Dependencies:** None
+
+**Files likely touched:**
+- `src/shared/interceptors/timing.interceptor.ts`
+- `src/chat/presentation/chat.gateway.ts`
+- `src/main.ts`
+- `scripts/perf/latency-baseline.ts`
+
+**Estimated scope:** S
+
+**Línea base (por completar):** arranque — · abrir chat — · enviar — · votar —
+
+---
+
+## Task 38: Índices y lecturas livianas
+
+**Repo:** API · **RNF:** REN-07
+
+**Description:** Hoy ningún schema declara índices, y `users.telegramId` se busca en cada petición. Agregar índices en `users.telegramId` (único), `groups.telegramId` y `requestchats.requester`. Usar `lean()` y proyecciones en lecturas que no necesitan documentos de Mongoose. Eliminar la doble búsqueda del usuario en `GET /users/:telegramId` (middleware + controller).
+
+**Acceptance criteria:**
+- [ ] `explain()` de las tres búsquedas usa índice (`IXSCAN`), no `COLLSCAN`
+- [ ] `GET /users/:telegramId` hace una sola consulta a `users`
+- [ ] Los índices se crean sin error sobre los datos existentes (sin `telegramId` duplicados)
+
+**Verification:**
+- [ ] `explain()` en staging; logs de T37 antes y después
+
+**Dependencies:** None (requiere aprobación: cambia índices en producción)
+
+**Files likely touched:**
+- `src/members/infraestructure/schemas/user.schema.ts`, `group.schema.ts`
+- `src/chat/infraestructure/schemas/request-chat.schema.ts`
+- `src/members/infraestructure/repositories/user-mongo.repository.ts`
+- `src/members/presentation/users.controller.ts`
+
+**Estimated scope:** S
 
 ---
 
@@ -111,22 +167,52 @@
 
 ---
 
+## Task 39: Telegram fuera del camino crítico al arrancar
+
+**Repo:** API · **RNF:** REN-02, REN-03, REN-08
+
+**Description:** Hoy abrir la App espera `POST /groups/sync`, que hace ~9 llamadas a Telegram en serie (`getMe`, `getChat`, `getChatMember`, `getUserProfilePhotos`, `getFile`…) y ~6 a Mongo. Cambios:
+- Usar `bot.botInfo` (grammY ya lo tiene tras `init`) en vez de `getMe` en cada llamada.
+- Cachear en memoria la info del grupo y del bot (TTL 10 min, como la membresía).
+- Sincronizar la foto del usuario y del grupo en segundo plano, en paralelo y como máximo una vez por TTL. Ninguna petición del usuario la espera.
+- Elegir el tamaño de foto más pequeño adecuado para avatares (no el de 640 px) y tolerar fotos con menos tamaños.
+
+**Acceptance criteria:**
+- [ ] Ninguna ruta usada al arrancar espera una llamada a Telegram con la caché caliente
+- [ ] `getMe` no se llama después del arranque del bot
+- [ ] Si Telegram tarda o falla, la App carga igual con los datos guardados
+
+**Verification:**
+- [ ] Unitarias con un cliente de Telegram simulado que tarda 2 s: la respuesta no espera
+- [ ] Logs de T37: duración del arranque antes y después
+
+**Dependencies:** T03
+
+**Files likely touched:**
+- `src/telegram-bot/telegram-bot.service.ts`
+- `src/members/application/groups.service.ts`, `user.service.ts`
+- `src/members/infraestructure/repositories/group-adapter.repository.ts`, `user-mongo.repository.ts`
+
+**Estimated scope:** M
+
+---
+
 ## Task 05: Rol en vivo (`membership`) y `GET /me`
 
-**Repo:** API · **RNF:** REN-02, REN-03, SEG-10 · **Deuda:** #9
+**Repo:** API · **RNF:** REN-02, REN-03, REN-08, SEG-10 · **Deuda:** #9
 
-**Description:** Resolver el rol con `getChatMember` (miembro si `creator`, `administrator`, `member` o `restricted` con `is_member=true`) con caché en memoria de TTL 10 min, **invalidada además por eventos**: el bot recibe los updates `chat_member` del grupo (hay que incluirlos en `allowed_updates`, Telegram no los envía por defecto) y, cuando alguien entra, sale, es expulsado o restringido, borra la entrada de ese usuario. La caché expone `invalidate(userId)` para otros módulos (T25). Exponer `GET /me` → `{ user, role, requestChatId? }`. La sincronización de avatar y grupo corre en paralelo y cacheada.
+**Description:** Resolver el rol con `getChatMember` (miembro si `creator`, `administrator`, `member` o `restricted` con `is_member=true`) con caché en memoria de TTL 10 min, **invalidada además por eventos**: el bot recibe los updates `chat_member` del grupo (hay que incluirlos en `allowed_updates`, Telegram no los envía por defecto) y, cuando alguien entra, sale, es expulsado o restringido, borra la entrada de ese usuario. La caché expone `invalidate(userId)` para otros módulos (T25). Exponer `GET /me` → `{ user, role, requestChatId? }`, que reemplaza a `POST /groups/sync` como única petición de arranque. La sincronización de avatar y grupo es la de T39 (en segundo plano).
 
 **Acceptance criteria:**
 - [ ] `GET /me` devuelve `role: 'member' | 'applicant'` según Telegram, no según `group.members`; para un solicitante con solicitud incluye `requestChatId`
-- [ ] Dos llamadas dentro de 10 min hacen una sola consulta a Telegram; pasados 10 min se vuelve a consultar
+- [ ] Dos llamadas dentro de 10 min hacen una sola consulta a Telegram; pasados 10 min se vuelve a consultar. Con la caché caliente, `GET /me` no llama a Telegram
 - [ ] Un update `chat_member` de un usuario invalida su entrada: la siguiente petición ya refleja el rol nuevo
 
 **Verification:**
 - [ ] Unitarias: mapeo de cada `status` a rol; caché, expiración e invalidación
 - [ ] e2e con el cliente de Telegram simulado: miembro expulsado → siguiente voto 403
 
-**Dependencies:** T03
+**Dependencies:** T03, T39
 
 **Files likely touched:**
 - `src/membership/application/membership.service.ts` (+ `.spec.ts`)
@@ -164,7 +250,7 @@
 
 **Estimated scope:** M
 
-### Checkpoint A: después de T01–T06
+### Checkpoint A: después de T01–T06 (con T37–T39)
 - [ ] Criterios de éxito 1, 2 y 4 cubiertos por e2e
 - [ ] Revisión humana antes de seguir
 
@@ -172,17 +258,17 @@
 
 ## Task 07: App autenticada y enrutada por rol
 
-**Repo:** App · **RNF:** SEG-01, USA-02 · **Deuda:** #9, #12, #17
+**Repo:** App · **RNF:** SEG-01, USA-02, REN-02, REN-03 · **Deuda:** #9, #12, #17
 
-**Description:** RTK Query envía `Authorization: tma <initDataRaw>` y socket.io lo envía en `auth`. El arranque llama solo a `GET /me` y enruta según el flujo principal (SPEC §1). Se eliminan `RequireBeMember` basado en BD, el hack `isRequester` con `123456789` y `telegramUserId || 1`.
+**Description:** RTK Query envía `Authorization: tma <initDataRaw>` y socket.io lo envía en `auth`. El arranque llama solo a `GET /me` y enruta según el flujo principal (SPEC §1); lo demás que necesite la pantalla se pide en paralelo, nunca encadenado. Se eliminan la espera de `POST /groups/sync` (`App.tsx:37-40`), los `refetch()` duplicados de `IndexPage.tsx`, `RequireBeMember` basado en BD, el hack `isRequester` con `123456789` y `telegramUserId || 1`.
 
 **Acceptance criteria:**
-- [ ] Ninguna petición envía `x-telegram-id`
+- [ ] Ninguna petición envía `x-telegram-id` y nada espera a `POST /groups/sync`
 - [ ] Miembro → Inicio; solicitante sin solicitud → Formulario; con solicitud → su chat / Aprobado / No aprobado
-- [ ] Sin ids fijos de prueba en el código
+- [ ] El arranque hace a lo sumo 2 peticiones y ninguna depende de otra (salvo `GET /me`); sin ids fijos de prueba
 
 **Verification:**
-- [ ] Manual en staging con una cuenta miembro y otra no miembro
+- [ ] Manual en staging con una cuenta miembro y otra no miembro; pestaña Network de DevTools para contar peticiones
 
 **Dependencies:** T05, T06
 
@@ -190,10 +276,36 @@
 - `src/services/*.service.ts` (baseQuery)
 - `src/components/RequireBeMember.tsx`
 - `src/navigation/routes.tsx`, `private-routes.tsx`
+- `src/components/App.tsx`
 - `src/pages/IndexPage/IndexPage.tsx`
 - `src/state/user.slice.ts`
 
 **Estimated scope:** M
+
+---
+
+## Task 43: App: bundle más liviano
+
+**Repo:** App · **RNF:** REN-02 · **Deuda:** #14
+
+**Description:** El JS inicial es un solo archivo de ~1 MB. Quitar `@tonconnect/ui-react` y `TonConnectUIProvider` (sin uso) y cargar cada página con `React.lazy` + `Suspense`.
+
+**Acceptance criteria:**
+- [ ] `@tonconnect/ui-react` no está en `package.json`
+- [ ] Cada ruta es un chunk separado
+- [ ] El tamaño del JS inicial (gzip) se anota antes y después, y baja
+
+**Verification:**
+- [ ] `npm run build` y comparación del tamaño de `dist/assets`
+
+**Dependencies:** None
+
+**Files likely touched:**
+- `src/components/Root.tsx`
+- `src/navigation/routes.tsx`
+- `package.json`
+
+**Estimated scope:** S
 
 ---
 
@@ -325,8 +437,91 @@
 
 **Estimated scope:** M
 
+---
+
+## Task 40: Listado liviano de solicitudes
+
+**Repo:** API · **RNF:** REN-04, REN-07
+
+**Description:** Hoy `GET /request-chats` carga todas las solicitudes con todos sus mensajes y 4 `populate`, aunque la lista solo usa el último mensaje y los no leídos. Devolver el resumen con una agregación sobre la colección de mensajes (último mensaje, conteo de no leídos del usuario, conteo de votos a favor y en contra), paginado y sin cargar mensajes completos.
+
+**Acceptance criteria:**
+- [ ] La respuesta no contiene arreglos de mensajes ni de leídos
+- [ ] El tiempo de respuesta no crece con la cantidad total de mensajes (medido con datos de prueba de 50 solicitudes × 200 mensajes)
+- [ ] Solo expone conteos de votos en contra, nunca identidades (RNF-PRI-01)
+
+**Verification:**
+- [ ] e2e sobre la forma de la respuesta; medición con el script de T37
+
+**Dependencies:** T10
+
+**Files likely touched:**
+- `src/chat/infraestructure/repositories/chat-mongo.repository.ts`
+- `src/chat/application/chat.service.ts`
+- `src/chat/presentation/dtos/list-request-chat.dto.ts`
+- `src/chat/mappers/request-chat.mapper.ts`
+
+**Estimated scope:** M
+
+---
+
+## Task 41: Enviar y votar sin esperar a Telegram
+
+**Repo:** API · **RNF:** REN-06, REN-07, REN-08, CON-04 · **Deuda:** #7
+
+**Description:** Hoy enviar un mensaje espera ~5 operaciones de Mongo y un `sendMessage` de Telegram antes de emitir, y votar espera ~5 llamadas a Telegram en serie. Nuevo orden: persistir (una operación atómica) → ack al emisor y emit a la sala → notificaciones de Telegram en segundo plano, con log de error. El emit ocurre después de guardar. Crear un helper de cola reutilizable (en memoria, con reintento simple), que después usan T16, T27 y T29.
+
+**Acceptance criteria:**
+- [ ] El ack y el emit no esperan ninguna llamada a Telegram (verificado con Telegram simulado que tarda 2 s)
+- [ ] Si Telegram falla, el mensaje o voto queda guardado y emitido, y el error se registra
+- [ ] Enviar y votar hacen como máximo 2 operaciones de Mongo en el camino crítico
+
+**Verification:**
+- [ ] Unitarias del servicio con Telegram simulado lento y con error
+- [ ] Script de T37: p95 de enviar y votar < 500 ms en staging
+
+**Dependencies:** T11
+
+**Files likely touched:**
+- `src/chat/application/chat.service.ts`
+- `src/chat/presentation/chat.gateway.ts`
+- `src/telegram-bridge/application/telegram-queue.ts` (+ `.spec.ts`)
+
+**Estimated scope:** M
+
+---
+
+## Task 42: App en vivo sin recargas y con UI optimista
+
+**Repo:** App · **RNF:** REN-01, REN-06
+
+**Description:** Hoy cada página abre su propio socket y cada evento provoca un `refetch()` completo de la lista. Cambios:
+- Un solo socket compartido por toda la App (se conecta una vez).
+- Los eventos parchean la caché de RTK Query con `updateQueryData` en vez de recargar, y se filtran por `requestChatId` (hoy un mensaje de otra solicitud se agrega al chat abierto).
+- Envío de mensajes optimista: aparece al instante como "enviando", se confirma con el ack por `clientMessageId` y, si falla, queda como "no enviado" con reintento.
+- Voto optimista: el panel refleja el voto al instante y se revierte si la API lo rechaza.
+
+**Acceptance criteria:**
+- [ ] Recibir un mensaje o voto no genera ninguna petición HTTP
+- [ ] Navegar entre inicio y chat no abre conexiones de socket nuevas
+- [ ] El mensaje y el voto propios se ven antes de la respuesta del servidor (probado con red lenta simulada)
+
+**Verification:**
+- [ ] Manual en staging con DevTools (Network y throttling "Slow 3G") y dos cuentas
+
+**Dependencies:** T06, T40, T41
+
+**Files likely touched:**
+- `src/services/socket.ts` (nuevo)
+- `src/services/request-chat.service.ts`
+- `src/pages/IndexPage/IndexPage.tsx`
+- `src/pages/RequestChatPage/RequestChatPage.tsx`
+
+**Estimated scope:** M
+
 ### Checkpoint B: Fase 0 completa
 - [ ] Criterios de éxito 1–5 y 14
+- [ ] Script de T37 corrido de nuevo y comparado con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos
 - [ ] Revisión humana; despliegue de API y App juntas a staging y luego a producción
 
 ---
@@ -413,7 +608,7 @@
 
 **Repo:** API · **RNF:** CON-02, CON-03, REN-01
 
-**Description:** Evento de envío con `clientMessageId`; ack con el mensaje persistido; reenvíos con el mismo id no duplican. Endpoint/evento para recuperar mensajes posteriores a un id o fecha. Emisión a `request-chat:<id>` y resumen a `members`.
+**Description:** Evento de envío con `clientMessageId`; ack con el mensaje persistido; reenvíos con el mismo id no duplican. Endpoint/evento para recuperar mensajes posteriores a un id o fecha. Emisión a `request-chat:<id>` y resumen a `members`. Se construye sobre el orden persistir → emitir → notificar de T41.
 
 **Acceptance criteria:**
 - [ ] Reenviar el mismo `clientMessageId` devuelve el mismo mensaje sin duplicar
@@ -423,7 +618,7 @@
 **Verification:**
 - [ ] e2e de idempotencia y reconexión
 
-**Dependencies:** T06, T11
+**Dependencies:** T06, T11, T41
 
 **Files likely touched:**
 - `src/chat/presentation/chat.gateway.ts`
@@ -463,22 +658,22 @@
 
 **Repo:** API · **RNF:** REN-04
 
-**Description:** Marcado explícito de leídos (`readBy` con usuario y fecha) con operación atómica, evento de actualización a la sala. El listado de miembros devuelve último mensaje y conteo de no leídos por solicitud, paginado.
+**Description:** Marcado explícito de leídos (`readBy` con usuario y fecha) con operación atómica y evento de actualización a la sala, que también actualiza el contador de no leídos del listado de T40. Historial de mensajes de un chat paginado. (El resumen del listado se hace en T40.)
 
 **Acceptance criteria:**
 - [ ] Marcar leído dos veces no duplica la entrada
-- [ ] El listado no carga todos los mensajes (agregación o contador)
-- [ ] El solicitante también ve quién leyó sus mensajes
+- [ ] Al marcar leído, el contador de no leídos del listado baja sin recargarlo
+- [ ] El solicitante también ve quién leyó sus mensajes; el historial se pide por páginas
 
 **Verification:**
-- [ ] e2e de leídos y de la forma del listado
+- [ ] e2e de leídos y de paginación del historial
 
-**Dependencies:** T16
+**Dependencies:** T16, T40
 
 **Files likely touched:**
 - `src/chat/application/chat.service.ts`
 - `src/chat/infraestructure/repositories/chat-mongo.repository.ts`
-- `src/chat/presentation/dtos/list-request-chat.dto.ts`
+- `src/chat/presentation/chat.gateway.ts`
 
 **Estimated scope:** M
 
@@ -889,21 +1084,22 @@
 
 ## Task 35: Verificación de rendimiento
 
-**Repo:** API + App · **RNF:** REN-01, REN-02
+**Repo:** API + App · **RNF:** REN-01, REN-02, REN-07
 
-**Description:** Script que mide la latencia de entrega de mensajes entre dos clientes (p95) y medición de la carga inicial de la App en staging. Corregir cuellos de botella si no se cumplen las metas.
+**Description:** Verificación final de rendimiento con la v1 completa, extendiendo el script de T37: latencia de entrega de mensajes entre dos clientes (p95), carga inicial de la App e interacciones. Incluye medir el arranque en frío con el webhook y el keep-alive ya activos. Corregir regresiones si no se cumplen las metas.
 
 **Acceptance criteria:**
-- [ ] p95 de entrega < 1 s con el servidor despierto
+- [ ] p95 de entrega < 1 s y de enviar, votar y abrir chat < 500 ms con el servidor despierto
 - [ ] Carga inicial < 2 s con el servidor despierto
+- [ ] Tiempo de arranque en frío medido y anotado
 
 **Verification:**
 - [ ] Resultados del script y de DevTools anotados en este documento (criterio de éxito 12)
 
-**Dependencies:** T20, T30
+**Dependencies:** T20, T30, T31, T37
 
 **Files likely touched:**
-- `scripts/perf/message-latency.ts`
+- `scripts/perf/latency-baseline.ts`
 
 **Estimated scope:** S
 
@@ -911,23 +1107,21 @@
 
 ## Task 36: Limpieza de la App
 
-**Repo:** App · **Deuda:** #13, #14
+**Repo:** App · **Deuda:** #13
 
-**Description:** Quitar `@tonconnect/ui-react` y `TonConnectUIProvider`, el código muerto de `POST /users` en la App y estilos de depuración (`backgroundColor: 'red'`).
+**Description:** Quitar el código muerto de `POST /users` en la App y los estilos de depuración (`backgroundColor: 'red'`). (TonConnect se quita en T43.)
 
 **Acceptance criteria:**
-- [ ] `@tonconnect/ui-react` no está en `package.json`
 - [ ] Sin referencias a `createUser` ni estilos de depuración
 
 **Verification:**
-- [ ] `npm run build` y revisión del tamaño del bundle
+- [ ] `npm run build`
 
 **Dependencies:** T07
 
 **Files likely touched:**
-- `src/components/Root.tsx`
 - `src/services/user.service.ts`
-- `package.json`
+- `src/pages/RegisterPage/RegisterPage.tsx`
 
 **Estimated scope:** S
 

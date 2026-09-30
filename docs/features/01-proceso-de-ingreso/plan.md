@@ -8,7 +8,24 @@
 
 Reemplazar el ingreso libre al grupo FurMeets por un proceso de admisión controlado por los miembros, dentro de Telegram (bot + MiniApp). El solicitante llena un formulario, conversa con los miembros en un chat propio que se republica en el grupo, los miembros votan (a favor nominal, en contra anónimo) y, al llegar al umbral, el bot le entrega un enlace de solicitud de unión que solo acepta al aprobado.
 
-Hoy existe una versión parcial (chat de solicitudes, votos, enlace con `member_limit: 1`) con problemas graves de seguridad y pérdida de datos (SPEC §14). Por eso el plan empieza por la Fase 0, que endurece lo existente antes de agregar funcionalidad.
+Hoy existe una versión parcial (chat de solicitudes, votos, enlace con `member_limit: 1`) con problemas graves de seguridad y pérdida de datos (SPEC §14), y con una **lentitud notable en cada interacción, incluso con el servidor despierto**. Por eso el plan empieza por la Fase 0, que endurece lo existente y baja su latencia antes de agregar funcionalidad. El arranque en frío de Render se resuelve en la Fase 2 (T30, T31).
+
+### Causas de la lentitud actual (servidor despierto)
+
+Revisión del código del 2026-09-30, de mayor a menor impacto:
+
+| # | Causa | Dónde | Tarea |
+|---|---|---|---|
+| 1 | El arranque espera ~9 llamadas a Telegram en serie + ~6 a Mongo, sin caché | `App.tsx:37` → `POST /groups/sync`, `group-adapter.repository.ts`, `user-mongo.repository.ts`, `user.service.ts` | T39, T07 |
+| 2 | La App encadena 6 peticiones en serie al arrancar, con `refetch()` duplicados | `App.tsx:37-40`, `IndexPage.tsx:59-61, 78-84` | T07 |
+| 3 | `GET /request-chats` carga todas las solicitudes con todos sus mensajes y 4 `populate`, sin `lean()` | `chat-mongo.repository.ts:45-55` | T40 |
+| 4 | Cada evento de socket (global) hace que todos los clientes recarguen la lista completa | `chat.gateway.ts:36-44`, `IndexPage.tsx:37-47` | T06, T42 |
+| 5 | Abrir un chat reescribe el documento completo | `chat.service.ts:51-52` | T11 |
+| 6 | Enviar un mensaje espera ~5 operaciones de Mongo + Telegram antes de emitir; sin UI optimista | `chat.service.ts:56-76`, `RequestChatPage.tsx:68-77` | T41, T42 |
+| 7 | Votar espera ~5 llamadas a Telegram en serie; sin voto optimista | `chat.service.ts:84-110` | T41, T42 |
+| 8 | Sin índices en Mongo; doble búsqueda del usuario en `GET /users/:telegramId` | `*/schemas/*.ts`, `users.controller.ts` | T38 |
+| 9 | El socket se recrea en cada página | `IndexPage.tsx:34`, `RequestChatPage.tsx:45` | T42 |
+| 10 | Avatares de 640 px; bundle de ~1 MB sin code splitting, con TonConnect sin uso | `telegram-bot.service.ts:63`, `Root.tsx:27` | T39, T43 |
 
 ## Decisiones de arquitectura
 
@@ -19,7 +36,9 @@ Hoy existe una versión parcial (chat de solicitudes, votos, enlace con `member_
 - **Mensajes en su propia colección** con inserciones atómicas; votos, avales y leídos con `$set`/`$push`/`$pull` filtrados. Nada reescribe el agregado completo.
 - **Imágenes en Telegram** (canal privado de almacenamiento) servidas por el proxy `GET /media/:id`. Costo $0.
 - **Admisión por `creates_join_request`**: el bot aprueba solo al usuario aprobado y rechaza a cualquier otro.
-- **Persistir → emitir → notificar.** Las llamadas a Telegram van fuera del camino crítico.
+- **Persistir → emitir → notificar.** Las llamadas a Telegram van fuera del camino crítico. Ninguna petición del usuario espera la sincronización de fotos, grupo o bot.
+- **La App se actualiza en vivo sin recargas:** un solo socket compartido cuyos eventos parchean la caché de RTK Query; envío de mensajes y votos optimistas.
+- **Medir antes de optimizar:** línea base de latencia (T37) y comparación al cerrar la Fase 0.
 - **Salas de socket por solicitud** (`request-chat:<id>`) más la sala `members`. Sin broadcast global.
 - **Módulos nuevos** según el mapa de capacidades (SPEC §2): `auth`, `membership`, `media`, `applications`, `request-chat`, `review`, `admission`, `telegram-bridge`, `platform`. Los módulos actuales (`chat`, `members`, `telegram-bot`) se van partiendo en ellos a medida que se tocan, no en un refactor aparte.
 - **Webhook + keep-alive condicional** en Render free.
@@ -27,15 +46,19 @@ Hoy existe una versión parcial (chat de solicitudes, votos, enlace con `member_
 ## Grafo de dependencias
 
 ```
+T37 línea base de latencia · T38 índices · T43 App: bundle      (sin dependencias)
 T01 Revocar token ─────────────────────────────────────────────┐
-T02 Pruebas + validación                                           │
+T02 Pruebas + validación                                        │
   └─ T03 auth HTTP ─┬─ T04 auth socket                          │
-                    ├─ T05 membership + GET /me                 │
-                    │     └─ T06 autorización + salas           │
-                    │           └─ T07 App: auth + rol ─────────┤
+                    ├─ T39 Telegram fuera del arranque          │
+                    │     └─ T05 membership + GET /me           │
+                    │           └─ T06 autorización + salas     │
+                    │                 └─ T07 App: auth + rol ───┤
                     └─ T08 media (proxy + almacenamiento)       │
                           └─ T09 App: sin token ◄───────────────┘
 T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración
+        ├─ T40 listado liviano ─────────────┐
+        ├─ T41 enviar/votar sin Telegram ───┴─ T42 App: en vivo y optimista (+T06)
         │
         ├─ T13 formulario API ─ T14 imágenes form ─ T15 App: formulario
         ├─ T16 chat texto/ack ─ T17 imágenes y reply ─ T18 leídos/no leídos ─ T19 sistema/solo lectura
@@ -48,11 +71,17 @@ T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambiente
 
 ## Lista de tareas
 
-### Fase 0 — Seguridad y datos (bloquea todo lo demás)
+### Fase 0 — Seguridad, datos y latencia (bloquea todo lo demás)
+
+Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas en el orden de ejecución. T37, T38 y T43 no dependen de nada y pueden hacerse de inmediato.
+
 - [ ] T01: Revocar el token del bot y rotar secretos
+- [ ] T37: Línea base de latencia
+- [ ] T38: Índices y lecturas livianas
 - [ ] T02: Infraestructura de pruebas y validación
 - [ ] T03: Autenticación HTTP por `initData`
 - [ ] T04: Autenticación del socket por `initData`
+- [ ] T39: Telegram fuera del camino crítico al arrancar
 - [ ] T05: Rol en vivo (`membership`) y `GET /me`
 - [ ] T06: Autorización por rol y salas por solicitud
 
@@ -61,16 +90,21 @@ T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambiente
 - [ ] Revisión humana antes de seguir
 
 - [ ] T07: App autenticada y enrutada por rol
+- [ ] T43: App: bundle más liviano
 - [ ] T08: Módulo `media`: canal de almacenamiento y proxy `/media/:id`
 - [ ] T09: App sin token del bot
 - [ ] T10: Mensajes en su propia colección
 - [ ] T11: Operaciones atómicas y lecturas sin efectos
 - [ ] T12: Migración de datos existentes
+- [ ] T40: Listado liviano de solicitudes
+- [ ] T41: Enviar y votar sin esperar a Telegram
+- [ ] T42: App en vivo sin recargas y con UI optimista
 
 #### Checkpoint B: Fase 0 completa
 - [ ] Criterios de éxito 1–5 y 14
 - [ ] Bundle de la App sin token (criterio 3)
 - [ ] Migración ensayada en staging
+- [ ] Latencia medida de nuevo con el script de T37 y comparada con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos
 - [ ] Revisión humana; despliegue a producción de la Fase 0
 
 ### Fase 1 — v1 funcional
@@ -154,10 +188,13 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
 | RNF-REN-01 | Entrega de un mensaje a los demás clientes conectados: p95 < 1 s (servidor despierto). | Script de medición en staging | T16, T35 |
-| RNF-REN-02 | Carga inicial de la App hasta contenido útil < 2 s (servidor despierto). | Medición con DevTools en staging | T05, T35 |
-| RNF-REN-03 | Arranque en una sola petición (`GET /me`); sincronización con Telegram en paralelo y cacheada (TTL 10 min). | Unitarias de la caché; conteo de peticiones | T05 |
-| RNF-REN-04 | El listado devuelve resumen (último mensaje, no leídos) sin cargar todos los mensajes; historial paginado. | e2e sobre la forma de la respuesta | T18, T23 |
+| RNF-REN-02 | Carga inicial de la App hasta contenido útil < 2 s (servidor despierto). | Medición con DevTools en staging | T05, T07, T39, T43, T35 |
+| RNF-REN-03 | Arranque en una sola petición (`GET /me`); sincronización con Telegram en paralelo, en segundo plano y cacheada (TTL 10 min). | Unitarias de la caché; conteo de peticiones | T05, T07, T39 |
+| RNF-REN-04 | El listado devuelve resumen (último mensaje, no leídos) sin cargar todos los mensajes; historial paginado. | e2e sobre la forma de la respuesta | T40, T18, T23 |
 | RNF-REN-05 | API y MongoDB Atlas en la misma región. | Revisión de configuración | T34 |
+| RNF-REN-06 | El mensaje propio y el voto propio se ven **al instante** (UI optimista) y se confirman con el ack; si fallan, quedan marcados como "no enviado" con opción de reintento. | Manual en staging con red lenta simulada | T41, T42 |
+| RNF-REN-07 | Con el servidor despierto, enviar, votar y abrir un chat responden en **p95 < 500 ms** medido en la API. | Script de T37 antes y después | T38, T40, T41 |
+| RNF-REN-08 | Ninguna petición del usuario espera una llamada a Telegram, salvo la validación de membresía con la caché fría. | Unitarias con Telegram simulado lento; logs de duración | T39, T41 |
 
 ### Confiabilidad e integridad de datos
 
@@ -187,6 +224,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 |---|---|---|---|
 | RNF-OBS-01 | Errores de llamadas a Telegram se registran con contexto (evento, id de solicitud), sin datos anónimos (RNF-PRI-01). | Revisión de logs en staging | T27, T29 |
 | RNF-OBS-02 | Autenticaciones y autorizaciones rechazadas se registran a nivel `warn`, sin el `initData` completo. | Revisión de logs | T03, T06 |
+| RNF-OBS-03 | La duración de cada ruta HTTP y de cada evento de socket queda registrada, para detectar regresiones de latencia. | Revisión de logs | T37 |
 
 ### Calidad y mantenibilidad
 
@@ -213,6 +251,8 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | Fuga de la identidad de quien vota en contra (log, evento, mapper) | Alto | DTOs sin campo de autor para votos en contra; pruebas específicas que buscan el id en todas las salidas |
 | El auto-ping no evita que Render duerma el servicio | Medio | Verificar en staging; alternativa cron-job.org (gratis) |
 | Keep-alive se considere abuso en los términos de Render | Medio | Solo con solicitudes en curso; plan B Render Starter (~$7/mes) |
+| La UI optimista muestra un mensaje o voto que luego falla | Medio | Estado "no enviado" con reintento; se reconcilia con el ack por `clientMessageId` |
+| Con 0.1 CPU de Render las metas de latencia no se alcanzan aun con el código optimizado | Medio | La línea base (T37) separa el tiempo de CPU del de Mongo/Telegram; si el CPU es el cuello de botella, se evalúa la VM Always Free de Oracle ($0) antes que un plan pago |
 | Límites de la Bot API (rate limit al republicar o enviar DMs) | Medio | Envíos encolados fuera del camino crítico, con reintento y log |
 | Cambiar la autenticación rompe la App desplegada | Medio | Desplegar API y App juntas (T03–T07) en staging y luego en producción |
 
@@ -221,7 +261,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 - **Secuencial:** T03 → T06 (contrato de autenticación), T10 → T12 (esquema y migración).
 - **En paralelo tras T06:** T08 (media) y T10 (mensajes).
 - **En paralelo tras definir el contrato de la API:** las tareas de App (T15, T20, T23, T24, T26) contra las de API correspondientes.
-- **Independientes:** T32–T34 (`platform`) pueden avanzar en cualquier momento.
+- **Independientes:** T32–T34 (`platform`) pueden avanzar en cualquier momento. T37, T38 y T43 (latencia) también, y conviene hacerlas primero porque dan mejoras inmediatas.
 
 ## Preguntas abiertas
 
