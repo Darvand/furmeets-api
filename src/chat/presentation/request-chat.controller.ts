@@ -5,6 +5,7 @@ import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import { GetRequestChatDto } from "./dtos/get-request-chat.dto";
 import { RequestChatMapper } from "../mappers/request-chat.mapper";
 import { ListRequestChatDto } from "./dtos/list-request-chat.dto";
+import { VoteRequestChatParamsDto } from "./dtos/vote-request-chat-params.dto";
 import { UserService } from "src/members/application/user.service";
 import type { CustomRequest } from "src/shared/types/custom-request.interface";
 
@@ -36,8 +37,7 @@ export class RequestChatController {
 
     @Put("/:id/vote/:type")
     async voteOnRequestChat(
-        @Param('id') id: string,
-        @Param('type') type: 'approve' | 'reject',
+        @Param() { id, type }: VoteRequestChatParamsDto,
         @Req() req: CustomRequest
     ): Promise<GetRequestChatDto> {
         const updatedRequestChat = await this.chatService.voteOnRequestChat(UUID.from(id), req.user.id, type);
