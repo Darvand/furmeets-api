@@ -14,7 +14,7 @@ export class RequestChat {
     })
     _id: string;
 
-    @Prop({ type: mongoose.Schema.Types.UUID, ref: User.name })
+    @Prop({ type: mongoose.Schema.Types.UUID, ref: User.name, index: true })
     requester: User;
 
     @Prop()
