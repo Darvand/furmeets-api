@@ -42,8 +42,8 @@
 **Description:** Medir antes de optimizar. Un interceptor global registra la duración de cada ruta HTTP y un wrapper hace lo mismo con cada evento de socket, separando el tiempo de Mongo y de Telegram cuando sea posible. Un script mide, contra staging con el servidor despierto, el arranque de la App (peticiones y tiempo total), abrir un chat, enviar un mensaje y votar. Los números actuales se anotan en este documento como línea base.
 
 **Acceptance criteria:**
-- [ ] Cada petición y evento deja una línea de log con ruta/evento y duración en ms (sin datos personales)
-- [ ] El script reporta p50 y p95 de arranque, abrir chat, enviar y votar
+- [x] Cada petición y evento deja una línea de log con ruta/evento y duración en ms (sin datos personales)
+- [x] El script reporta p50 y p95 de arranque, abrir chat, enviar y votar
 - [ ] La línea base queda anotada abajo, con fecha
 
 **Verification:**
@@ -60,6 +60,10 @@
 **Estimated scope:** S
 
 **Línea base (por completar):** arranque — · abrir chat — · enviar — · votar —
+
+**Cómo medirla:** con el servidor de staging desplegado, correr dos veces
+`PERF_BASE_URL=<url-staging> PERF_TELEGRAM_ID=<id-de-prueba> PERF_CHAT_ID=<uuid-chat-de-prueba> PERF_WRITES=1 npm run perf:baseline`
+y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo mide arranque y abrir chat; enviar y votar escriben en la BD y notifican por Telegram, así que van contra un chat de prueba en curso al que le falten al menos 2 votos para el umbral. Las variables y precauciones están al inicio de `scripts/perf/latency-baseline.ts`. El desglose Mongo / Telegram de cada petición sale en las líneas `Timing` de los logs del servidor, p. ej. `HTTP GET /request-chats/:id 200 132ms (mongo 95ms/3 · telegram 0ms/0)`.
 
 ---
 
