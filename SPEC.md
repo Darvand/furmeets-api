@@ -207,7 +207,7 @@ Metas con el servidor ya despierto:
 Cómo se logra:
 - **Mensajes en su propia colección**, con inserciones atómicas en lugar de reescribir el documento entero de la solicitud.
 - Votos, avales y leídos se actualizan con operaciones atómicas (`$set`/`$push`/`$pull` con filtro), nunca con un `updateOne` del agregado completo.
-- **Arranque de la app en una sola petición** (`GET /me`). La sincronización con Telegram (miembro, avatar, grupo) se cachea con TTL (*supuesto*: 5–10 min) y se ejecuta en paralelo, no en serie.
+- **Arranque de la app en una sola petición** (`GET /me`). La sincronización con Telegram (miembro, avatar, grupo) se cachea en memoria con TTL de 10 min, y la entrada de un usuario se invalida al instante por eventos (updates `chat_member` del grupo y aprobación de su ingreso), y se ejecuta en paralelo, no en serie.
 - El listado de solicitudes devuelve un resumen (último mensaje y no leídos) sin cargar todos los mensajes; se pagina el historial.
 - La API y MongoDB Atlas en la **misma región**.
 
@@ -247,6 +247,7 @@ Alternativas documentadas (precios de referencia, verificar antes de usar):
 | Bot | grammY 1.38 (migra de polling a **webhook**) |
 | Persistencia | MongoDB (Atlas M0) · Mongoose 8 · UUID como `_id` |
 | Configuración | `@nestjs/config` + Joi |
+| Validación de DTOs | `class-validator` + `class-transformer` con `ValidationPipe` global |
 | Fechas | Luxon. **Se envían en ISO-8601 UTC**; el formato y la zona horaria los decide el cliente (hoy el servidor formatea en `America/Bogota`) |
 | MiniApp | React 18 · Vite 6 · Redux Toolkit + RTK Query · `@telegram-apps/sdk-react` 3 · `@telegram-apps/telegram-ui` · `tmaui` · socket.io-client · React Router 6 (HashRouter) |
 | Por eliminar | `@tonconnect/ui-react` (no se usa) |
@@ -366,7 +367,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
 ---
 
-## 9. Plan por fases (resumen; el detalle va en `tasks/plan.md`)
+## 9. Plan por fases (resumen; el detalle va en [`docs/features/01-proceso-de-ingreso/`](docs/features/01-proceso-de-ingreso/plan.md))
 
 **Fase 0: urgente, antes de cualquier feature**
 1. **Revocar el token del bot con @BotFather** (`/revoke`). El token actual ya está publicado en el bundle de la MiniApp. Actualizar la API y quitarlo de los secretos de Vercel y GitHub.
