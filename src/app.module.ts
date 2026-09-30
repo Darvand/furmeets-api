@@ -5,6 +5,8 @@ import telegramBotConfig from './telegram-bot/telegram-bot.config';
 import { ChatModule } from './chat/chat.module';
 import databaseConfig from './database/database.config';
 import { DatabaseModule } from './database/database.module';
+import { AppController } from './app.controller';
+import { VALIDATION_PIPE_PROVIDER } from './shared/validation/validation';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { DatabaseModule } from './database/database.module';
       isGlobal: true,
       load: [telegramBotConfig, databaseConfig]
     })
-  ]
+  ],
+  controllers: [AppController],
+  providers: [VALIDATION_PIPE_PROVIDER],
 })
 export class AppModule { }
