@@ -202,6 +202,8 @@ Metas con el servidor ya despierto:
 |---|---|
 | Mensaje entregado a los demás clientes conectados | p95 < 1 s |
 | Carga inicial de la MiniApp hasta contenido útil | < 2 s |
+| Enviar un mensaje, votar o abrir un chat (tiempo de la API) | p95 < 500 ms |
+| Mensaje y voto propios visibles en la MiniApp | Al instante (UI optimista, confirmada con el ack) |
 | Mensajes perdidos con envíos concurrentes | 0 |
 
 Cómo se logra:
@@ -374,6 +376,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 2. Eliminar `VITE_TELEGRAM_BOT_TOKEN` e implementar el proxy `/media`.
 3. Autenticación con `initData` y autorización por rol (HTTP y socket), y salas por solicitud.
 4. Corregir la pérdida de datos: mensajes en su propia colección, operaciones atómicas y `createdAt` persistido, **junto con la migración de los datos existentes** (§9.1).
+5. Bajar la latencia de las interacciones con el servidor despierto: medir una línea base, sacar a Telegram del camino crítico, índices, listado liviano, actualización en vivo sin recargas y UI optimista. El arranque en frío se resuelve en la Fase 2.
 
 **Fase 1: v1 funcional:** formulario nuevo, chat con imágenes, respuestas y leídos, revisión (votos a favor nominales y en contra anónimos, avales, comentarios), admisión por solicitud de unión, puente con el grupo.
 
@@ -495,7 +498,7 @@ Cobertura mínima esperada: 80 % en `domain/` y en `auth`.
 9. Los miembros ven avales, comentarios y quién votó a favor. El solicitante no ve nada de esto mientras no sea miembro.
 10. Ninguna respuesta de la API, evento de socket, mensaje del bot ni log contiene la identidad de quien votó en contra ni del autor de un comentario privado. De los rechazos solo aparece el conteo.
 11. El formulario rechaza más de 3 imágenes y no acepta modificaciones una vez enviado.
-12. Con el servidor despierto, la entrega de un mensaje tiene p95 < 1 s y la carga inicial tarda < 2 s.
+12. Con el servidor despierto, la entrega de un mensaje tiene p95 < 1 s, enviar, votar y abrir un chat tienen p95 < 500 ms en la API, el mensaje y el voto propios se ven al instante y la carga inicial tarda < 2 s.
 13. Con al menos una solicitud en curso, la API de producción no se duerme. Sin solicitudes en curso, deja de hacerse ping.
 14. Tras la migración, todas las solicitudes existentes se abren en la MiniApp con sus mensajes y votos, y ningún mensaje queda sin migrar (mismo conteo antes y después).
 15. Staging y producción están aislados (bot, grupo, BD y API distintos) y se despliegan desde `development` y `main`.
