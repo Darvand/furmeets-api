@@ -4,11 +4,13 @@ import { TelegramBotService } from './telegram-bot/telegram-bot.service';
 import telegramBotConfig from './telegram-bot/telegram-bot.config';
 import { TelegramBotServer } from './telegram-bot/telegram-bot.server';
 import { Logger } from '@nestjs/common';
+import { httpTimingMiddleware } from './shared/interceptors/timing.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: process.env.LOGGER_OPTIONS?.split(',') as any || ['error', 'warn', 'log'],
   });
+  app.use(httpTimingMiddleware);
   app.enableCors({
     origin: process.env.FRONTEND_URL || '*',
     credentials: true,

@@ -4,6 +4,7 @@ import { Inject, Logger } from '@nestjs/common';
 import telegramBotConfig from './telegram-bot.config';
 import type { ConfigType } from '@nestjs/config';
 import { inspect } from 'util';
+import { telegramTimingTransformer } from '../shared/timing/telegram-timing';
 
 export class TelegramBotService {
     private readonly bot: Bot;
@@ -13,6 +14,7 @@ export class TelegramBotService {
         private readonly config: ConfigType<typeof telegramBotConfig>,
     ) {
         this.bot = new Bot(config.token);
+        this.bot.api.config.use(telegramTimingTransformer);
     }
 
     start() {

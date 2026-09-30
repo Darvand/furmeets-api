@@ -8,6 +8,8 @@ import { UserService } from "src/members/application/user.service";
 import { RequestChatEntity } from "../domain/entities/request-chat.entity";
 import { UserEntity } from "src/members/domain/entities/user.entity";
 import { RequestChatMapper } from "../mappers/request-chat.mapper";
+import { UseInterceptors } from "@nestjs/common";
+import { TimingInterceptor } from "src/shared/interceptors/timing.interceptor";
 
 @WebSocketGateway({
     cors: {
@@ -15,6 +17,7 @@ import { RequestChatMapper } from "../mappers/request-chat.mapper";
         credentials: true,
     }
 })
+@UseInterceptors(TimingInterceptor)
 export class ChatGateway {
 
     @WebSocketServer()
