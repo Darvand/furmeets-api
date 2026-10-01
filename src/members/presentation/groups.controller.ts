@@ -16,6 +16,6 @@ export class GroupsController {
 
     @Post('sync')
     async sync(@Req() req: CustomRequest): Promise<void> {
-        await this.groupsService.sync(req.user.telegramId);
+        await this.groupsService.sync(req.user);
     }
 }

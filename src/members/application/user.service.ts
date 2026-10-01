@@ -34,7 +34,7 @@ export class UserService {
     async authenticate(identity: TelegramIdentity): Promise<UserEntity> {
         const user = await this.userRepository.getByTelegramId(identity.telegramId);
         if (!user) {
-            return this.register(identity);
+            return this.register(identity, (id) => UserEntity.registerFromTelegram(id));
         }
         if (user.refreshFrom(identity)) {
             await this.userRepository.updateTelegramProfile(user);
@@ -42,14 +42,17 @@ export class UserService {
         return user;
     }
 
-    private async register(identity: TelegramIdentity): Promise<UserEntity> {
+    private async register(
+        identity: TelegramIdentity,
+        build: (identity: TelegramIdentity) => UserEntity,
+    ): Promise<UserEntity> {
         try {
-            return await this.userRepository.create(UserEntity.registerFromTelegram(identity));
+            return await this.userRepository.create(build(identity));
         } catch (error) {
             if (!(error instanceof DuplicateUserError)) {
                 throw error;
             }
-            // Otra petición del mismo usuario lo registró primero: se usa ese registro.
+            // Otra petición lo registró primero: se usa ese registro.
             const user = await this.userRepository.getByTelegramId(identity.telegramId);
             if (!user) {
                 throw error;
@@ -58,28 +61,47 @@ export class UserService {
         }
     }
 
+    /**
+     * Usuario del bot, autor de los mensajes de sistema. Sale de `botInfo` (sin llamar a
+     * Telegram tras el arranque); solo se registra la primera vez que hace falta.
+     */
     async getBotUser(): Promise<UserEntity> {
-        const botUser = await this.telegramBotService.getBotMemberFromGroup();
-        const bot = await this.userRepository.getByTelegramId(botUser.user.id);
-        if (!bot) {
-            throw new NotFoundException(`Bot user not found in the database`);
-        }
-        return bot;
+        const bot = await this.telegramBotService.getBotInfo();
+        const user = await this.userRepository.getByTelegramId(bot.id);
+        return user ?? this.register(this.botIdentity(bot), (id) => UserEntity.registerBot(id));
     }
 
-    async createBotUser(): Promise<UserEntity> {
-        const botUser = await this.telegramBotService.getBotMemberFromGroup();
-        const bot = await this.userRepository.getByTelegramId(botUser.user.id)
-        const user = UserEntity.create({
-            telegramId: botUser.user.id,
-            isMember: true,
-            username: botUser.user.username!,
-            name: botUser.user.first_name + (botUser.user.last_name ? ` ${botUser.user.last_name}` : ''),
-            avatarUrl: await this.telegramBotService.getProfilePhotoPath(botUser.user.id),
-        }, bot ? bot.id : UUID.generate());
-        return this.userRepository.save(user);
+    /** Refresca nombre, usuario y avatar del bot. Pensado para correr en segundo plano. */
+    async refreshBotUser(): Promise<void> {
+        const user = await this.getBotUser();
+        const identity = this.botIdentity(await this.telegramBotService.getBotInfo());
+        if (user.refreshFrom(identity)) {
+            await this.userRepository.updateTelegramProfile(user);
+        }
+        await this.refreshAvatar(user);
     }
-    async sync(telegramId: number): Promise<UserEntity> {
-        return this.userRepository.sync(telegramId);
+
+    /** Toma el avatar actual de Telegram y lo guarda solo si cambió. Pensado para segundo plano. */
+    async refreshAvatar(user: UserEntity): Promise<void> {
+        const avatarUrl = await this.telegramBotService.getProfilePhotoPath(user.telegramId);
+        if (user.changeAvatar(avatarUrl)) {
+            await this.userRepository.updateAvatar(user);
+        }
+    }
+
+    /** Guarda la membresía según Telegram, solo si cambió. */
+    async updateMembership(user: UserEntity, isMember: boolean): Promise<void> {
+        if (user.updateMembership(isMember)) {
+            await this.userRepository.updateMembership(user);
+        }
+    }
+
+    private botIdentity(bot: { id: number; first_name: string; last_name?: string; username?: string }): TelegramIdentity {
+        return TelegramIdentity.create({
+            telegramId: bot.id,
+            firstName: bot.first_name,
+            lastName: bot.last_name,
+            username: bot.username,
+        });
     }
 }

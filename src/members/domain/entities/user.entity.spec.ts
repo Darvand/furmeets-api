@@ -89,4 +89,32 @@ describe('UserEntity', () => {
       ).toThrow();
     });
   });
+
+  describe('membresía, avatar y bot', () => {
+    it('updateMembership reporta solo cambios', () => {
+      const user = UserEntity.registerFromTelegram(identity());
+
+      expect(user.updateMembership(false)).toBe(false);
+      expect(user.updateMembership(true)).toBe(true);
+      expect(user.isMember).toBe(true);
+    });
+
+    it('changeAvatar reemplaza o quita el avatar y reporta solo cambios', () => {
+      const user = UserEntity.registerFromTelegram(identity());
+
+      expect(user.changeAvatar('photos/a.jpg')).toBe(true);
+      expect(user.changeAvatar('photos/a.jpg')).toBe(false);
+      expect(user.changeAvatar(undefined)).toBe(true);
+      expect(user.avatarUrl).toBeUndefined();
+    });
+
+    it('registerBot crea al bot como miembro', () => {
+      const bot = UserEntity.registerBot(
+        identity({ telegramId: 999, firstName: 'FurBot', lastName: undefined }),
+      );
+
+      expect(bot.isMember).toBe(true);
+      expect(bot.name).toBe('FurBot');
+    });
+  });
 });

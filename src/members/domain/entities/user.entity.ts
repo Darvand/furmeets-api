@@ -52,6 +52,35 @@ export class UserEntity extends Entity<UserProps> {
         });
     }
 
+    /** El usuario del bot: autor de los mensajes de sistema; siempre es miembro. */
+    static registerBot(identity: TelegramIdentity): UserEntity {
+        return new UserEntity({
+            telegramId: identity.telegramId,
+            name: identity.name,
+            username: identity.username,
+            isMember: true,
+            createdAt: new Date(),
+        });
+    }
+
+    /** Refleja la membresía según Telegram. Devuelve si cambió. */
+    updateMembership(isMember: boolean): boolean {
+        if (this.props.isMember === isMember) {
+            return false;
+        }
+        this.props.isMember = isMember;
+        return true;
+    }
+
+    /** Reemplaza el avatar por el actual de Telegram (sin foto = sin avatar). Devuelve si cambió. */
+    changeAvatar(avatarUrl: string | undefined): boolean {
+        if (this.props.avatarUrl === avatarUrl) {
+            return false;
+        }
+        this.props.avatarUrl = avatarUrl;
+        return true;
+    }
+
     /**
      * Telegram es la fuente de verdad del nombre y del usuario, así que se toman de
      * cada `initData`. El avatar no se pisa: la sincronización con el bot guarda el suyo.

@@ -184,7 +184,9 @@ describe('Autenticación HTTP por initData (e2e)', () => {
         .set('x-telegram-id', '1')
         .expect(201);
 
-      expect(sync).toHaveBeenCalledWith(4003);
+      expect(sync).toHaveBeenCalledWith(
+        expect.objectContaining({ telegramId: 4003 }),
+      );
       sync.mockRestore();
     });
 

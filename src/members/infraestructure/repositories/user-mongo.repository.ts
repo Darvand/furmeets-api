@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { DuplicateUserError, UserRepository } from "src/members/domain/services/user.repository";
 import { User } from "../schemas/user.schema";
@@ -6,9 +6,6 @@ import { Model } from "mongoose";
 import { UserEntity } from "src/members/domain/entities/user.entity";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import { UserMapper } from "src/members/mappers/user.mapper";
-import { TelegramBotService } from "src/telegram-bot/telegram-bot.service";
-import telegramBotConfig from "src/telegram-bot/telegram-bot.config";
-import type { ConfigType } from "@nestjs/config";
 
 @Injectable()
 export class UserMongoRepository implements UserRepository {
@@ -16,8 +13,6 @@ export class UserMongoRepository implements UserRepository {
     private readonly logger = new Logger(UserMongoRepository.name);
     constructor(
         @InjectModel(User.name) private readonly userModel: Model<User>,
-        private readonly telegramBotService: TelegramBotService,
-        @Inject(telegramBotConfig.KEY) private readonly config: ConfigType<typeof telegramBotConfig>
     ) { }
 
     async getByUUID(uuid: UUID): Promise<UserEntity | null> {
@@ -67,20 +62,15 @@ export class UserMongoRepository implements UserRepository {
         );
     }
 
-    async sync(telegramId: number): Promise<UserEntity> {
-        const dbUser = await this.getByTelegramId(telegramId);
-        const telegramUser = await this.telegramBotService.getMemberFromGroup(telegramId);
-        this.logger.debug(`Fetched Telegram user: ${JSON.stringify(telegramUser)}`);
-        this.logger.debug(`User is member: ${telegramUser ? (telegramUser.status !== 'left' && telegramUser.status !== 'kicked') : false}`);
-        const updatedUser = UserEntity.create({
-            telegramId: telegramUser.user.id,
-            isMember: telegramUser ? (telegramUser.status !== 'left' && telegramUser.status !== 'kicked') : false,
-            username: telegramUser.user.username || '',
-            name: telegramUser.user.first_name + (telegramUser.user.last_name ? ` ${telegramUser.user.last_name}` : ''),
-            avatarUrl: await this.telegramBotService.getProfilePhotoPath(telegramUser.user.id),
-        }, dbUser ? dbUser.id : UUID.generate());
-        this.logger.debug(`Syncing user with Telegram ID: ${telegramId}`);
-        return this.save(updatedUser);
+    async updateMembership(user: UserEntity): Promise<void> {
+        await this.userModel.updateOne({ _id: user.id.value }, { $set: { isMember: user.isMember } });
+    }
+
+    async updateAvatar(user: UserEntity): Promise<void> {
+        await this.userModel.updateOne(
+            { _id: user.id.value },
+            user.avatarUrl ? { $set: { avatarUrl: user.avatarUrl } } : { $unset: { avatarUrl: '' } },
+        );
     }
 }
 
