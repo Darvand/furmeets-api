@@ -3,6 +3,7 @@ import { GroupEntity } from "../domain/entities/group.entity";
 import { GetGroupDto } from "../presentation/dtos/get-group.dto";
 import { UserMapper } from "./user.mapper";
 import { Group } from "../infraestructure/schemas/group.schema";
+import { toUUIDString } from "src/shared/infraestructure/mongo-uuid";
 
 export class GroupMapper {
     static fromDbToDomain(groupDb: Group): GroupEntity {
@@ -12,7 +13,7 @@ export class GroupMapper {
             photoUrl: groupDb.photoUrl,
             description: groupDb.description,
             members: groupDb.members.map(memberDb => UserMapper.fromDb(memberDb)),
-        }, UUID.from(groupDb._id));
+        }, UUID.from(toUUIDString(groupDb._id)));
         return groupEntity;
     }
 

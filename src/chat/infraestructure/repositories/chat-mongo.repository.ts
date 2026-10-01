@@ -55,7 +55,7 @@ export class ChatMongoRepository implements ChatRepository {
     }
 
     async chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean> {
-        const count = await this.requestChatModel.countDocuments({ requester: requesterUUID.value }).exec();
-        return count > 0;
+        const existing = await this.requestChatModel.exists({ requester: requesterUUID.value }).exec();
+        return existing !== null;
     }
 }

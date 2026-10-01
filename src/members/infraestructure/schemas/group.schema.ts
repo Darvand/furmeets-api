@@ -12,7 +12,7 @@ export class Group {
     })
     _id: string;
 
-    @Prop()
+    @Prop({ index: true })
     telegramId: number;
 
     @Prop()

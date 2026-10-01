@@ -22,7 +22,7 @@ export class UserMongoRepository implements UserRepository {
 
     async getByUUID(uuid: UUID): Promise<UserEntity | null> {
         Logger.debug(`Fetching user with ID: ${uuid.value}`);
-        const userDoc = await this.userModel.findOne({ _id: uuid.value }).exec();
+        const userDoc = await this.userModel.findOne({ _id: uuid.value }).lean<User>().exec();
         if (!userDoc) {
             return null;
         }
@@ -39,7 +39,7 @@ export class UserMongoRepository implements UserRepository {
 
     async getByTelegramId(telegramId: number): Promise<UserEntity | null> {
         this.logger.debug(`Fetching user with Telegram ID: ${telegramId}`);
-        const userDoc = await this.userModel.findOne({ telegramId }).exec();
+        const userDoc = await this.userModel.findOne({ telegramId }).lean<User>().exec();
         if (!userDoc) {
             return null;
         }

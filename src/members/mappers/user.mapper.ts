@@ -3,6 +3,7 @@ import { Species, UserEntity } from "../domain/entities/user.entity";
 import { User } from "../infraestructure/schemas/user.schema";
 import { GetUserDto } from "../presentation/dtos/get-user.dto";
 import { CreateUserDto } from "../presentation/dtos/create-user.dto";
+import { toUUIDString } from "src/shared/infraestructure/mongo-uuid";
 
 export class UserMapper {
     static fromDb(user: User): UserEntity {
@@ -14,7 +15,7 @@ export class UserMapper {
             telegramId: user.telegramId,
             isMember: user.isMember,
             birthdate: user.birthdate,
-        }, UUID.from(user._id));
+        }, UUID.from(toUUIDString(user._id)));
         userEntity.species = user.species;
         return userEntity;
     }
