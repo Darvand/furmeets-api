@@ -205,16 +205,16 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** REN-02, REN-03, REN-08, SEG-10 · **Deuda:** #9
 
-**Description:** Resolver el rol con `getChatMember` (miembro si `creator`, `administrator`, `member` o `restricted` con `is_member=true`) con caché en memoria de TTL 10 min, **invalidada además por eventos**: el bot recibe los updates `chat_member` del grupo (hay que incluirlos en `allowed_updates`, Telegram no los envía por defecto) y, cuando alguien entra, sale, es expulsado o restringido, borra la entrada de ese usuario. La caché expone `invalidate(userId)` para otros módulos (T25). Exponer `GET /me` → `{ user, role, requestChatId? }`, que reemplaza a `POST /groups/sync` como única petición de arranque. La sincronización de avatar y grupo es la de T39 (en segundo plano).
+**Description:** Resolver el rol con `getChatMember` (miembro si `creator`, `administrator`, `member` o `restricted` con `is_member=true`) con caché en memoria de TTL 10 min, **invalidada además por eventos**: el bot recibe los updates `chat_member` del grupo (hay que incluirlos en `allowed_updates`, Telegram no los envía por defecto) y, cuando alguien entra, sale, es expulsado o restringido, borra la entrada de ese usuario. La caché expone `invalidate(userId)` para otros módulos (T25). Exponer `GET /me` → `{ user, role, requestChatId?, requestChatState? }`, que reemplaza a `POST /groups/sync` como única petición de arranque. La sincronización de avatar y grupo es la de T39 (en segundo plano).
 
 **Acceptance criteria:**
-- [ ] `GET /me` devuelve `role: 'member' | 'applicant'` según Telegram, no según `group.members`; para un solicitante con solicitud incluye `requestChatId`
-- [ ] Dos llamadas dentro de 10 min hacen una sola consulta a Telegram; pasados 10 min se vuelve a consultar. Con la caché caliente, `GET /me` no llama a Telegram
-- [ ] Un update `chat_member` de un usuario invalida su entrada: la siguiente petición ya refleja el rol nuevo
+- [x] `GET /me` devuelve `role: 'member' | 'applicant'` según Telegram, no según `group.members`; para un solicitante con solicitud incluye `requestChatId`
+- [x] Dos llamadas dentro de 10 min hacen una sola consulta a Telegram; pasados 10 min se vuelve a consultar. Con la caché caliente, `GET /me` no llama a Telegram
+- [x] Un update `chat_member` de un usuario invalida su entrada: la siguiente petición ya refleja el rol nuevo
 
 **Verification:**
-- [ ] Unitarias: mapeo de cada `status` a rol; caché, expiración e invalidación
-- [ ] e2e con el cliente de Telegram simulado: miembro expulsado → siguiente voto 403
+- [x] Unitarias: mapeo de cada `status` a rol; caché, expiración e invalidación
+- [x] e2e con el cliente de Telegram simulado: miembro expulsado → solicitante en la siguiente petición (`GET /me`). El 403 del voto depende de la autorización por rol y se verifica en la matriz de T06.
 
 **Dependencies:** T03, T39
 
@@ -237,7 +237,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Decoradores/guards `@MembersOnly()` y `@OwnerOrMember()` para HTTP y socket. El gateway une a cada socket solo a `request-chat:<id>` autorizado y, si es miembro, a `members`. Se elimina `server.emit` global.
 
 **Acceptance criteria:**
-- [ ] Solicitante pidiendo la solicitud de otro → 403; solicitante votando → 403
+- [ ] Solicitante pidiendo la solicitud de otro → 403; solicitante votando → 403 (incluye al miembro recién expulsado, RNF-SEG-10)
 - [ ] Un solicitante conectado no recibe eventos de otras solicitudes
 - [ ] No queda ningún `server.emit` sin `.to(...)`
 

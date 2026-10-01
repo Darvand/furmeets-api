@@ -176,7 +176,7 @@ Las pantallas siguen el diseño de referencia:
 
 Las **solicitudes migradas** (sin formulario nuevo) muestran en el *Resumen* la leyenda "Solicitud anterior al formulario actual" y sus campos legados (§9.1).
 
-La autorización se decide **en el backend**. El frontend solo refleja el rol que devuelve la API (`GET /me` → `{ user, role, requestChatId? }`).
+La autorización se decide **en el backend**. El frontend solo refleja el rol que devuelve la API (`GET /me` → `{ user, role, requestChatId?, requestChatState? }`).
 
 ---
 

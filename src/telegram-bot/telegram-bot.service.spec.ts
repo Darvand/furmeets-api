@@ -90,19 +90,47 @@ describe('TelegramBotService', () => {
     const { service, getMe } = createService();
 
     await Promise.all([service.getBotInfo(), service.getBotInfo()]);
-    await service.getBotMemberFromGroup();
+    await service.getBotInfo();
 
     expect(getMe).toHaveBeenCalledTimes(1);
   });
 
-  it('cachea la membresía: dos consultas seguidas hacen una sola llamada', async () => {
+  it('no cachea la membresía (la cachea MembershipService, que sabe invalidarla)', async () => {
     const { service, getChatMember } = createService();
 
-    await service.isMember(1);
-    await service.isMember(1);
-    await service.isMember(2);
+    await service.getMemberFromGroup(1);
+    await service.getMemberFromGroup(1);
 
     expect(getChatMember).toHaveBeenCalledTimes(2);
+  });
+
+  it('entrega los updates chat_member al handler registrado', async () => {
+    const { service } = createService();
+    const handler = jest.fn();
+    service.onChatMember(handler);
+    await service.getBotInfo();
+
+    const bot = (
+      service as unknown as {
+        bot: { handleUpdate: (u: unknown) => Promise<void> };
+      }
+    ).bot;
+    await bot.handleUpdate({
+      update_id: 1,
+      chat_member: {
+        chat: { id: -100, type: 'supergroup', title: 'FurMeets' },
+        from: { id: 7, is_bot: false, first_name: 'Admin' },
+        date: 1_700_000_000,
+        old_chat_member: member('member'),
+        new_chat_member: member('kicked', { until_date: 0 }),
+      },
+    });
+
+    expect(handler).toHaveBeenCalledWith({
+      chatId: -100,
+      userId: 1,
+      status: 'kicked',
+    });
   });
 
   it('cachea la info del grupo', async () => {
@@ -131,22 +159,5 @@ describe('TelegramBotService', () => {
 
     expect(await service.getProfilePhotoPath(1)).toBeUndefined();
     expect(getFile).not.toHaveBeenCalled();
-  });
-
-  describe('isMember', () => {
-    it.each([
-      ['creator', {}, true],
-      ['administrator', {}, true],
-      ['member', {}, true],
-      ['restricted', { is_member: true }, true],
-      ['restricted', { is_member: false }, false],
-      ['left', {}, false],
-      ['kicked', {}, false],
-    ])('%s %j → %s', async (status, extra, expected) => {
-      const { service, getChatMember } = createService();
-      getChatMember.mockResolvedValue(member(status, extra));
-
-      expect(await service.isMember(1)).toBe(expected);
-    });
   });
 });

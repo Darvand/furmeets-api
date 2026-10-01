@@ -1,4 +1,5 @@
-import { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
+import { MembershipService } from 'src/membership/application/membership.service';
+import { Role } from 'src/membership/domain/role';
 import { UserEntity } from '../domain/entities/user.entity';
 import { GroupRepository } from '../domain/services/group.repository';
 import { TelegramIdentity } from '../domain/value-objects/telegram-identity.value-object';
@@ -34,16 +35,17 @@ function setup(storedIsMember = false) {
     refreshBotUser: jest.fn(() => slow(undefined)),
     refreshAvatar: jest.fn(() => slow(undefined)),
   };
-  const isMember = jest.fn<Promise<boolean>, [number]>(() =>
-    Promise.resolve(true),
+  // Rol según Telegram: con la caché caliente responde al instante.
+  const getRole = jest.fn<Promise<Role>, [number]>(() =>
+    Promise.resolve('member'),
   );
 
   const service = new GroupsService(
     groupRepository as GroupRepository,
     userService as unknown as UserService,
-    { isMember } as unknown as TelegramBotService,
+    { getRole } as unknown as MembershipService,
   );
-  return { service, user, groupRepository, userService, isMember };
+  return { service, user, groupRepository, userService, getRole };
 }
 
 /** Indica si la promesa ya terminó, sin avanzar los timers. */
@@ -61,7 +63,7 @@ describe('GroupsService.sync', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  it('con la membresía en caché no espera a Telegram (fotos, grupo y bot tardan 2 s)', async () => {
+  it('con el rol en caché no espera a Telegram (fotos, grupo y bot tardan 2 s)', async () => {
     const { service, user, groupRepository, userService } = setup();
 
     expect(await isSettled(service.sync(user))).toBe(true);
@@ -75,8 +77,8 @@ describe('GroupsService.sync', () => {
   });
 
   it('si la membresía tarda, espera como máximo el plazo y usa la guardada', async () => {
-    const { service, user, isMember, groupRepository } = setup(true);
-    isMember.mockImplementation(() => slow(false));
+    const { service, user, getRole, groupRepository } = setup(true);
+    getRole.mockImplementation(() => slow<Role>('applicant'));
 
     const sync = service.sync(user);
     expect(await isSettled(sync)).toBe(false);
@@ -87,8 +89,8 @@ describe('GroupsService.sync', () => {
   });
 
   it('si Telegram falla, usa la membresía guardada', async () => {
-    const { service, user, isMember, groupRepository } = setup(false);
-    isMember.mockRejectedValue(new Error('Telegram caído'));
+    const { service, user, getRole, groupRepository } = setup(false);
+    getRole.mockRejectedValue(new Error('Telegram caído'));
 
     await service.sync(user);
 
