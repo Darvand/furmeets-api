@@ -10,6 +10,7 @@ import { Reflector } from '@nestjs/core';
 import type { ConfigType } from '@nestjs/config';
 import telegramBotConfig from 'src/telegram-bot/telegram-bot.config';
 import { UserService } from 'src/members/application/user.service';
+import { TelegramIdentity } from 'src/members/domain/value-objects/telegram-identity.value-object';
 import type { CustomRequest } from 'src/shared/types/custom-request.interface';
 import {
   InvalidInitDataError,
@@ -22,7 +23,8 @@ const AUTH_SCHEME = 'tma';
 
 /**
  * Guard global de HTTP (RNF-SEG-01, SEG-02). Lee `Authorization: tma <initDataRaw>`,
- * valida la firma y la vigencia, y crea o actualiza al usuario a partir de `initData`.
+ * valida la firma y la vigencia, y autentica al usuario con su identidad de Telegram
+ * (`UserService.authenticate`).
  * El usuario queda en `request.user`; nunca sale del body, de los params ni de otro header.
  *
  * Los rechazos se registran a nivel `warn` con el motivo, sin el `initData` (RNF-OBS-02).
@@ -67,14 +69,15 @@ export class TmaAuthGuard implements CanActivate {
       throw error;
     }
 
-    request.user = await this.userService.upsertFromTelegram({
-      telegramId: telegramUser.id,
-      name: [telegramUser.first_name, telegramUser.last_name]
-        .filter(Boolean)
-        .join(' '),
-      username: telegramUser.username,
-      avatarUrl: telegramUser.photo_url,
-    });
+    request.user = await this.userService.authenticate(
+      TelegramIdentity.create({
+        telegramId: telegramUser.id,
+        firstName: telegramUser.first_name,
+        lastName: telegramUser.last_name,
+        username: telegramUser.username,
+        photoUrl: telegramUser.photo_url,
+      }),
+    );
     return true;
   }
 
