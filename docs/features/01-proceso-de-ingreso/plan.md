@@ -41,6 +41,7 @@ Revisión del código del 2026-09-30, de mayor a menor impacto:
 - **Medir antes de optimizar:** línea base de latencia (T37) y comparación al cerrar la Fase 0.
 - **Salas de socket por solicitud** (`request-chat:<id>`) más la sala `members`. Sin broadcast global.
 - **Módulos nuevos** según el mapa de capacidades (SPEC §2): `auth`, `membership`, `media`, `applications`, `request-chat`, `review`, `admission`, `telegram-bridge`, `platform`. Los módulos actuales (`chat`, `members`, `telegram-bot`) se van partiendo en ellos a medida que se tocan, no en un refactor aparte.
+- **DDD pragmático** ([ADR-001](../../decisions/ADR-001-ddd-pragmatico.md)): reglas de negocio en entidades sin E/S, escrituras atómicas y solo si algo cambió, lecturas de pantalla con `lean()` y proyección sin pasar por el dominio, agregados pequeños.
 - **Webhook + keep-alive condicional** en Render free.
 
 ## Grafo de dependencias
