@@ -1,7 +1,7 @@
 import { ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { CHAT_PROVIDERS } from "../chat.providers";
 import { RequestChatEntity } from "../domain/entities/request-chat.entity";
-import type { ChatRepository } from "../domain/services/chat.repository";
+import type { ChatRepository, RequestChatSummary } from "../domain/services/chat.repository";
 import { RequestChatMessageEntity } from "../domain/entities/request-chat-message.entity";
 import { UserService } from "src/members/application/user.service";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
@@ -73,6 +73,10 @@ export class ChatService {
             await this.telegramBotService.sendMessageToUser(requestChat.props.requester.telegramId, requestChat.getNewMessageNotificationText());
         }
         return messageEntity;
+    }
+
+    async findRequestChatSummaryOf(user: UserEntity): Promise<RequestChatSummary | null> {
+        return this.requestChatRepository.findSummaryByRequester(user.id);
     }
 
     async getAllRequestChats(): Promise<RequestChatEntity[]> {

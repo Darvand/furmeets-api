@@ -8,6 +8,7 @@ import { DatabaseModule } from './database/database.module';
 import { AppController } from './app.controller';
 import { VALIDATION_PIPE_PROVIDER } from './shared/validation/validation';
 import { AuthModule } from './auth/auth.module';
+import { MeModule } from './membership/me.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { AuthModule } from './auth/auth.module';
     AuthModule,
     TelegramBotModule,
     ChatModule,
+    MeModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [telegramBotConfig, databaseConfig]

@@ -2,7 +2,9 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { RequestChatEntity } from "src/chat/domain/entities/request-chat.entity";
-import { ChatRepository } from "src/chat/domain/services/chat.repository";
+import { ChatRepository, RequestChatSummary } from "src/chat/domain/services/chat.repository";
+import { RequestChatState } from "src/chat/domain/value-objects/request-chat-state.value-object";
+import { toUUIDString } from "src/shared/infraestructure/mongo-uuid";
 import { RequestChat } from "../schemas/request-chat.schema";
 import { RequestChatMapper } from "src/chat/mappers/request-chat.mapper";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
@@ -57,5 +59,19 @@ export class ChatMongoRepository implements ChatRepository {
     async chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean> {
         const existing = await this.requestChatModel.exists({ requester: requesterUUID.value }).exec();
         return existing !== null;
+    }
+
+    async findSummaryByRequester(requesterUUID: UUID): Promise<RequestChatSummary | null> {
+        const doc = await this.requestChatModel
+            .findOne({ requester: requesterUUID.value }, { _id: 1, state: 1 })
+            .lean<Pick<RequestChat, '_id' | 'state'>>()
+            .exec();
+        if (!doc) {
+            return null;
+        }
+        return {
+            id: UUID.from(toUUIDString(doc._id)),
+            state: RequestChatState.create(doc.state).props.value,
+        };
     }
 }
