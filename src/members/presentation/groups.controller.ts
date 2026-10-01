@@ -1,7 +1,8 @@
-import { Controller, Get, Headers, Param, Post } from "@nestjs/common";
+import { Controller, Get, Post, Req } from "@nestjs/common";
 import { GroupsService } from "../application/groups.service";
 import { GroupMapper } from "../mappers/group.mapper";
 import { GetGroupDto } from "./dtos/get-group.dto";
+import type { CustomRequest } from "src/shared/types/custom-request.interface";
 
 @Controller('groups')
 export class GroupsController {
@@ -14,7 +15,7 @@ export class GroupsController {
     }
 
     @Post('sync')
-    async sync(@Headers('x-telegram-id') telegramId: string): Promise<void> {
-        await this.groupsService.sync(Number(telegramId));
+    async sync(@Req() req: CustomRequest): Promise<void> {
+        await this.groupsService.sync(req.user.telegramId);
     }
 }

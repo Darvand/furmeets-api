@@ -127,13 +127,13 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Crear el módulo `auth` con un validador puro de `initData` (HMAC-SHA256 con clave `HMAC_SHA256("WebAppData", BOT_TOKEN)`, `auth_date` < 24 h) y un guard global que lea `Authorization: tma <initDataRaw>` y deje el usuario en el request. Reemplaza `user.middleware.ts` y `x-telegram-id`. El usuario se crea o actualiza (upsert) a partir de `initData`, eliminando el flujo muerto `POST /users`.
 
 **Acceptance criteria:**
-- [ ] Sin header, con firma inválida o con `auth_date` vencido → 401
-- [ ] Con `initData` válido, `request.user` contiene el usuario y existe en BD
-- [ ] `x-telegram-id` ya no se lee en ningún lugar
+- [x] Sin header, con firma inválida o con `auth_date` vencido → 401
+- [x] Con `initData` válido, `request.user` contiene el usuario y existe en BD
+- [x] `x-telegram-id` ya no se lee en ningún lugar
 
 **Verification:**
-- [ ] Unitarias del validador (firma válida, alterada, vencida, sin hash)
-- [ ] e2e: endpoint protegido con y sin header
+- [x] Unitarias del validador (firma válida, alterada, vencida, sin hash)
+- [x] e2e: endpoint protegido con y sin header
 
 **Dependencies:** T02
 

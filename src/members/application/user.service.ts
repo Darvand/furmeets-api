@@ -2,9 +2,8 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { MEMBERS_PROVIDERS } from "../members.providers";
 import { UserEntity } from "../domain/entities/user.entity";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
-import type { UserRepository } from "../domain/services/user.repository";
-import { UserMapper } from "../mappers/user.mapper";
-import { CreateUserDto } from "../presentation/dtos/create-user.dto";
+import { DuplicateUserError, type UserRepository } from "../domain/services/user.repository";
+import { TelegramIdentity } from "../domain/value-objects/telegram-identity.value-object";
 import { TelegramBotService } from "src/telegram-bot/telegram-bot.service";
 
 @Injectable()
@@ -27,9 +26,36 @@ export class UserService {
         return user;
     }
 
-    async createUser(createUserDto: CreateUserDto): Promise<UserEntity> {
-        const user = UserMapper.fromDtoToDomain(createUserDto);
-        return this.userRepository.save(user);
+    /**
+     * Usuario autenticado a partir de su identidad de Telegram. Lo registra en su primer
+     * ingreso; si no, refresca nombre y usuario y solo escribe si cambiaron. El caso
+     * común (usuario existente sin cambios) es una sola lectura.
+     */
+    async authenticate(identity: TelegramIdentity): Promise<UserEntity> {
+        const user = await this.userRepository.getByTelegramId(identity.telegramId);
+        if (!user) {
+            return this.register(identity);
+        }
+        if (user.refreshFrom(identity)) {
+            await this.userRepository.updateTelegramProfile(user);
+        }
+        return user;
+    }
+
+    private async register(identity: TelegramIdentity): Promise<UserEntity> {
+        try {
+            return await this.userRepository.create(UserEntity.registerFromTelegram(identity));
+        } catch (error) {
+            if (!(error instanceof DuplicateUserError)) {
+                throw error;
+            }
+            // Otra petición del mismo usuario lo registró primero: se usa ese registro.
+            const user = await this.userRepository.getByTelegramId(identity.telegramId);
+            if (!user) {
+                throw error;
+            }
+            return user;
+        }
     }
 
     async getBotUser(): Promise<UserEntity> {

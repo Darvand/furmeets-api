@@ -3,10 +3,23 @@ import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { AppModule } from '../../src/app.module';
 import { TelegramBotService } from '../../src/telegram-bot/telegram-bot.service';
+import {
+  signInitData,
+  SignInitDataOptions,
+  TelegramInitDataUser,
+} from './init-data';
 
 /** Token falso con el que se firman los `initData` de prueba (ver `signInitData`). */
 export const TEST_BOT_TOKEN = '123456:TEST-BOT-TOKEN';
 export const TEST_GROUP_ID = '-1001234567890';
+
+/** Valor del header `Authorization` con un `initData` firmado con `TEST_BOT_TOKEN`. */
+export function tmaAuth(
+  user: TelegramInitDataUser,
+  options?: SignInitDataOptions,
+): string {
+  return `tma ${signInitData(user, TEST_BOT_TOKEN, options)}`;
+}
 
 type TelegramBotStub = { [K in keyof TelegramBotService]: jest.Mock };
 

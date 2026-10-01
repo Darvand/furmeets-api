@@ -18,9 +18,11 @@
  *
  *   PERF_BASE_URL     (obligatoria) URL base de la API, sin `/` final.
  *   PERF_TELEGRAM_ID  (obligatoria) telegramId de un usuario de prueba ya registrado y
- *                     miembro del grupo. Se envía como `x-telegram-id`.
- *   PERF_INIT_DATA    (opcional) initData firmado; se envía como `Authorization: tma <initData>`
- *                     para cuando exista la autenticación de T03.
+ *                     miembro del grupo. Se envía como `x-telegram-id`, que solo leen los
+ *                     servidores anteriores a T03 (para medir la línea base).
+ *   PERF_INIT_DATA    initData firmado del mismo usuario; se envía como
+ *                     `Authorization: tma <initData>`. Obligatorio contra servidores con T03
+ *                     (sin él todo responde 401). Vence a las 24 h.
  *   PERF_CHAT_ID      (opcional) UUID del chat de solicitud a usar. Si falta, abrir chat usa
  *                     el primero de la lista y enviar/votar se omiten.
  *   PERF_WRITES=1     (opcional) habilita enviar y votar, que escriben en la BD y mandan

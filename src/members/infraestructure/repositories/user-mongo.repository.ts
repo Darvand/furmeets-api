@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { UserRepository } from "src/members/domain/services/user.repository";
+import { DuplicateUserError, UserRepository } from "src/members/domain/services/user.repository";
 import { User } from "../schemas/user.schema";
 import { Model } from "mongoose";
 import { UserEntity } from "src/members/domain/entities/user.entity";
@@ -46,6 +46,27 @@ export class UserMongoRepository implements UserRepository {
         return UserMapper.fromDb(userDoc);
     }
 
+    async create(user: UserEntity): Promise<UserEntity> {
+        try {
+            await this.userModel.create(UserMapper.toDb(user));
+        } catch (error) {
+            if (isDuplicateKeyError(error)) {
+                throw new DuplicateUserError(user.telegramId);
+            }
+            throw error;
+        }
+        return user;
+    }
+
+    async updateTelegramProfile(user: UserEntity): Promise<void> {
+        await this.userModel.updateOne(
+            { _id: user.id.value },
+            user.username
+                ? { $set: { name: user.name, username: user.username } }
+                : { $set: { name: user.name }, $unset: { username: '' } },
+        );
+    }
+
     async sync(telegramId: number): Promise<UserEntity> {
         const dbUser = await this.getByTelegramId(telegramId);
         const telegramUser = await this.telegramBotService.getMemberFromGroup(telegramId);
@@ -61,4 +82,8 @@ export class UserMongoRepository implements UserRepository {
         this.logger.debug(`Syncing user with Telegram ID: ${telegramId}`);
         return this.save(updatedUser);
     }
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+    return (error as { code?: unknown } | null)?.code === 11000;
 }

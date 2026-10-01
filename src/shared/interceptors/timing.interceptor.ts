@@ -22,8 +22,8 @@ const logger = new Logger('Timing');
  * estado y ms totales, con el tiempo de Mongo y de Telegram por separado.
  *
  * Es un middleware global (`app.use`) y no un interceptor porque los interceptores de
- * Nest corren después de los middlewares: no medirían la búsqueda del usuario de
- * `UserMiddleware` ni verían los 401 que lanza.
+ * Nest corren después de los guards: no medirían la validación de `initData` ni el
+ * upsert del usuario de `TmaAuthGuard`, ni verían los 401 que lanza.
  *
  * Solo se registra el patrón (`/request-chats/:id`), nunca la URL, el body ni los
  * headers, para no dejar datos personales en los logs.
