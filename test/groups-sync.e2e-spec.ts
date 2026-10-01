@@ -1,0 +1,116 @@
+import { getModelToken } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { Group } from '../src/members/infraestructure/schemas/group.schema';
+import { User } from '../src/members/infraestructure/schemas/user.schema';
+import { toUUIDString } from '../src/shared/infraestructure/mongo-uuid';
+import { createTestApp, TEST_GROUP_ID, TestApp, tmaAuth } from './helpers/app';
+
+const TELEGRAM_DELAY_MS = 2_000;
+const BOT = { id: 999, is_bot: true, first_name: 'FurBot', username: 'furbot' };
+const TELEGRAM_GROUP = {
+  id: Number(TEST_GROUP_ID),
+  type: 'supergroup',
+  title: 'FurMeets',
+  description: 'Grupo de prueba',
+  photo: { small_file_id: 'small', big_file_id: 'big' },
+};
+
+/** Respuesta de Telegram que tarda 2 s. `unref` para no retener a Jest al terminar. */
+const slow = <T>(value: T) =>
+  new Promise<T>((resolve) =>
+    setTimeout(() => resolve(value), TELEGRAM_DELAY_MS).unref(),
+  );
+
+describe('POST /groups/sync (e2e)', () => {
+  let testApp: TestApp;
+  let server: App;
+  let groups: Model<Group>;
+  let users: Model<User>;
+
+  beforeAll(async () => {
+    testApp = await createTestApp();
+    server = testApp.app.getHttpServer() as App;
+    groups = testApp.app.get<Model<Group>>(getModelToken(Group.name));
+    users = testApp.app.get<Model<User>>(getModelToken(User.name));
+
+    const tg = testApp.telegramBot;
+    tg.isMember.mockResolvedValue(true);
+    tg.getBotInfo.mockResolvedValue(BOT);
+    tg.getGroup.mockResolvedValue(TELEGRAM_GROUP);
+    tg.getProfilePhotoPathByFileId.mockResolvedValue('photos/group.jpg');
+    tg.getProfilePhotoPath.mockImplementation(() => slow('photos/user.jpg'));
+  });
+
+  afterAll(async () => {
+    await testApp?.close();
+  });
+
+  const memberIds = async () => {
+    const group = await groups.findOne().lean();
+    return (group?.members ?? []).map((id) => toUUIDString(id));
+  };
+
+  it('primer arranque: crea el grupo desde Telegram y agrega al miembro', async () => {
+    await request(server)
+      .post('/groups/sync')
+      .set('Authorization', tmaAuth({ id: 6001, first_name: 'Ana' }))
+      .expect(201);
+
+    const group = await groups.findOne().lean();
+    const ana = await users.findOne({ telegramId: 6001 }).lean();
+    expect(group).toMatchObject({
+      name: 'FurMeets',
+      description: 'Grupo de prueba',
+      photoUrl: 'photos/group.jpg',
+    });
+    expect(ana?.isMember).toBe(true);
+    expect(await memberIds()).toEqual([toUUIDString(ana!._id)]);
+    expect(
+      testApp.telegramBot.getProfilePhotoPathByFileId,
+    ).toHaveBeenCalledWith('small');
+  });
+
+  it('con el grupo guardado no espera a Telegram aunque tarde 2 s', async () => {
+    const tg = testApp.telegramBot;
+    tg.getGroup.mockImplementation(() => slow(TELEGRAM_GROUP));
+    tg.getBotInfo.mockImplementation(() => slow(BOT));
+
+    const startedAt = Date.now();
+    await request(server)
+      .post('/groups/sync')
+      .set('Authorization', tmaAuth({ id: 6002, first_name: 'Beto' }))
+      .expect(201);
+
+    expect(Date.now() - startedAt).toBeLessThan(TELEGRAM_DELAY_MS / 2);
+    const beto = await users.findOne({ telegramId: 6002 }).lean();
+    expect(await memberIds()).toContain(toUUIDString(beto!._id));
+  });
+
+  it('si deja de ser miembro en Telegram, sale del grupo', async () => {
+    testApp.telegramBot.isMember.mockResolvedValueOnce(false);
+
+    await request(server)
+      .post('/groups/sync')
+      .set('Authorization', tmaAuth({ id: 6001, first_name: 'Ana' }))
+      .expect(201);
+
+    const ana = await users.findOne({ telegramId: 6001 }).lean();
+    expect(ana?.isMember).toBe(false);
+    expect(await memberIds()).not.toContain(toUUIDString(ana!._id));
+  });
+
+  it('si Telegram falla, responde igual con la membresía guardada', async () => {
+    testApp.telegramBot.isMember.mockRejectedValueOnce(new Error('caído'));
+
+    await request(server)
+      .post('/groups/sync')
+      .set('Authorization', tmaAuth({ id: 6002, first_name: 'Beto' }))
+      .expect(201);
+
+    const beto = await users.findOne({ telegramId: 6002 }).lean();
+    expect(beto?.isMember).toBe(true);
+    expect(await memberIds()).toContain(toUUIDString(beto!._id));
+  });
+});
