@@ -24,15 +24,28 @@ export function pickAvatarSize(sizes: PhotoSize[]): PhotoSize | undefined {
     return bySide.find((size) => Math.min(size.width, size.height) >= AVATAR_MIN_SIZE_PX) ?? bySide.at(-1);
 }
 
+/** Un cambio de estado de un usuario en un chat (update `chat_member`). */
+export interface ChatMemberUpdate {
+    chatId: number;
+    userId: number;
+    status: string;
+}
+
 /**
- * Adaptador de Telegram. Lo que se consulta seguido (membresía, grupo, fotos) se cachea
- * en memoria por `TELEGRAM_CACHE_TTL_MS`, y la info del bot sale de `bot.botInfo`, que
- * grammY obtiene una sola vez al iniciar (`getMe` no se vuelve a llamar).
+ * Updates que recibe el bot. `chat_member` no llega por defecto: hay que pedirlo, y el
+ * bot debe ser administrador del grupo para recibirlo.
+ */
+export const ALLOWED_UPDATES = ['message', 'chat_member'] as const;
+
+/**
+ * Adaptador de Telegram. Grupo y fotos se cachean en memoria por `TELEGRAM_CACHE_TTL_MS`,
+ * y la info del bot sale de `bot.botInfo`, que grammY obtiene una sola vez al iniciar
+ * (`getMe` no se vuelve a llamar). La membresía no se cachea aquí: la cachea
+ * `MembershipService`, que además la invalida con los updates `chat_member`.
  */
 export class TelegramBotService {
     private readonly bot: Bot;
     private readonly logger = new Logger(TelegramBotService.name);
-    private readonly members = new TtlCache<number, ChatMember>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: TELEGRAM_CACHE_MAX_ENTRIES });
     private readonly profilePhotoPaths = new TtlCache<number, string | null>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: TELEGRAM_CACHE_MAX_ENTRIES });
     private readonly group = new TtlCache<'group', ChatFullInfo>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: 1 });
     constructor(
@@ -57,7 +70,7 @@ export class TelegramBotService {
         this.bot.catch((err) => {
             this.logger.error('Bot Error: ', err);
         });
-        this.bot.start();
+        this.bot.start({ allowed_updates: ALLOWED_UPDATES });
         this.logger.log('Bot started');
     }
 
@@ -81,14 +94,18 @@ export class TelegramBotService {
     }
 
     async getMemberFromGroup(telegramId: number): Promise<ChatMember> {
-        return this.members.getOrLoad(telegramId, () =>
-            this.bot.api.getChatMember(this.config.mainChatId, telegramId),
-        );
+        return this.bot.api.getChatMember(this.config.mainChatId, telegramId);
     }
 
-    async getBotMemberFromGroup(): Promise<ChatMember> {
-        const bot = await this.getBotInfo();
-        return this.getMemberFromGroup(bot.id);
+    /** Registra un handler para los updates `chat_member`. Llamar antes de `start`. */
+    onChatMember(handler: (update: ChatMemberUpdate) => void): void {
+        this.bot.on('chat_member', (ctx) => {
+            handler({
+                chatId: ctx.chatMember.chat.id,
+                userId: ctx.chatMember.new_chat_member.user.id,
+                status: ctx.chatMember.new_chat_member.status,
+            });
+        });
     }
 
     async getProfilePhotoPath(telegramId: number): Promise<string | undefined> {
@@ -102,21 +119,6 @@ export class TelegramBotService {
             return file.file_path ?? null;
         });
         return path ?? undefined;
-    }
-
-    /** Miembro si es creador, administrador, miembro, o restringido que sigue en el grupo. */
-    async isMember(telegramId: number): Promise<boolean> {
-        const member = await this.getMemberFromGroup(telegramId);
-        switch (member.status) {
-            case 'creator':
-            case 'administrator':
-            case 'member':
-                return true;
-            case 'restricted':
-                return member.is_member;
-            default:
-                return false;
-        }
     }
 
     async getProfilePhotoPathByFileId(fileId: string): Promise<string | undefined> {

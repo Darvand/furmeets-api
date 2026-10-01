@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { Group } from '../src/members/infraestructure/schemas/group.schema';
 import { User } from '../src/members/infraestructure/schemas/user.schema';
 import { toUUIDString } from '../src/shared/infraestructure/mongo-uuid';
+import type { ChatMemberUpdate } from '../src/telegram-bot/telegram-bot.service';
 import { createTestApp, TEST_GROUP_ID, TestApp, tmaAuth } from './helpers/app';
 
 const TELEGRAM_DELAY_MS = 2_000;
@@ -36,7 +37,7 @@ describe('POST /groups/sync (e2e)', () => {
     users = testApp.app.get<Model<User>>(getModelToken(User.name));
 
     const tg = testApp.telegramBot;
-    tg.isMember.mockResolvedValue(true);
+    tg.getMemberFromGroup.mockResolvedValue({ status: 'member' });
     tg.getBotInfo.mockResolvedValue(BOT);
     tg.getGroup.mockResolvedValue(TELEGRAM_GROUP);
     tg.getProfilePhotoPathByFileId.mockResolvedValue('photos/group.jpg');
@@ -49,7 +50,17 @@ describe('POST /groups/sync (e2e)', () => {
 
   const memberIds = async () => {
     const group = await groups.findOne().lean();
-    return (group?.members ?? []).map((id) => toUUIDString(id));
+    return (group?.members ?? []).map((id) =>
+      toUUIDString(id as unknown as string),
+    );
+  };
+
+  /** Simula el update `chat_member` que Telegram envía al bot. */
+  const chatMemberUpdate = (userId: number, status: string) => {
+    const [[handler]] = testApp.telegramBot.onChatMember.mock.calls as [
+      [(update: ChatMemberUpdate) => void],
+    ];
+    handler({ chatId: Number(TEST_GROUP_ID), userId, status });
   };
 
   it('primer arranque: crea el grupo desde Telegram y agrega al miembro', async () => {
@@ -88,8 +99,11 @@ describe('POST /groups/sync (e2e)', () => {
     expect(await memberIds()).toContain(toUUIDString(beto!._id));
   });
 
-  it('si deja de ser miembro en Telegram, sale del grupo', async () => {
-    testApp.telegramBot.isMember.mockResolvedValueOnce(false);
+  it('si lo expulsan en Telegram, sale del grupo en la siguiente petición', async () => {
+    testApp.telegramBot.getMemberFromGroup.mockResolvedValueOnce({
+      status: 'kicked',
+    });
+    chatMemberUpdate(6001, 'kicked');
 
     await request(server)
       .post('/groups/sync')
@@ -102,7 +116,10 @@ describe('POST /groups/sync (e2e)', () => {
   });
 
   it('si Telegram falla, responde igual con la membresía guardada', async () => {
-    testApp.telegramBot.isMember.mockRejectedValueOnce(new Error('caído'));
+    testApp.telegramBot.getMemberFromGroup.mockRejectedValueOnce(
+      new Error('caído'),
+    );
+    chatMemberUpdate(6002, 'member');
 
     await request(server)
       .post('/groups/sync')

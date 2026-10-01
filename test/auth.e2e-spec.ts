@@ -176,7 +176,7 @@ describe('Autenticación HTTP por initData (e2e)', () => {
     it('la identidad sale del initData, no de la ruta: POST /groups/sync sincroniza al usuario autenticado', async () => {
       const sync = jest
         .spyOn(testApp.app.get(GroupsService), 'sync')
-        .mockResolvedValue();
+        .mockResolvedValue(true);
 
       await request(server)
         .post('/groups/sync')

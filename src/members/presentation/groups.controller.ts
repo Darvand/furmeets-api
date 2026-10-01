@@ -14,6 +14,7 @@ export class GroupsController {
         return GroupMapper.toDto(group);
     }
 
+    /** @deprecated Arranque de la App actual; `GET /me` lo reemplaza (T07 deja de usarlo). */
     @Post('sync')
     async sync(@Req() req: CustomRequest): Promise<void> {
         await this.groupsService.sync(req.user);
