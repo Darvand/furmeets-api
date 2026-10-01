@@ -45,6 +45,10 @@ describe('Autenticación del socket por initData (e2e)', () => {
 
   beforeAll(async () => {
     testApp = await createTestApp();
+    // Beto es miembro del grupo; Ana es solicitante.
+    testApp.telegramBot.getMemberFromGroup.mockImplementation((id: number) =>
+      Promise.resolve({ status: id === BETO.id ? 'member' : 'left' }),
+    );
     await testApp.app.listen(0);
     const server = testApp.app.getHttpServer() as Server;
     const { port } = server.address() as AddressInfo;
@@ -88,7 +92,7 @@ describe('Autenticación del socket por initData (e2e)', () => {
     await expect(connected(socket)).resolves.toBeUndefined();
   });
 
-  it('un mensaje con userUUID ajeno queda a nombre del usuario autenticado', async () => {
+  it('un mensaje de un miembro con userUUID ajeno queda a su nombre', async () => {
     const ana = await authenticate(ANA);
     const requestChat = RequestChatEntity.asNew(ana, 'furros', 'Instagram');
     const chats = testApp.app.get<ChatRepository>(
