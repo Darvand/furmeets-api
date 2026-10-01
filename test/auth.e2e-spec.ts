@@ -74,12 +74,12 @@ describe('Autenticación HTTP por initData (e2e)', () => {
 
     it('solo con x-telegram-id, aunque el usuario exista', async () => {
       await request(server)
-        .get('/request-chats')
+        .get(`/users/${user.id}`)
         .set('Authorization', tmaAuth(user))
         .expect(200);
 
       await request(server)
-        .get('/request-chats')
+        .get(`/users/${user.id}`)
         .set('x-telegram-id', String(user.id))
         .expect(401);
     });

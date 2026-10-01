@@ -3,7 +3,7 @@ import { Role } from 'src/membership/domain/role';
 import { UserEntity } from '../domain/entities/user.entity';
 import { GroupRepository } from '../domain/services/group.repository';
 import { TelegramIdentity } from '../domain/value-objects/telegram-identity.value-object';
-import { GroupsService, MEMBERSHIP_DEADLINE_MS } from './groups.service';
+import { GroupsService } from './groups.service';
 import { UserService } from './user.service';
 
 const TELEGRAM_DELAY_MS = 2_000;
@@ -35,17 +35,17 @@ function setup(storedIsMember = false) {
     refreshBotUser: jest.fn(() => slow(undefined)),
     refreshAvatar: jest.fn(() => slow(undefined)),
   };
-  // Rol según Telegram: con la caché caliente responde al instante.
-  const getRole = jest.fn<Promise<Role>, [number]>(() =>
+  // Rol resuelto (caché, plazo y respaldo viven en MembershipService).
+  const resolveRole = jest.fn<Promise<Role>, [UserEntity]>(() =>
     Promise.resolve('member'),
   );
 
   const service = new GroupsService(
     groupRepository as GroupRepository,
     userService as unknown as UserService,
-    { getRole } as unknown as MembershipService,
+    { resolveRole } as unknown as MembershipService,
   );
-  return { service, user, groupRepository, userService, getRole };
+  return { service, user, groupRepository, userService, resolveRole };
 }
 
 /** Indica si la promesa ya terminó, sin avanzar los timers. */
@@ -76,25 +76,16 @@ describe('GroupsService.sync', () => {
     expect(userService.refreshBotUser).toHaveBeenCalledTimes(1);
   });
 
-  it('si la membresía tarda, espera como máximo el plazo y usa la guardada', async () => {
-    const { service, user, getRole, groupRepository } = setup(true);
-    getRole.mockImplementation(() => slow<Role>('applicant'));
+  it('guarda la membresía según el rol resuelto y la devuelve', async () => {
+    const { service, user, resolveRole, groupRepository, userService } =
+      setup(true);
+    resolveRole.mockResolvedValue('applicant');
 
-    const sync = service.sync(user);
-    expect(await isSettled(sync)).toBe(false);
-    jest.advanceTimersByTime(MEMBERSHIP_DEADLINE_MS);
-    await sync;
+    expect(await service.sync(user)).toBe(false);
 
-    expect(groupRepository.setMember).toHaveBeenCalledWith(user, true);
-  });
-
-  it('si Telegram falla, usa la membresía guardada', async () => {
-    const { service, user, getRole, groupRepository } = setup(false);
-    getRole.mockRejectedValue(new Error('Telegram caído'));
-
-    await service.sync(user);
-
+    expect(resolveRole).toHaveBeenCalledWith(user);
     expect(groupRepository.setMember).toHaveBeenCalledWith(user, false);
+    expect(userService.updateMembership).toHaveBeenCalledWith(user, false);
   });
 
   it('refresca grupo, bot y avatar como máximo una vez por TTL', async () => {

@@ -237,12 +237,12 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Decoradores/guards `@MembersOnly()` y `@OwnerOrMember()` para HTTP y socket. El gateway une a cada socket solo a `request-chat:<id>` autorizado y, si es miembro, a `members`. Se elimina `server.emit` global.
 
 **Acceptance criteria:**
-- [ ] Solicitante pidiendo la solicitud de otro → 403; solicitante votando → 403 (incluye al miembro recién expulsado, RNF-SEG-10)
-- [ ] Un solicitante conectado no recibe eventos de otras solicitudes
-- [ ] No queda ningún `server.emit` sin `.to(...)`
+- [x] Solicitante pidiendo la solicitud de otro → 403; solicitante votando → 403 (incluye al miembro recién expulsado, RNF-SEG-10)
+- [x] Un solicitante conectado no recibe eventos de otras solicitudes
+- [x] No queda ningún `server.emit` sin `.to(...)`
 
 **Verification:**
-- [ ] e2e: matriz rol × endpoint/evento (criterios de éxito 2 y 4)
+- [x] e2e: matriz rol × endpoint/evento (criterios de éxito 2 y 4)
 
 **Dependencies:** T04, T05
 

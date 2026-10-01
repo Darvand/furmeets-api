@@ -15,5 +15,7 @@ export interface ChatRepository {
     chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean>;
     /** Id y estado de la solicitud del usuario, sin cargar mensajes ni votos. */
     findSummaryByRequester(requesterUUID: UUID): Promise<RequestChatSummary | null>;
+    /** Solo el solicitante de una solicitud (para autorizar), sin cargar el resto. */
+    findRequesterId(id: UUID): Promise<UUID | null>;
     getAllRequestChats(): Promise<RequestChatEntity[]>;
 }

@@ -7,14 +7,7 @@ import { UserService } from "./user.service";
 import { TELEGRAM_CACHE_TTL_MS } from "src/telegram-bot/telegram-bot.service";
 import { MembershipService } from "src/membership/application/membership.service";
 import { Roles } from "src/membership/domain/role";
-import { withDeadline } from "src/shared/async/deadline";
 import { BackgroundRefresh } from "src/shared/async/background-refresh";
-
-/**
- * Lo máximo que una petición espera la membresía con la caché fría (RNF-REN-08). Si
- * vence, se usa la membresía guardada y la consulta termina de llenar la caché.
- */
-export const MEMBERSHIP_DEADLINE_MS = 1_000;
 
 @Injectable()
 export class GroupsService {
@@ -43,7 +36,7 @@ export class GroupsService {
      * (RNF-REN-03, REN-08).
      */
     async sync(user: UserEntity): Promise<boolean> {
-        const isMember = await this.resolveMembership(user);
+        const isMember = (await this.membershipService.resolveRole(user)) === Roles.Member;
         const [groupExists] = await Promise.all([
             this.groupRepository.setMember(user, isMember),
             this.userService.updateMembership(user, isMember),
@@ -69,16 +62,5 @@ export class GroupsService {
                 this.background.schedule(`avatar:${user.telegramId}`, () => this.userService.refreshAvatar(user)),
             ].filter((task): task is Promise<void> => task !== undefined),
         );
-    }
-
-    private async resolveMembership(user: UserEntity): Promise<boolean> {
-        try {
-            const role = await withDeadline(this.membershipService.getRole(user.telegramId), MEMBERSHIP_DEADLINE_MS);
-            return role === Roles.Member;
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Membresía de Telegram no disponible (${reason}); se usa la guardada`);
-            return user.isMember;
-        }
     }
 }

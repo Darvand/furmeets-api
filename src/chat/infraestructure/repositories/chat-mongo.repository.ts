@@ -74,4 +74,12 @@ export class ChatMongoRepository implements ChatRepository {
             state: RequestChatState.create(doc.state).props.value,
         };
     }
+
+    async findRequesterId(id: UUID): Promise<UUID | null> {
+        const doc = await this.requestChatModel
+            .findOne({ _id: id.value }, { requester: 1 })
+            .lean<{ requester: Parameters<typeof toUUIDString>[0] }>()
+            .exec();
+        return doc ? UUID.from(toUUIDString(doc.requester)) : null;
+    }
 }

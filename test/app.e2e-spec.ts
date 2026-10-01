@@ -8,11 +8,24 @@ import { createTestApp, TestApp, tmaAuth } from './helpers/app';
 describe('App (e2e)', () => {
   let testApp: TestApp;
   let server: App;
-  const auth = tmaAuth({ id: 1001, first_name: 'Ana' });
+  const MEMBER_ID = 1001;
+  /** Ana es miembro (puede votar). */
+  const auth = tmaAuth({ id: MEMBER_ID, first_name: 'Ana' });
+  /** Beto es solicitante (puede crear su solicitud). */
+  const applicantAuth = tmaAuth({ id: 1002, first_name: 'Beto' });
 
   beforeAll(async () => {
     testApp = await createTestApp();
     server = testApp.app.getHttpServer() as App;
+    const tg = testApp.telegramBot;
+    tg.getMemberFromGroup.mockImplementation((id: number) =>
+      Promise.resolve({ status: id === MEMBER_ID ? 'member' : 'left' }),
+    );
+    tg.getBotInfo.mockResolvedValue({
+      id: 999,
+      is_bot: true,
+      first_name: 'FurBot',
+    });
   });
 
   afterAll(async () => {
@@ -46,7 +59,7 @@ describe('App (e2e)', () => {
     it('POST /request-chats con campos no declarados en el DTO → 400', async () => {
       const res = await request(server)
         .post('/request-chats')
-        .set('Authorization', auth)
+        .set('Authorization', applicantAuth)
         .send({ requesterUUID: randomUUID(), isAdmin: true })
         .expect(400);
 
@@ -58,7 +71,7 @@ describe('App (e2e)', () => {
     it('POST /request-chats con tipos inválidos → 400', async () => {
       await request(server)
         .post('/request-chats')
-        .set('Authorization', auth)
+        .set('Authorization', applicantAuth)
         .send({ requesterUUID: 123, interests: ['a'] })
         .expect(400);
     });
@@ -73,12 +86,20 @@ describe('App (e2e)', () => {
         .expect(404);
     });
 
-    it('POST /request-chats con el body de la mini-app llega al servicio (404: requester no existe)', async () => {
+    it('POST /request-chats con el body de la mini-app crea la solicitud del solicitante', async () => {
+      const me = await request(server)
+        .get('/users/1002')
+        .set('Authorization', applicantAuth)
+        .expect(200);
+
       await request(server)
         .post('/request-chats')
-        .set('Authorization', auth)
-        .send({ requesterUUID: randomUUID(), interests: 'furros' })
-        .expect(404);
+        .set('Authorization', applicantAuth)
+        .send({
+          requesterUUID: (me.body as { uuid: string }).uuid,
+          interests: 'furros',
+        })
+        .expect(201);
     });
   });
 });
