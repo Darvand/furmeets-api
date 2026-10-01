@@ -17,17 +17,6 @@ export class GroupMapper {
         return groupEntity;
     }
 
-    static toPersistence(group: GroupEntity): Group {
-        return {
-            _id: group.id.value,
-            telegramId: group.props.telegramId,
-            name: group.props.name,
-            photoUrl: group.props.photoUrl,
-            description: group.props.description,
-            members: group.props.members.map(member => member.id.value) as any[],
-        };
-    }
-
     static toDto(group: GroupEntity): GetGroupDto {
         return {
             uuid: group.id.value,

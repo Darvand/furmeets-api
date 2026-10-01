@@ -182,12 +182,12 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - Elegir el tamaño de foto más pequeño adecuado para avatares (no el de 640 px) y tolerar fotos con menos tamaños.
 
 **Acceptance criteria:**
-- [ ] Ninguna ruta usada al arrancar espera una llamada a Telegram con la caché caliente
-- [ ] `getMe` no se llama después del arranque del bot
-- [ ] Si Telegram tarda o falla, la App carga igual con los datos guardados
+- [x] Ninguna ruta usada al arrancar espera una llamada a Telegram con la caché caliente
+- [x] `getMe` no se llama después del arranque del bot
+- [x] Si Telegram tarda o falla, la App carga igual con los datos guardados
 
 **Verification:**
-- [ ] Unitarias con un cliente de Telegram simulado que tarda 2 s: la respuesta no espera
+- [x] Unitarias con un cliente de Telegram simulado que tarda 2 s: la respuesta no espera
 - [ ] Logs de T37: duración del arranque antes y después
 
 **Dependencies:** T03

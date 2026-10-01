@@ -13,9 +13,12 @@ export interface UserRepository {
     getByUUID(uuid: UUID): Promise<UserEntity | null>;
     save(user: UserEntity): Promise<UserEntity>;
     getByTelegramId(telegramId: number): Promise<UserEntity | null>;
-    sync(telegramId: number): Promise<UserEntity>;
     /** Inserta un usuario nuevo. Lanza `DuplicateUserError` si su `telegramId` ya existe. */
     create(user: UserEntity): Promise<UserEntity>;
     /** Persiste solo nombre y usuario de Telegram (ver `UserEntity.refreshFrom`). */
     updateTelegramProfile(user: UserEntity): Promise<void>;
+    /** Persiste solo `isMember` (ver `UserEntity.updateMembership`). */
+    updateMembership(user: UserEntity): Promise<void>;
+    /** Persiste solo el avatar (ver `UserEntity.changeAvatar`). */
+    updateAvatar(user: UserEntity): Promise<void>;
 }
