@@ -5,10 +5,36 @@ import telegramBotConfig from './telegram-bot.config';
 import type { ConfigType } from '@nestjs/config';
 import { inspect } from 'util';
 import { telegramTimingTransformer } from '../shared/timing/telegram-timing';
+import type { ChatFullInfo, ChatMember, PhotoSize, UserFromGetMe } from 'grammy/types';
+import { TtlCache } from '../shared/cache/ttl-cache';
 
+/** Vigencia de lo que se cachea de Telegram (RNF-REN-03). */
+export const TELEGRAM_CACHE_TTL_MS = 10 * 60 * 1000;
+const TELEGRAM_CACHE_MAX_ENTRIES = 1_000;
+
+/** Lado mínimo de la foto de avatar: la App los muestra a 48–96 px. */
+export const AVATAR_MIN_SIZE_PX = 160;
+
+/**
+ * Elige el tamaño más pequeño que sirva como avatar (no el de 640 px). Telegram no
+ * garantiza cuántos tamaños trae una foto: si ninguno alcanza el mínimo, usa el más grande.
+ */
+export function pickAvatarSize(sizes: PhotoSize[]): PhotoSize | undefined {
+    const bySide = [...sizes].sort((a, b) => Math.min(a.width, a.height) - Math.min(b.width, b.height));
+    return bySide.find((size) => Math.min(size.width, size.height) >= AVATAR_MIN_SIZE_PX) ?? bySide.at(-1);
+}
+
+/**
+ * Adaptador de Telegram. Lo que se consulta seguido (membresía, grupo, fotos) se cachea
+ * en memoria por `TELEGRAM_CACHE_TTL_MS`, y la info del bot sale de `bot.botInfo`, que
+ * grammY obtiene una sola vez al iniciar (`getMe` no se vuelve a llamar).
+ */
 export class TelegramBotService {
     private readonly bot: Bot;
     private readonly logger = new Logger(TelegramBotService.name);
+    private readonly members = new TtlCache<number, ChatMember>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: TELEGRAM_CACHE_MAX_ENTRIES });
+    private readonly profilePhotoPaths = new TtlCache<number, string | null>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: TELEGRAM_CACHE_MAX_ENTRIES });
+    private readonly group = new TtlCache<'group', ChatFullInfo>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: 1 });
     constructor(
         @Inject(telegramBotConfig.KEY)
         private readonly config: ConfigType<typeof telegramBotConfig>,
@@ -48,28 +74,49 @@ export class TelegramBotService {
         this.logger.debug(`Commands set: ${inspect(commands)}`);
     }
 
-    async getMemberFromGroup(telegramId: number) {
-        return this.bot.api.getChatMember(this.config.mainChatId, telegramId);
+    /** Info del bot. Tras el arranque no llama a Telegram; `init` comparte la llamada en curso. */
+    async getBotInfo(): Promise<UserFromGetMe> {
+        await this.bot.init();
+        return this.bot.botInfo;
     }
 
-    async getBotMemberFromGroup() {
-        const bot = await this.bot.api.getMe();
-        return this.bot.api.getChatMember(this.config.mainChatId, bot.id);
+    async getMemberFromGroup(telegramId: number): Promise<ChatMember> {
+        return this.members.getOrLoad(telegramId, () =>
+            this.bot.api.getChatMember(this.config.mainChatId, telegramId),
+        );
+    }
+
+    async getBotMemberFromGroup(): Promise<ChatMember> {
+        const bot = await this.getBotInfo();
+        return this.getMemberFromGroup(bot.id);
     }
 
     async getProfilePhotoPath(telegramId: number): Promise<string | undefined> {
-        const profilePhotos = await this.bot.api.getUserProfilePhotos(telegramId);
-        if (profilePhotos.total_count === 0) {
-            return undefined;
-        }
-        const photoSizes = profilePhotos.photos[0][2];
-        const file = await this.bot.api.getFile(photoSizes.file_id);
-        return file.file_path;
+        const path = await this.profilePhotoPaths.getOrLoad(telegramId, async () => {
+            const profilePhotos = await this.bot.api.getUserProfilePhotos(telegramId, { limit: 1 });
+            const size = pickAvatarSize(profilePhotos.photos[0] ?? []);
+            if (!size) {
+                return null;
+            }
+            const file = await this.bot.api.getFile(size.file_id);
+            return file.file_path ?? null;
+        });
+        return path ?? undefined;
     }
 
+    /** Miembro si es creador, administrador, miembro, o restringido que sigue en el grupo. */
     async isMember(telegramId: number): Promise<boolean> {
         const member = await this.getMemberFromGroup(telegramId);
-        return member.status === 'member' || member.status === 'administrator' || member.status === 'creator';
+        switch (member.status) {
+            case 'creator':
+            case 'administrator':
+            case 'member':
+                return true;
+            case 'restricted':
+                return member.is_member;
+            default:
+                return false;
+        }
     }
 
     async getProfilePhotoPathByFileId(fileId: string): Promise<string | undefined> {
@@ -77,8 +124,8 @@ export class TelegramBotService {
         return file.file_path;
     }
 
-    async getGroup() {
-        return this.bot.api.getChat(this.config.mainChatId);
+    async getGroup(): Promise<ChatFullInfo> {
+        return this.group.getOrLoad('group', () => this.bot.api.getChat(this.config.mainChatId));
     }
 
     async sendMessageToGroup(text: string): Promise<void> {
