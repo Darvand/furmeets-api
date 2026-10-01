@@ -9,6 +9,7 @@ import { DatabaseModule } from "src/database/database.module";
 import { ChatService } from "./application/chat.service";
 import { RequestChatController } from "./presentation/request-chat.controller";
 import { TelegramBotModule } from "src/telegram-bot/telegram-bot.module";
+import { AuthModule } from "src/auth/auth.module";
 
 @Module({
     providers: [
@@ -23,6 +24,7 @@ import { TelegramBotModule } from "src/telegram-bot/telegram-bot.module";
     imports: [
         DatabaseModule,
         MembersModule,
+        AuthModule,
         TelegramBotModule,
         MongooseModule.forFeature([
             { name: RequestChat.name, schema: RequestChatSchema },
