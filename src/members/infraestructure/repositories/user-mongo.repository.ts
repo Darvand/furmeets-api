@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { UserRepository } from "src/members/domain/services/user.repository";
+import { TelegramProfile, UserRepository } from "src/members/domain/services/user.repository";
 import { User } from "../schemas/user.schema";
-import { Model } from "mongoose";
+import { Model, UpdateQuery } from "mongoose";
 import { UserEntity } from "src/members/domain/entities/user.entity";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import { UserMapper } from "src/members/mappers/user.mapper";
@@ -43,6 +43,39 @@ export class UserMongoRepository implements UserRepository {
         if (!userDoc) {
             return null;
         }
+        return UserMapper.fromDb(userDoc);
+    }
+
+    /**
+     * Crea o actualiza al usuario con los datos firmados de `initData` en una sola
+     * operación. Nombre y usuario se refrescan siempre; el avatar solo se usa al crear
+     * (la sincronización con el bot guarda uno propio). `isMember`, especie y fecha de
+     * nacimiento no se tocan.
+     */
+    async upsertFromTelegram(profile: TelegramProfile): Promise<UserEntity> {
+        const update: UpdateQuery<User> = {
+            $set: { name: profile.name },
+            $setOnInsert: {
+                _id: UUID.generate().value,
+                telegramId: profile.telegramId,
+                isMember: false,
+                createdAt: new Date(),
+                ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
+            },
+        };
+        if (profile.username) {
+            update.$set!.username = profile.username;
+        } else {
+            update.$unset = { username: '' };
+        }
+        const userDoc = await this.userModel
+            .findOneAndUpdate({ telegramId: profile.telegramId }, update, {
+                upsert: true,
+                new: true,
+                setDefaultsOnInsert: false,
+            })
+            .lean<User>()
+            .exec();
         return UserMapper.fromDb(userDoc);
     }
 

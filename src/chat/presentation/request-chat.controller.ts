@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, NotFoundException, Param, Post, Put, Req } from "@nestjs/common";
+import { Body, Controller, Get, NotFoundException, Param, Post, Put, Req } from "@nestjs/common";
 import { ChatService } from "../application/chat.service";
 import { CreateRequestChatDto } from "./dtos/create-request-chat.dto";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";

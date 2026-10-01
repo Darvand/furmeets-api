@@ -2,9 +2,7 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { MEMBERS_PROVIDERS } from "../members.providers";
 import { UserEntity } from "../domain/entities/user.entity";
 import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
-import type { UserRepository } from "../domain/services/user.repository";
-import { UserMapper } from "../mappers/user.mapper";
-import { CreateUserDto } from "../presentation/dtos/create-user.dto";
+import type { TelegramProfile, UserRepository } from "../domain/services/user.repository";
 import { TelegramBotService } from "src/telegram-bot/telegram-bot.service";
 
 @Injectable()
@@ -27,9 +25,8 @@ export class UserService {
         return user;
     }
 
-    async createUser(createUserDto: CreateUserDto): Promise<UserEntity> {
-        const user = UserMapper.fromDtoToDomain(createUserDto);
-        return this.userRepository.save(user);
+    async upsertFromTelegram(profile: TelegramProfile): Promise<UserEntity> {
+        return this.userRepository.upsertFromTelegram(profile);
     }
 
     async getBotUser(): Promise<UserEntity> {

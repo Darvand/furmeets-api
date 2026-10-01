@@ -2,7 +2,6 @@ import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import { Species, UserEntity } from "../domain/entities/user.entity";
 import { User } from "../infraestructure/schemas/user.schema";
 import { GetUserDto } from "../presentation/dtos/get-user.dto";
-import { CreateUserDto } from "../presentation/dtos/create-user.dto";
 import { toUUIDString } from "src/shared/infraestructure/mongo-uuid";
 
 export class UserMapper {
@@ -44,18 +43,5 @@ export class UserMapper {
             birthdate: user.birthdate,
             species: user.species,
         }
-    }
-
-    static fromDtoToDomain(createUserDto: CreateUserDto): UserEntity {
-        const userEntity = UserEntity.create({
-            username: createUserDto.username,
-            name: createUserDto.name,
-            avatarUrl: createUserDto.avatarUrl,
-            telegramId: createUserDto.telegramId,
-            birthdate: createUserDto.birthdate,
-            isMember: false,
-        });
-        userEntity.species = createUserDto.species;
-        return userEntity;
     }
 }

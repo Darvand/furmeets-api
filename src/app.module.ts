@@ -7,10 +7,12 @@ import databaseConfig from './database/database.config';
 import { DatabaseModule } from './database/database.module';
 import { AppController } from './app.controller';
 import { VALIDATION_PIPE_PROVIDER } from './shared/validation/validation';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     DatabaseModule,
+    AuthModule,
     TelegramBotModule,
     ChatModule,
     ConfigModule.forRoot({

@@ -1,4 +1,4 @@
-import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { MEMBERS_PROVIDERS } from "./members.providers";
 import { UserMongoRepository } from "./infraestructure/repositories/user-mongo.repository";
 import { UserService } from "./application/user.service";
@@ -11,7 +11,6 @@ import { GroupsController } from "./presentation/groups.controller";
 import { GroupsService } from "./application/groups.service";
 import { GroupAdapterRepository } from "./infraestructure/repositories/group-adapter.repository";
 import { Group, GroupSchema } from "./infraestructure/schemas/group.schema";
-import { UserMiddleware } from "../shared/middlewares/user.middleware";
 
 @Module({
     providers: [
@@ -43,11 +42,4 @@ import { UserMiddleware } from "../shared/middlewares/user.middleware";
         ])
     ]
 })
-export class MembersModule implements NestModule {
-    configure(consumer: MiddlewareConsumer) {
-        consumer
-            .apply(UserMiddleware)
-            .exclude('groups/sync')
-            .forRoutes(GroupsController, UsersController)
-    }
-}
+export class MembersModule { }

@@ -3,23 +3,16 @@ import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { UserService } from '../src/members/application/user.service';
-import { createTestApp, TestApp } from './helpers/app';
+import { createTestApp, TestApp, tmaAuth } from './helpers/app';
 
 describe('App (e2e)', () => {
   let testApp: TestApp;
   let server: App;
-  const telegramId = 1001;
+  const auth = tmaAuth({ id: 1001, first_name: 'Ana' });
 
   beforeAll(async () => {
     testApp = await createTestApp();
     server = testApp.app.getHttpServer() as App;
-    // Mientras exista `x-telegram-id` (T03 lo reemplaza), las rutas protegidas
-    // necesitan un usuario en BD para llegar a la validación.
-    await testApp.app.get(UserService).createUser({
-      name: 'Ana',
-      telegramId,
-    });
   });
 
   afterAll(async () => {
@@ -42,7 +35,7 @@ describe('App (e2e)', () => {
     it('PUT /request-chats/:id/vote/:type con un tipo inválido → 400', async () => {
       const res = await request(server)
         .put(`/request-chats/${randomUUID()}/vote/maybe`)
-        .set('x-telegram-id', String(telegramId))
+        .set('Authorization', auth)
         .expect(400);
 
       expect((res.body as { message: string[] }).message).toEqual(
@@ -53,7 +46,7 @@ describe('App (e2e)', () => {
     it('POST /request-chats con campos no declarados en el DTO → 400', async () => {
       const res = await request(server)
         .post('/request-chats')
-        .set('x-telegram-id', String(telegramId))
+        .set('Authorization', auth)
         .send({ requesterUUID: randomUUID(), isAdmin: true })
         .expect(400);
 
@@ -65,7 +58,7 @@ describe('App (e2e)', () => {
     it('POST /request-chats con tipos inválidos → 400', async () => {
       await request(server)
         .post('/request-chats')
-        .set('x-telegram-id', String(telegramId))
+        .set('Authorization', auth)
         .send({ requesterUUID: 123, interests: ['a'] })
         .expect(400);
     });
@@ -76,31 +69,16 @@ describe('App (e2e)', () => {
     it('PUT /request-chats/:id/vote/approve llega al servicio (404: no existe)', async () => {
       await request(server)
         .put(`/request-chats/${randomUUID()}/vote/approve`)
-        .set('x-telegram-id', String(telegramId))
+        .set('Authorization', auth)
         .expect(404);
     });
 
     it('POST /request-chats con el body de la mini-app llega al servicio (404: requester no existe)', async () => {
       await request(server)
         .post('/request-chats')
-        .set('x-telegram-id', String(telegramId))
+        .set('Authorization', auth)
         .send({ requesterUUID: randomUUID(), interests: 'furros' })
         .expect(404);
-    });
-
-    it('POST /users con el body de la mini-app → 201', async () => {
-      const res = await request(server)
-        .post('/users')
-        .set('x-telegram-id', String(telegramId))
-        .send({
-          telegramId: 2002,
-          username: 'beto',
-          name: 'Beto',
-          avatarUrl: 'https://t.me/i/userpic/320/beto.jpg',
-        })
-        .expect(201);
-
-      expect(res.body).toMatchObject({ telegramId: 2002, name: 'Beto' });
     });
   });
 });
