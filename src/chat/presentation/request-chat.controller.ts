@@ -40,7 +40,7 @@ export class RequestChatController {
         @Param() { id, type }: VoteRequestChatParamsDto,
         @Req() req: CustomRequest
     ): Promise<GetRequestChatDto> {
-        const updatedRequestChat = await this.chatService.voteOnRequestChat(UUID.from(id), req.user.id, type);
+        const updatedRequestChat = await this.chatService.voteOnRequestChat(UUID.from(id), req.user, type);
         return RequestChatMapper.toDto(updatedRequestChat, req.user);
     }
 }

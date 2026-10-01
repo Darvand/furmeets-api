@@ -155,11 +155,11 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Validar `handshake.auth.initData` al conectar al gateway, con el mismo validador de T03. El autor de cualquier evento es el usuario del socket, nunca un campo del payload.
 
 **Acceptance criteria:**
-- [ ] Conexión sin `initData` válido → desconectada con error
-- [ ] Los handlers ignoran `userUUID` del payload y usan `socket.data.user`
+- [x] Conexión sin `initData` válido → desconectada con error
+- [x] Los handlers ignoran `userUUID` del payload y usan `socket.data.user`
 
 **Verification:**
-- [ ] e2e con `socket.io-client`: conexión inválida rechazada; mensaje con `userUUID` ajeno queda a nombre del usuario autenticado
+- [x] e2e con `socket.io-client`: conexión inválida rechazada; mensaje con `userUUID` ajeno queda a nombre del usuario autenticado
 
 **Dependencies:** T03
 

@@ -18,6 +18,7 @@ export interface ValidInitData {
 }
 
 export type InvalidInitDataReason =
+  | 'missing'
   | 'missing-hash'
   | 'invalid-signature'
   | 'missing-auth-date'

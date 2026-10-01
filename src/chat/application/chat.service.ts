@@ -53,9 +53,8 @@ export class ChatService {
         return requestChat;
     }
 
-    async addMessageToRequestChat(requestChatUUID: UUID, userUUID: UUID, content: string): Promise<RequestChatMessageEntity> {
-        this.logger.debug(`Adding message to request chat UUID: ${requestChatUUID} from user UUID: ${userUUID}`);
-        const user = await this.userService.getUserByUUID(userUUID);
+    async addMessageToRequestChat(requestChatUUID: UUID, user: UserEntity, content: string): Promise<RequestChatMessageEntity> {
+        this.logger.debug(`Adding message to request chat UUID: ${requestChatUUID.value} from user UUID: ${user.id.value}`);
         const requestChat = await this.getRequestChatByUUID(requestChatUUID, user);
         if (!requestChat.isInProgress()) {
             throw new ConflictException(`Cannot add messages to a request chat that is not in progress`);
@@ -81,9 +80,8 @@ export class ChatService {
         return this.requestChatRepository.getAllRequestChats();
     }
 
-    async voteOnRequestChat(requestChatUUID: UUID, userUUID: UUID, type: 'approve' | 'reject'): Promise<RequestChatEntity> {
-        this.logger.debug(`User UUID: ${userUUID} voting on request chat UUID: ${requestChatUUID} with type: ${type}`);
-        const user = await this.userService.getUserByUUID(userUUID);
+    async voteOnRequestChat(requestChatUUID: UUID, user: UserEntity, type: 'approve' | 'reject'): Promise<RequestChatEntity> {
+        this.logger.debug(`User UUID: ${user.id.value} voting on request chat UUID: ${requestChatUUID.value} with type: ${type}`);
         const requestChat = await this.getRequestChatByUUID(requestChatUUID, user);
         if (!requestChat.isInProgress()) {
             throw new ConflictException(`Cannot vote on a request chat that is not in progress`);
