@@ -8,7 +8,11 @@ import { httpTimingMiddleware } from './shared/interceptors/timing.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: process.env.LOGGER_OPTIONS?.split(',') as any || ['error', 'warn', 'log'],
+    logger: (process.env.LOGGER_OPTIONS?.split(',') as any) || [
+      'error',
+      'warn',
+      'log',
+    ],
   });
   app.use(httpTimingMiddleware);
   app.enableCors({
@@ -20,7 +24,7 @@ async function bootstrap() {
   app.connectMicroservice(
     { strategy: new TelegramBotServer(bot, config) },
     { inheritAppConfig: true },
-  )
+  );
   await app.listen(process.env.PORT ?? 3000);
   await app.startAllMicroservices();
   Logger.log(`Application is running on: ${await app.getUrl()}`);

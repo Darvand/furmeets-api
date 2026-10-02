@@ -19,10 +19,10 @@ import { MeModule } from './membership/me.module';
     MeModule,
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [telegramBotConfig, databaseConfig]
-    })
+      load: [telegramBotConfig, databaseConfig],
+    }),
   ],
   controllers: [AppController],
   providers: [VALIDATION_PIPE_PROVIDER],
 })
-export class AppModule { }
+export class AppModule {}
