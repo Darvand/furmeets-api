@@ -12,14 +12,16 @@ import { RequestChatVoteEntity } from '../domain/entities/request-chat-vote.enti
 import { DateTime } from 'luxon';
 import { ChatDate } from '../domain/value-objects/chat-date.value-object';
 import { ChatMessageViewedByEntity } from '../domain/entities/chat-message-viewed-by.entity';
+import { User } from 'src/members/infraestructure/schemas/user.schema';
+import { uuidRef } from 'src/shared/infraestructure/mongo-uuid';
 
 export class RequestChatMapper {
   static toDb(requestChat: RequestChatEntity): RequestChat {
     return {
       _id: requestChat.id.value,
-      requester: requestChat.props.requester.id.value as any,
+      requester: uuidRef<User>(requestChat.props.requester.id.value),
       votes: requestChat.props.votes.map((vote) => ({
-        from: vote.props.user.id.value as any,
+        from: uuidRef<User>(vote.props.user.id.value),
         type: vote.props.type,
       })),
       state: requestChat.state,
@@ -40,7 +42,7 @@ export class RequestChatMapper {
         votes: dbRequestChat.votes.map((vote) =>
           RequestChatVoteEntity.create({
             user: UserMapper.fromDb(vote.from),
-            type: vote.type as any,
+            type: vote.type as 'approve' | 'reject',
             createdAt: DateTime.fromJSDate(vote.createdAt!),
           }),
         ),

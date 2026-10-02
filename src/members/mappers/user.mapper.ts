@@ -1,5 +1,5 @@
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
-import { Species, UserEntity } from '../domain/entities/user.entity';
+import { UserEntity } from '../domain/entities/user.entity';
 import { User } from '../infraestructure/schemas/user.schema';
 import { GetUserDto } from '../presentation/dtos/get-user.dto';
 import { toUUIDString } from 'src/shared/infraestructure/mongo-uuid';

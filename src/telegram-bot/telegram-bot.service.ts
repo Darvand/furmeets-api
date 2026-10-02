@@ -1,4 +1,5 @@
-import { Bot, InputFile, webhookCallback } from 'grammy';
+import { Bot, InputFile } from 'grammy';
+import type { CommandContext, Context } from 'grammy';
 import { Command } from './telegram-bot.server';
 import { Inject, Logger } from '@nestjs/common';
 import telegramBotConfig from './telegram-bot.config';
@@ -81,27 +82,27 @@ export class TelegramBotService {
   }
 
   start() {
-    this.bot.on('message', async (ctx) => {
+    this.bot.on('message', (ctx) => {
       this.logger.debug(
         `User with id ${ctx.message.from.id} sent a message: ${ctx.message.text}`,
       );
     });
-    this.bot.on(':new_chat_members', async (ctx) => {
+    this.bot.on(':new_chat_members', (ctx) => {
       this.logger.debug(`New members in chat ${ctx.chat.id}: ${inspect(ctx)}`);
     });
     this.bot.catch((err) => {
       this.logger.error('Bot Error: ', err);
     });
-    this.bot.start({ allowed_updates: ALLOWED_UPDATES });
+    void this.bot.start({ allowed_updates: ALLOWED_UPDATES });
     this.logger.log('Bot started');
   }
 
-  command(pattern: string, handler: (ctx: any) => void) {
+  command(pattern: string, handler: (ctx: CommandContext<Context>) => unknown) {
     this.bot.command(pattern, handler);
   }
 
   stop() {
-    this.bot.stop();
+    void this.bot.stop();
   }
 
   async setCommands(commands: Command[]) {

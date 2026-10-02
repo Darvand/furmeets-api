@@ -60,7 +60,7 @@ export class ChatMongoRepository implements ChatRepository {
       .populate('votes.from')
       .populate('messages.viewedBy.by')
       .exec();
-    return dbRequestChats.map(RequestChatMapper.fromDb);
+    return dbRequestChats.map((doc) => RequestChatMapper.fromDb(doc));
   }
 
   async chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean> {

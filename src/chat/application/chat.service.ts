@@ -17,7 +17,6 @@ import { UserService } from 'src/members/application/user.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { CreateRequestChatDto } from '../presentation/dtos/create-request-chat.dto';
 import { DateTime } from 'luxon';
-import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
 import { ChatMessageViewedByEntity } from '../domain/entities/chat-message-viewed-by.entity';
 import { ChatDate } from '../domain/value-objects/chat-date.value-object';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
@@ -53,7 +52,7 @@ export class ChatService {
       );
     if (alreadyExisting) {
       throw new ConflictException(
-        `User with ID ${requester.id} has already created a request chat`,
+        `User with ID ${requester.id.value} has already created a request chat`,
       );
     }
     const requestChat = RequestChatEntity.asNew(
@@ -67,7 +66,7 @@ export class ChatService {
     await this.telegramBotService.sendMessageToGroup(
       requestChat.announceWelcomeMesssage(),
     );
-    await this.chatGateway.emitNewRequestChat(requestChat, requester);
+    this.chatGateway.emitNewRequestChat(requestChat, requester);
     return requestChat;
   }
 
@@ -78,7 +77,7 @@ export class ChatService {
     const requestChat =
       await this.requestChatRepository.getRequestChatByUUID(id);
     if (!requestChat) {
-      throw new NotFoundException(`RequestChat with ID ${id} not found`);
+      throw new NotFoundException(`RequestChat with ID ${id.value} not found`);
     }
     requestChat.markLastMessageViewedBy(viewer);
     await this.requestChatRepository.saveRequestChat(requestChat);
@@ -154,7 +153,7 @@ export class ChatService {
     });
     requestChat.addVote(voteEntity);
     if (requestChat.isApproved()) {
-      await this.chatGateway.emitRequestChatUpdate(requestChat, user);
+      this.chatGateway.emitRequestChatUpdate(requestChat, user);
       requestChat.addApprovedMessage(await this.userService.getBotUser());
       await this.telegramBotService.sendMessageToGroup(
         requestChat.announceApproval(),
@@ -167,7 +166,7 @@ export class ChatService {
       await this.telegramBotService.sendMessageToGroup(
         requestChat.announceRejection(),
       );
-      await this.chatGateway.emitRequestChatUpdate(requestChat, user);
+      this.chatGateway.emitRequestChatUpdate(requestChat, user);
       requestChat.addRejectedMessage(await this.userService.getBotUser());
     }
     await this.requestChatRepository.saveRequestChat(requestChat);

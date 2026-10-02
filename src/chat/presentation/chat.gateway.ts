@@ -114,20 +114,17 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     );
   }
 
-  async emitRequestChatUpdate(
+  emitRequestChatUpdate(
     requestChat: RequestChatEntity,
     user: UserEntity,
-  ): Promise<void> {
+  ): void {
     this.toRequestChat(requestChat.id.value).emit(
       'request-chat-update',
       RequestChatMapper.toDto(requestChat, user),
     );
   }
 
-  async emitNewRequestChat(
-    requestChat: RequestChatEntity,
-    viewer: UserEntity,
-  ): Promise<void> {
+  emitNewRequestChat(requestChat: RequestChatEntity, viewer: UserEntity): void {
     // Los sockets ya abiertos del solicitante pasan a la sala de su nueva solicitud.
     this.server
       .in(userRoom(requestChat.props.requester.telegramId))

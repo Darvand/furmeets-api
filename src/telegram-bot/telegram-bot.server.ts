@@ -35,20 +35,20 @@ export class TelegramBotServer
     throw new Error('Method not implemented.');
   }
 
-  on(event: string, callback: Function) {
+  on(): never {
     throw new Error('Method not implemented.');
   }
 
   async bindHandlers(): Promise<void> {
     this.messageHandlers.forEach((handler, command) => {
       this.logger.log(`Handling command: ${command}`);
-      const pattern = JSON.parse(command).command;
+      const { command: pattern } = JSON.parse(command) as Command;
       this.bot.command(pattern, handler);
     });
     this.logger?.debug?.(`Bound ${this.messageHandlers.size} message handlers`);
     await this.bot.setCommands(
-      Array.from(this.messageHandlers.keys()).map<Command>((command) =>
-        JSON.parse(command),
+      Array.from(this.messageHandlers.keys()).map<Command>(
+        (command) => JSON.parse(command) as Command,
       ),
     );
   }

@@ -12,3 +12,13 @@ export function toUUIDString(value: string | mongo.Binary): string {
   }
   return value.toUUID().toHexString();
 }
+
+/**
+ * Referencia a otro documento por su UUID para guardarla en Mongo.
+ *
+ * Los esquemas tipan estos campos con la forma poblada (`populate`), pero lo que se
+ * guarda es el UUID: este helper hace explícita esa conversión de tipos.
+ */
+export function uuidRef<T>(uuid: string): T {
+  return uuid as unknown as T;
+}

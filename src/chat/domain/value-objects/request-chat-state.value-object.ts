@@ -9,6 +9,10 @@ const RequestChatStates = Object.freeze({
 export type RequestChatStateType =
   (typeof RequestChatStates)[keyof typeof RequestChatStates];
 
+function isRequestChatStateType(value: string): value is RequestChatStateType {
+  return (Object.values(RequestChatStates) as string[]).includes(value);
+}
+
 interface RequestChatStateProps {
   value: RequestChatStateType;
 }
@@ -19,7 +23,7 @@ export class RequestChatState extends ValueObject<RequestChatStateProps> {
   }
 
   static create(value: string): RequestChatState {
-    if (!Object.values(RequestChatStates).includes(value as any)) {
+    if (!isRequestChatStateType(value)) {
       throw new Error(`Invalid request chat state: ${value}`);
     }
 

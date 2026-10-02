@@ -7,7 +7,7 @@ import { instrumentMongoTiming } from '../shared/timing/mongo-timing';
 @Module({
   imports: [
     MongooseModule.forRootAsync({
-      useFactory: async (config: ConfigType<typeof databaseConfig>) => {
+      useFactory: (config: ConfigType<typeof databaseConfig>) => {
         Logger.log(`Connecting to database: ${config.uri}`);
         return {
           uri: config.uri,
