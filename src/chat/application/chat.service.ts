@@ -82,24 +82,19 @@ export class ChatService {
     return view;
   }
 
-  /**
-   * Una solicitud con sus mensajes. Marca como leídos los que `viewer` no había leído
-   * (T11 lo pasa a una operación explícita: un GET no debería escribir).
-   */
-  async getRequestChatByUUID(
-    id: UUID,
-    viewer: UserEntity,
-  ): Promise<RequestChatView> {
+  /** Una solicitud con sus mensajes. Solo lee: no marca leídos (ver `markAsRead`). */
+  async getRequestChatByUUID(id: UUID): Promise<RequestChatView> {
     const [requestChat, messages] = await Promise.all([
       this.findRequestChat(id),
       this.messageRepository.findByRequestChat(id),
     ]);
-    const at = new Date();
-    const unread = messages.filter((message) => message.markReadBy(viewer, at));
-    if (unread.length > 0) {
-      await this.messageRepository.markAllReadBy(id, viewer, at);
-    }
     return { requestChat, messages };
+  }
+
+  /** Marca como leídos por `reader` todos los mensajes de la solicitud, con una operación. */
+  async markAsRead(id: UUID, reader: UserEntity): Promise<void> {
+    await this.findRequestChat(id);
+    await this.messageRepository.markAllReadBy(id, reader, new Date());
   }
 
   /**
@@ -167,17 +162,40 @@ export class ChatService {
     this.logger.debug(
       `User UUID: ${user.id.value} voting on request chat UUID: ${requestChatUUID.value} with type: ${type}`,
     );
-    const requestChat = await this.findRequestChat(requestChatUUID);
-    if (!requestChat.isInProgress()) {
-      throw new ConflictException(
-        `Cannot vote on a request chat that is not in progress`,
-      );
+    const current = await this.findRequestChat(requestChatUUID);
+    if (!current.isInProgress()) {
+      throw this.notInProgress();
     }
-    requestChat.addVote(
-      RequestChatVoteEntity.create({ createdAt: DateTime.now(), user, type }),
+    const at = new Date();
+    const change = current.addVote(
+      RequestChatVoteEntity.create({
+        createdAt: DateTime.fromJSDate(at),
+        user,
+        type,
+      }),
     );
-    await this.requestChatRepository.saveRequestChat(requestChat);
-    const closed = !requestChat.isInProgress();
+    // Atómico: guarda solo este voto y devuelve los votos de todos, incluidos los de
+    // otros miembros que votaron al mismo tiempo.
+    let requestChat = await this.requestChatRepository.applyVote(
+      current.id,
+      change,
+      at,
+    );
+    if (!requestChat) {
+      throw this.notInProgress();
+    }
+    // Si varios votos cruzan el umbral a la vez, solo uno cierra la solicitud: ese agrega
+    // el mensaje de cierre y avisa, una sola vez.
+    const outcome = requestChat.outcome();
+    let closed = false;
+    if (outcome) {
+      closed = await this.requestChatRepository.close(requestChat.id, outcome);
+      if (closed) {
+        requestChat.close(outcome);
+      } else {
+        requestChat = await this.findRequestChat(requestChat.id);
+      }
+    }
     if (closed) {
       const bot = await this.userService.getBotUser();
       await this.messageRepository.insert(
@@ -207,6 +225,12 @@ export class ChatService {
       );
     }
     return view;
+  }
+
+  private notInProgress(): ConflictException {
+    return new ConflictException(
+      `Cannot vote on a request chat that is not in progress`,
+    );
   }
 
   private async findRequestChat(id: UUID): Promise<RequestChatEntity> {

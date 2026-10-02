@@ -3,6 +3,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
   Put,
@@ -49,8 +51,19 @@ export class RequestChatController {
     @Req() req: CustomRequest,
   ): Promise<GetRequestChatDto> {
     const { requestChat, messages } =
-      await this.chatService.getRequestChatByUUID(UUID.from(id), req.user);
+      await this.chatService.getRequestChatByUUID(UUID.from(id));
     return RequestChatMapper.toDto(requestChat, messages, req.user);
+  }
+
+  /** Marca como leídos todos los mensajes de la solicitud para quien la abre. */
+  @Post(':id/read')
+  @OwnerOrMember()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async markAsRead(
+    @Param('id') id: string,
+    @Req() req: CustomRequest,
+  ): Promise<void> {
+    await this.chatService.markAsRead(UUID.from(id), req.user);
   }
 
   @Get()
