@@ -19,6 +19,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "perf:baseline": "ts-node --transpile-only scripts/perf/latency-baseline.ts",
+    "perf:hydration": "ts-node -r tsconfig-paths/register --transpile-only scripts/perf/hydration-count.ts",
     "seed:staging": "ts-node --transpile-only scripts/seed/staging-seed.ts"
   },
   "dependencies": {
