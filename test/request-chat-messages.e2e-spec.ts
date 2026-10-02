@@ -169,7 +169,7 @@ describe('Mensajes en su propia colección (e2e)', () => {
     expect(item.lastMessage?.at).toBe(messages.at(-1)!.sentAt);
   });
 
-  it('abrir la solicitud marca leídos los mensajes de quien la abre (hasta T11)', async () => {
+  it('abrir la solicitud no marca leídos; el marcado es POST /:id/read', async () => {
     const unreadOfMember = async () => {
       const list = (
         await request(server)
@@ -189,10 +189,16 @@ describe('Mensajes en su propia colección (e2e)', () => {
       content: 'uno más',
     });
     await delivered;
-    expect(await unreadOfMember()).toBeGreaterThan(0);
+    const unread = await unreadOfMember();
+    expect(unread).toBeGreaterThan(0);
 
     await getRequestChat(MEMBER);
+    expect(await unreadOfMember()).toBe(unread);
 
+    await request(server)
+      .post(`/request-chats/${requestChat.uuid}/read`)
+      .set('Authorization', tmaAuth(MEMBER))
+      .expect(204);
     expect(await unreadOfMember()).toBe(0);
   });
 

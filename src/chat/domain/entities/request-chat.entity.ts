@@ -20,6 +20,11 @@ const REJECTED_MESSAGE_CONTENT =
 const APPROVED_MESSAGE_CONTENT =
   '¡Felicidades! Tu solicitud ha sido aprobada. Te damos la bienvenida al grupo.';
 
+/** Lo que cambia el voto de un miembro: lo retira o lo fija (nuevo o reemplazado). */
+export type VoteChange =
+  | { kind: 'removed'; userId: string }
+  | { kind: 'set'; vote: RequestChatVoteEntity };
+
 /**
  * Solicitud de ingreso: solicitante, formulario, votos y estado. Los mensajes viven en su
  * propia colección (`RequestChatMessageEntity`); los de sistema los crea esta entidad.
@@ -113,21 +118,41 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     );
   }
 
-  addVote(vote: RequestChatVoteEntity): void {
-    if (this.isSameVote(vote)) {
-      this.props.votes = this.props.votes.filter((v) => !v.equals(vote));
-      return;
-    }
+  /**
+   * Aplica el voto de un miembro sobre los votos actuales: repetir el mismo voto lo
+   * retira y uno distinto reemplaza al anterior. No cambia el estado (ver `outcome`).
+   * Devuelve el cambio, que el repositorio guarda con una operación atómica.
+   */
+  addVote(vote: RequestChatVoteEntity): VoteChange {
+    const removed = this.isSameVote(vote);
     this.props.votes = this.props.votes.filter((v) => !v.equals(vote));
+    if (removed) {
+      return { kind: 'removed', userId: vote.props.user.id.value };
+    }
     this.props.votes.push(vote);
+    return { kind: 'set', vote };
+  }
+
+  /**
+   * Estado al que pasa la solicitud con sus votos actuales, si alcanzó un umbral.
+   * Se evalúa con los votos ya guardados, que incluyen los de otros miembros que votaron
+   * al mismo tiempo.
+   */
+  outcome(): RequestChatState | undefined {
+    if (!this.isInProgress()) {
+      return undefined;
+    }
     if (this.countApproves() >= +APPROVE_THRESHOLD) {
-      this.props.state = RequestChatState.Approved();
-      return;
+      return RequestChatState.Approved();
     }
     if (this.countRejects() >= +REJECT_THRESHOLD) {
-      this.props.state = RequestChatState.Rejected();
-      return;
+      return RequestChatState.Rejected();
     }
+    return undefined;
+  }
+
+  close(state: RequestChatState): void {
+    this.props.state = state;
   }
 
   private isSameVote(vote: RequestChatVoteEntity): boolean {

@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { RequestChatEntity } from 'src/chat/domain/entities/request-chat.entity';
+import {
+  RequestChatEntity,
+  type VoteChange,
+} from 'src/chat/domain/entities/request-chat.entity';
 import {
   ChatRepository,
   RequestChatSummary,
@@ -21,19 +24,65 @@ export class ChatMongoRepository implements ChatRepository {
     private readonly requestChatModel: Model<RequestChat>,
   ) {}
 
-  async saveRequestChat(requestChat: RequestChatEntity): Promise<void> {
-    const dbRequestChat = RequestChatMapper.toDb(requestChat);
-    this.logger.debug(`Saving request chat with ID: ${dbRequestChat._id}`);
-    await this.requestChatModel.updateOne(
-      { _id: dbRequestChat._id },
-      dbRequestChat,
-      { upsert: true },
-    );
-  }
-
   async createRequestChat(requestChat: RequestChatEntity): Promise<void> {
     const dbRequestChat = RequestChatMapper.toDb(requestChat);
     await this.requestChatModel.insertOne(dbRequestChat);
+  }
+
+  async applyVote(
+    id: UUID,
+    change: VoteChange,
+    at: Date,
+  ): Promise<RequestChatEntity | null> {
+    const inProgress = {
+      _id: id.value,
+      state: RequestChatState.InProgress().props.value,
+    };
+    if (change.kind === 'removed') {
+      return this.updateAndRead(inProgress, {
+        $pull: { votes: { from: change.userId } },
+      });
+    }
+    const from = change.vote.props.user.id.value;
+    const type = change.vote.props.type;
+    // Cambia el voto que ya tenía…
+    const replace = () =>
+      this.updateAndRead(
+        { ...inProgress, 'votes.from': from },
+        { $set: { 'votes.$.type': type, 'votes.$.updatedAt': at } },
+      );
+    // …o agrega uno nuevo; `$ne` evita un segundo voto del mismo miembro.
+    const add = () =>
+      this.updateAndRead(
+        { ...inProgress, 'votes.from': { $ne: from } },
+        {
+          $push: { votes: { from, type, createdAt: at, updatedAt: at } },
+        },
+      );
+    // Si ninguna aplica, otra petición del mismo miembro agregó su voto en medio: se
+    // reemplaza ese. Si tampoco, la solicitud ya no está en curso.
+    return (await replace()) ?? (await add()) ?? (await replace());
+  }
+
+  async close(id: UUID, state: RequestChatState): Promise<boolean> {
+    const result = await this.requestChatModel.updateOne(
+      { _id: id.value, state: RequestChatState.InProgress().props.value },
+      { $set: { state: state.props.value, updatedAt: new Date() } },
+    );
+    return result.modifiedCount === 1;
+  }
+
+  /** Aplica `update` si el filtro coincide y devuelve la solicitud ya actualizada. */
+  private async updateAndRead(
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>,
+  ): Promise<RequestChatEntity | null> {
+    const doc = await this.requestChatModel
+      .findOneAndUpdate(filter, update, { new: true })
+      .populate('requester')
+      .populate('votes.from')
+      .exec();
+    return doc ? RequestChatMapper.fromDb(doc) : null;
   }
 
   async getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null> {
