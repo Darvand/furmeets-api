@@ -21,8 +21,9 @@ export class Group {
     @Prop()
     description: string;
 
-    @Prop()
-    photoUrl: string;
+    /** Id en `media` (se sirve por `GET /media/:id`). */
+    @Prop({ type: mongoose.Schema.Types.UUID })
+    photoMediaId?: string;
 
     @Prop({ type: [mongoose.Schema.Types.UUID], ref: User.name })
     members: User[];

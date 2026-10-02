@@ -5,7 +5,7 @@ import { UserEntity } from "./user.entity";
 export interface GroupEntityProps {
     telegramId: number;
     name: string;
-    photoUrl: string;
+    photoMediaId?: string;
     description: string;
     members: UserEntity[];
 }

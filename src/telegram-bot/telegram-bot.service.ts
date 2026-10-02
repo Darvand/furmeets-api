@@ -1,4 +1,4 @@
-import { Bot, webhookCallback } from 'grammy';
+import { Bot, InputFile, webhookCallback } from 'grammy';
 import { Command } from './telegram-bot.server';
 import { Inject, Logger } from '@nestjs/common';
 import telegramBotConfig from './telegram-bot.config';
@@ -24,6 +24,13 @@ export function pickAvatarSize(sizes: PhotoSize[]): PhotoSize | undefined {
     return bySide.find((size) => Math.min(size.width, size.height) >= AVATAR_MIN_SIZE_PX) ?? bySide.at(-1);
 }
 
+/** Falta `TELEGRAM_STORAGE_CHAT_ID`: no hay dónde guardar imágenes subidas. */
+export class StorageNotConfiguredError extends Error {
+    constructor() {
+        super('TELEGRAM_STORAGE_CHAT_ID is not configured');
+    }
+}
+
 /** Un cambio de estado de un usuario en un chat (update `chat_member`). */
 export interface ChatMemberUpdate {
     chatId: number;
@@ -46,7 +53,7 @@ export const ALLOWED_UPDATES = ['message', 'chat_member'] as const;
 export class TelegramBotService {
     private readonly bot: Bot;
     private readonly logger = new Logger(TelegramBotService.name);
-    private readonly profilePhotoPaths = new TtlCache<number, string | null>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: TELEGRAM_CACHE_MAX_ENTRIES });
+    private readonly profilePhotos = new TtlCache<number, PhotoSize | null>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: TELEGRAM_CACHE_MAX_ENTRIES });
     private readonly group = new TtlCache<'group', ChatFullInfo>({ ttlMs: TELEGRAM_CACHE_TTL_MS, maxEntries: 1 });
     constructor(
         @Inject(telegramBotConfig.KEY)
@@ -108,22 +115,52 @@ export class TelegramBotService {
         });
     }
 
-    async getProfilePhotoPath(telegramId: number): Promise<string | undefined> {
-        const path = await this.profilePhotoPaths.getOrLoad(telegramId, async () => {
+    /** Tamaño de avatar de la foto de perfil actual (`undefined` si no tiene). */
+    async getProfilePhoto(telegramId: number): Promise<PhotoSize | undefined> {
+        const photo = await this.profilePhotos.getOrLoad(telegramId, async () => {
             const profilePhotos = await this.bot.api.getUserProfilePhotos(telegramId, { limit: 1 });
-            const size = pickAvatarSize(profilePhotos.photos[0] ?? []);
-            if (!size) {
-                return null;
-            }
-            const file = await this.bot.api.getFile(size.file_id);
-            return file.file_path ?? null;
+            return pickAvatarSize(profilePhotos.photos[0] ?? []) ?? null;
         });
-        return path ?? undefined;
+        return photo ?? undefined;
     }
 
-    async getProfilePhotoPathByFileId(fileId: string): Promise<string | undefined> {
+    /**
+     * Sube una imagen al canal de almacenamiento (`sendPhoto`) y devuelve su tamaño más
+     * grande. Telegram la recomprime a JPEG.
+     */
+    async uploadPhotoToStorage(photo: Buffer): Promise<PhotoSize> {
+        if (!this.config.storageChatId) {
+            throw new StorageNotConfiguredError();
+        }
+        const message = await this.bot.api.sendPhoto(this.config.storageChatId, new InputFile(photo), {
+            disable_notification: true,
+        });
+        const largest = message.photo.at(-1);
+        if (!largest) {
+            throw new Error('Telegram did not return the uploaded photo');
+        }
+        return largest;
+    }
+
+    /** `file_path` de un archivo (vale al menos 1 h; quien llama decide si lo cachea). */
+    async getFilePath(fileId: string): Promise<string> {
         const file = await this.bot.api.getFile(fileId);
+        if (!file.file_path) {
+            throw new Error('Telegram returned no file_path');
+        }
         return file.file_path;
+    }
+
+    /**
+     * Descarga un archivo de Telegram. La URL lleva el token del bot, así que no sale de
+     * aquí: ni en la respuesta ni en los errores (RNF-SEG-03).
+     */
+    async downloadFile(filePath: string): Promise<Response> {
+        try {
+            return await fetch(`https://api.telegram.org/file/bot${this.config.token}/${filePath}`);
+        } catch {
+            throw new Error('Telegram file download failed');
+        }
     }
 
     async getGroup(): Promise<ChatFullInfo> {

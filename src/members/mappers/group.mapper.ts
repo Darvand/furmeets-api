@@ -10,7 +10,7 @@ export class GroupMapper {
         const groupEntity = GroupEntity.create({
             telegramId: groupDb.telegramId,
             name: groupDb.name,
-            photoUrl: groupDb.photoUrl,
+            photoMediaId: groupDb.photoMediaId ? toUUIDString(groupDb.photoMediaId) : undefined,
             description: groupDb.description,
             members: groupDb.members.map(memberDb => UserMapper.fromDb(memberDb)),
         }, UUID.from(toUUIDString(groupDb._id)));
@@ -22,7 +22,7 @@ export class GroupMapper {
             uuid: group.id.value,
             telegramId: group.props.telegramId,
             name: group.props.name,
-            photoUrl: group.props.photoUrl,
+            photoMediaId: group.props.photoMediaId,
             description: group.props.description,
             members: group.props.members.map(member => UserMapper.toDto(member)),
         };

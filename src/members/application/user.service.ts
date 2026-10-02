@@ -5,12 +5,15 @@ import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
 import { DuplicateUserError, type UserRepository } from "../domain/services/user.repository";
 import { TelegramIdentity } from "../domain/value-objects/telegram-identity.value-object";
 import { TelegramBotService } from "src/telegram-bot/telegram-bot.service";
+import { MediaService } from "src/media/application/media.service";
+import { MediaKinds } from "src/media/domain/media";
 
 @Injectable()
 export class UserService {
     constructor(
         @Inject(MEMBERS_PROVIDERS.UserRepository) private readonly userRepository: UserRepository,
         private readonly telegramBotService: TelegramBotService,
+        private readonly mediaService: MediaService,
     ) { }
 
     async getUserByUUID(uuid: UUID): Promise<UserEntity> {
@@ -83,8 +86,11 @@ export class UserService {
 
     /** Toma el avatar actual de Telegram y lo guarda solo si cambió. Pensado para segundo plano. */
     async refreshAvatar(user: UserEntity): Promise<void> {
-        const avatarUrl = await this.telegramBotService.getProfilePhotoPath(user.telegramId);
-        if (user.changeAvatar(avatarUrl)) {
+        const photo = await this.telegramBotService.getProfilePhoto(user.telegramId);
+        const avatarMediaId = photo
+            ? await this.mediaService.registerTelegramPhoto(MediaKinds.Avatar, photo, user.id.value)
+            : undefined;
+        if (user.changeAvatar(avatarMediaId)) {
             await this.userRepository.updateAvatar(user);
         }
     }

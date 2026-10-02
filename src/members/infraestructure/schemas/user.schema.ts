@@ -14,8 +14,9 @@ export class User {
     @Prop()
     username?: string;
 
-    @Prop()
-    avatarUrl?: string;
+    /** Id en `media` (se sirve por `GET /media/:id`). */
+    @Prop({ type: mongoose.Schema.Types.UUID })
+    avatarMediaId?: string;
 
     @Prop()
     name: string;
