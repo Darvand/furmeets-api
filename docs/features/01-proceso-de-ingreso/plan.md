@@ -57,7 +57,7 @@ T02 Pruebas + validación                                        │
                     │                 └─ T07 App: auth + rol ───┤
                     └─ T08 media (proxy + almacenamiento)       │
                           └─ T09 App: sin token ◄───────────────┘
-T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración
+T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (después de T13)
         ├─ T40 listado liviano ─────────────┐
         ├─ T41 enviar/votar sin Telegram ───┴─ T42 App: en vivo y optimista (+T06)
         │
@@ -259,7 +259,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 ## Paralelización
 
-- **Secuencial:** T03 → T06 (contrato de autenticación), T10 → T12 (esquema y migración).
+- **Secuencial:** T03 → T06 (contrato de autenticación), T10 → T11 → T13 → T12 (esquema, formulario y migración). T12 espera a T13 para migrar el formulario directo a su modelo; no se despliega a producción entre T10 y T12.
 - **En paralelo tras T06:** T08 (media) y T10 (mensajes).
 - **En paralelo tras definir el contrato de la API:** las tareas de App (T15, T20, T23, T24, T26) contra las de API correspondientes.
 - **Independientes:** T32–T34 (`platform`) pueden avanzar en cualquier momento. T37, T38 y T43 (latencia) también, y conviene hacerlas primero porque dan mejoras inmediatas.
