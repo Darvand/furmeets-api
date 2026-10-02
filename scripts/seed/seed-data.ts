@@ -290,6 +290,33 @@ function buildMessages(
   });
 }
 
+/**
+ * Forma de los documentos que toca el seed. El driver tipa `_id` como `ObjectId` por
+ * defecto; aquí los `_id` y las referencias son UUID, como los guarda Mongoose.
+ */
+interface SeedRequestChat {
+  _id: mongo.UUID;
+  requester: mongo.UUID;
+  whereYouFoundUs?: string;
+  interests?: string;
+  votes: ReturnType<typeof buildVotes>;
+  messages: ReturnType<typeof buildMessages>;
+  state: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface SeedGroup {
+  _id: mongo.UUID;
+  telegramId: number;
+  members: mongo.UUID[];
+}
+
+const usersOf = (db: mongo.Db) => db.collection<SeedUser>('users');
+const requestChatsOf = (db: mongo.Db) =>
+  db.collection<SeedRequestChat>('requestchats');
+const groupsOf = (db: mongo.Db) => db.collection<SeedGroup>('groups');
+
 /** Inserta usuarios, solicitudes (con mensajes, votos y leídos) y agrega miembros al grupo. */
 export async function seed(
   db: mongo.Db,
@@ -310,7 +337,7 @@ export async function seed(
     ...Array<string>(options.rejected).fill('Rejected'),
   ];
   const applicants: SeedUser[] = [];
-  const requestChats = states.map((state, i) => {
+  const requestChats = states.map((state, i): SeedRequestChat => {
     // En curso: últimas 2 semanas; cerradas: los 6 meses anteriores.
     const createdAt =
       state === 'InProgress'
@@ -351,9 +378,9 @@ export async function seed(
   });
 
   const users = [...members, ...applicants];
-  await db.collection('users').insertMany(users);
+  await usersOf(db).insertMany(users);
   if (requestChats.length > 0) {
-    await db.collection('requestchats').insertMany(requestChats);
+    await requestChatsOf(db).insertMany(requestChats);
   }
 
   const groupMembers = users.filter((u) => u.isMember).map((u) => u._id);
@@ -361,19 +388,16 @@ export async function seed(
     options.groupTelegramId !== undefined
       ? { telegramId: options.groupTelegramId }
       : {};
-  const groups = await db
-    .collection('groups')
+  const groups = await groupsOf(db)
     .find(groupFilter, { projection: { _id: 1 } })
     .limit(2)
     .toArray();
   const addedToGroup = groups.length === 1;
   if (addedToGroup) {
-    await db
-      .collection('groups')
-      .updateOne(
-        { _id: groups[0]._id },
-        { $addToSet: { members: { $each: groupMembers } } },
-      );
+    await groupsOf(db).updateOne(
+      { _id: groups[0]._id },
+      { $addToSet: { members: { $each: groupMembers } } },
+    );
   }
 
   return {
@@ -392,26 +416,24 @@ export async function deleteSeed(
   const range = {
     telegramId: { $gte: SEED_TELEGRAM_ID_BASE, $lt: SEED_TELEGRAM_ID_MAX },
   };
-  const seeded = await db
-    .collection('users')
+  const seeded = await usersOf(db)
     .find(range, { projection: { _id: 1 } })
     .toArray();
   const ids = seeded.map((u) => u._id);
   if (ids.length === 0) {
     return { users: 0, requestChats: 0 };
   }
-  const chats = await db
-    .collection('requestchats')
-    .deleteMany({ requester: { $in: ids } });
-  await db.collection('groups').updateMany({}, {
-    $pull: { members: { $in: ids } },
-  } as mongo.UpdateFilter<mongo.Document>);
-  const users = await db.collection('users').deleteMany(range);
+  const chats = await requestChatsOf(db).deleteMany({
+    requester: { $in: ids },
+  });
+  // $pullAll equivale a $pull con $in para valores exactos, y el driver sí lo tipa con UUID.
+  await groupsOf(db).updateMany({}, { $pullAll: { members: ids } });
+  const users = await usersOf(db).deleteMany(range);
   return { users: users.deletedCount, requestChats: chats.deletedCount };
 }
 
 export async function countSeeded(db: mongo.Db): Promise<number> {
-  return db.collection('users').countDocuments({
+  return usersOf(db).countDocuments({
     telegramId: { $gte: SEED_TELEGRAM_ID_BASE, $lt: SEED_TELEGRAM_ID_MAX },
   });
 }

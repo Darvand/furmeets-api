@@ -5,17 +5,15 @@ import { Context } from 'grammy';
 
 @Controller()
 export class TelegramBotController {
-    private readonly logger = new Logger(TelegramBotController.name);
+  private readonly logger = new Logger(TelegramBotController.name);
 
-    constructor(
-        private readonly bot: TelegramBotService,
-    ) { }
+  constructor(private readonly bot: TelegramBotService) {}
 
-    @MessagePattern({
-        command: 'faq',
-        description: 'Preguntas frecuentes',
-    })
-    async faq(ctx: Context) {
-        return ctx.reply("Aquí están las preguntas frecuentes...");
-    }
+  @MessagePattern({
+    command: 'faq',
+    description: 'Preguntas frecuentes',
+  })
+  async faq(ctx: Context) {
+    return ctx.reply('Aquí están las preguntas frecuentes...');
+  }
 }

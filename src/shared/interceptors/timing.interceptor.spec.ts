@@ -115,7 +115,7 @@ describe('Timing', () => {
             await telegramTimingTransformer(
               telegramCall as unknown as TransformerArgs[0],
               'sendMessage',
-              {} as TransformerArgs[2],
+              { chat_id: 1, text: 'hola' },
             );
           }),
       };

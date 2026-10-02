@@ -1,14 +1,14 @@
-import { IsOptional, IsString, IsUUID } from "class-validator";
+import { IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateRequestChatDto {
-    @IsUUID()
-    requesterUUID: string;
+  @IsUUID()
+  requesterUUID: string;
 
-    @IsOptional()
-    @IsString()
-    whereYouFoundUs?: string;
+  @IsOptional()
+  @IsString()
+  whereYouFoundUs?: string;
 
-    @IsOptional()
-    @IsString()
-    interests?: string;
+  @IsOptional()
+  @IsString()
+  interests?: string;
 }
