@@ -74,12 +74,13 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Hoy ningún schema declara índices, y `users.telegramId` se busca en cada petición. Agregar índices en `users.telegramId` (único), `groups.telegramId` y `requestchats.requester`. Usar `lean()` y proyecciones en lecturas que no necesitan documentos de Mongoose. Eliminar la doble búsqueda del usuario en `GET /users/:telegramId` (middleware + controller).
 
 **Acceptance criteria:**
-- [ ] `explain()` de las tres búsquedas usa índice (`IXSCAN`), no `COLLSCAN`
-- [ ] `GET /users/:telegramId` hace una sola consulta a `users`
-- [ ] Los índices se crean sin error sobre los datos existentes (sin `telegramId` duplicados)
+- [x] `explain()` de las tres búsquedas usa índice (`IXSCAN`), no `COLLSCAN`
+- [x] `GET /users/:telegramId` hace una sola consulta a `users` (si pide al propio usuario, reutiliza el de `TmaAuthGuard`)
+- [x] Los índices se crean sin error sobre los datos existentes (sin `telegramId` duplicados)
 
 **Verification:**
-- [ ] `explain()` en staging; logs de T37 antes y después
+- [x] `explain()` en staging. El 2026-10-02 se corrió `node --env-file=.env scripts/check-indexes-t38.mjs` sobre `furmeets_development`, la base de staging. Resultado: sin duplicados; índices `users.telegramId_1` (único), `groups.telegramId_1` y `requestchats.requester_1`; las tres búsquedas con `EXPRESS_IXSCAN`.
+- [ ] Logs de T37 antes y después (pendiente con la línea base de T37)
 
 **Dependencies:** None (requiere aprobación: cambia índices en producción)
 
@@ -100,12 +101,12 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Crear `test/jest-e2e.json`, un helper para levantar la app Nest con BD de prueba y un generador de `initData` firmado para pruebas. Registrar el `ValidationPipe` global (`whitelist`, `forbidNonWhitelisted`, `transform`) con `class-validator` + `class-transformer`, el mismo en la app y en las e2e. Primera prueba unitaria de ejemplo sobre una entidad existente.
 
 **Acceptance criteria:**
-- [ ] `npm test` y `npm run test:e2e` corren; la BD de e2e corre en memoria con `mongodb-memory-server`, aislada de la de desarrollo
-- [ ] Existe un helper `signInitData(user, botToken)` reutilizable
-- [ ] Un body con campos no declarados en el DTO o con tipos inválidos → 400
+- [x] `npm test` y `npm run test:e2e` corren; la BD de e2e corre en memoria con `mongodb-memory-server`, aislada de la de desarrollo (`test/helpers/app.ts`; lo comprueba `app.e2e-spec.ts`)
+- [x] Existe un helper `signInitData(user, botToken)` reutilizable (`test/helpers/init-data.ts`, con sus propias unitarias)
+- [x] Un body con campos no declarados en el DTO o con tipos inválidos → 400 (`ValidationPipe` global en `src/shared/validation/validation.ts`)
 
 **Verification:**
-- [ ] `npm run test:e2e` pasa con una prueba de humo (`GET /` → 200) y una de validación (`vote/:type` inválido → 400)
+- [x] `npm run test:e2e` pasa con una prueba de humo (`GET /` → 200) y una de validación (`vote/:type` inválido → 400). Verificado el 2026-10-02 en el Checkpoint A.
 
 **Dependencies:** None
 
@@ -255,8 +256,14 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Estimated scope:** M
 
 ### Checkpoint A: después de T01–T06 (con T37–T39)
-- [ ] Criterios de éxito 1, 2 y 4 cubiertos por e2e
-- [ ] Revisión humana antes de seguir
+- [x] Criterios de éxito 1, 2 y 4 cubiertos por e2e (las 43 pruebas pasan el 2026-10-02):
+  - **1. Sin `initData` válido → 401 o rechazo:** `test/auth.e2e-spec.ts` (HTTP: sin header, otro esquema, firma inválida, usuario alterado, `auth_date` vencido, solo `x-telegram-id`) y `test/chat-socket.e2e-spec.ts` (socket: sin `initData`, firma inválida, vencido, `initData` que no es texto).
+  - **2. Solicitante que pide la solicitud de otro → 403; solicitante que vota → 403:** `test/authorization.e2e-spec.ts`, incluido el miembro recién expulsado (RNF-SEG-10).
+  - **4. Un solicitante no recibe eventos de otras solicitudes:** `test/authorization.e2e-spec.ts`, en la sección `socket`.
+- [ ] Revisión humana antes de seguir. Falta además completar lo manual:
+  - **T01:** revocar el token y comprobar los secretos.
+  - **T37:** anotar la línea base.
+  - **T38 y T39:** logs de T37 antes y después.
 
 ---
 
@@ -454,7 +461,9 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [ ] Unitarias de las transformaciones y de la idempotencia
 - [ ] Reporte de conteos del ensayo en staging (criterio de éxito 14)
 
-**Dependencies:** T10, T11
+**Dependencies:** T10, T11, T13
+
+> **Orden:** se hace después de T13 (decidido el 2026-10-02). Así migra los campos del formulario (`whereYouFoundUs`, `interests`, especie) directo al modelo que define T13, en una sola migración. Mientras tanto, las solicitudes anteriores a T10 no muestran sus mensajes: **no desplegar a producción entre T10 y T12.**
 
 **Files likely touched:**
 - `scripts/migrations/001-request-chat-split.ts` (+ `.spec.ts`)
