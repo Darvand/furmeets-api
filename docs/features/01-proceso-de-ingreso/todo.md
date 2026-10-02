@@ -414,12 +414,434 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Votos y leídos se actualizan con `$set`/`$push`/`$pull` filtrados; nada llama `updateOne` con el agregado completo. `GET` de una solicitud deja de marcar leídos; el marcado pasa a una operación explícita.
 
 **Acceptance criteria:**
-- [ ] Ningún método del repositorio reescribe el documento completo
-- [ ] Un `GET` no modifica la BD
-- [ ] Votos concurrentes de miembros distintos quedan todos guardados
+- [x] Ningún método del repositorio reescribe el documento completo
+- [x] Un `GET` no modifica la BD
+- [x] Votos concurrentes de miembros distintos quedan todos guardados
 
 **Verification:**
-- [ ] Unitarias del servicio; e2e de votos concurrentes
+- [x] Unitarias del servicio; e2e de votos concurrentes
+
+**Notas de implementación:**
+- **Votos.** `RequestChatEntity.addVote` decide qué cambia (retirar el voto si se repite, fijarlo si es nuevo o distinto) y no toca el estado. `ChatRepository.applyVote` lo guarda con una operación filtrada por `state: InProgress`: `$pull` para retirar; `$set` sobre `votes.# Tareas: Funcionalidad 01 — Proceso de ingreso
+
+> Plan y requerimientos no funcionales: [plan.md](plan.md). Requisitos: [SPEC.md](../../../SPEC.md).
+> **API** = `furmeets-api` · **App** = `furmeets-mini-app`.
+>
+> Verificación estándar (se asume en todas las tareas además de la propia):
+> - API: `npm run lint` · `npm run build` · `npm test` (y `npm run test:e2e` cuando aplique)
+> - App: `npm run lint` · `npm run build`
+
+---
+
+## Fase 0 — Seguridad, datos y latencia
+
+> Las tareas aparecen en orden de ejecución. T37–T43 son las de latencia (el porqué está en la tabla de causas de [plan.md](plan.md)); los IDs anteriores se mantienen.
+
+## Task 01: Revocar el token del bot y rotar secretos
+
+**Repo:** operación (manual) · **RNF:** SEG-03, SEG-08
+
+**Description:** El token actual está publicado en el bundle de la App. Revocarlo con @BotFather (`/revoke`) para prod y staging, cargar el nuevo solo en Render y quitar `VITE_TELEGRAM_BOT_TOKEN` de los secretos de Vercel y GitHub.
+
+**Acceptance criteria:**
+- [ ] El token anterior ya no responde (`getMe` → 401)
+- [ ] El token nuevo solo existe en las variables de Render (API) y en `.env` local
+- [ ] No hay `VITE_TELEGRAM_BOT_TOKEN` en Vercel ni en GitHub
+
+**Verification:**
+- [ ] Manual: `curl https://api.telegram.org/bot<viejo>/getMe` falla; el bot sigue respondiendo con el nuevo
+
+**Dependencies:** None
+
+**Files likely touched:** ninguno (configuración externa)
+
+**Estimated scope:** XS
+
+---
+
+## Task 37: Línea base de latencia
+
+**Repo:** API · **RNF:** OBS-03, REN-07
+
+**Description:** Medir antes de optimizar. Un interceptor global registra la duración de cada ruta HTTP y un wrapper hace lo mismo con cada evento de socket, separando el tiempo de Mongo y de Telegram cuando sea posible. Un script mide, contra staging con el servidor despierto, el arranque de la App (peticiones y tiempo total), abrir un chat, enviar un mensaje y votar. Los números actuales se anotan en este documento como línea base.
+
+**Acceptance criteria:**
+- [x] Cada petición y evento deja una línea de log con ruta/evento y duración en ms (sin datos personales)
+- [x] El script reporta p50 y p95 de arranque, abrir chat, enviar y votar
+- [ ] La línea base queda anotada abajo, con fecha
+
+**Verification:**
+- [ ] Correr el script dos veces en staging y obtener números consistentes
+
+**Dependencies:** None
+
+**Files likely touched:**
+- `src/shared/interceptors/timing.interceptor.ts`
+- `src/chat/presentation/chat.gateway.ts`
+- `src/main.ts`
+- `scripts/perf/latency-baseline.ts`
+
+**Estimated scope:** S
+
+**Línea base (por completar):** arranque — · abrir chat — · enviar — · votar —
+
+**Cómo medirla:** con el servidor de staging desplegado, correr dos veces
+`PERF_BASE_URL=<url-staging> PERF_TELEGRAM_ID=<id-de-prueba> PERF_CHAT_ID=<uuid-chat-de-prueba> PERF_WRITES=1 npm run perf:baseline`
+y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo mide arranque y abrir chat; enviar y votar escriben en la BD y notifican por Telegram, así que van contra un chat de prueba en curso al que le falten al menos 2 votos para el umbral. Las variables y precauciones están al inicio de `scripts/perf/latency-baseline.ts`. El desglose Mongo / Telegram de cada petición sale en las líneas `Timing` de los logs del servidor, p. ej. `HTTP GET /request-chats/:id 200 132ms (mongo 95ms/3 · telegram 0ms/0)`.
+
+---
+
+## Task 38: Índices y lecturas livianas
+
+**Repo:** API · **RNF:** REN-07
+
+**Description:** Hoy ningún schema declara índices, y `users.telegramId` se busca en cada petición. Agregar índices en `users.telegramId` (único), `groups.telegramId` y `requestchats.requester`. Usar `lean()` y proyecciones en lecturas que no necesitan documentos de Mongoose. Eliminar la doble búsqueda del usuario en `GET /users/:telegramId` (middleware + controller).
+
+**Acceptance criteria:**
+- [ ] `explain()` de las tres búsquedas usa índice (`IXSCAN`), no `COLLSCAN`
+- [ ] `GET /users/:telegramId` hace una sola consulta a `users`
+- [ ] Los índices se crean sin error sobre los datos existentes (sin `telegramId` duplicados)
+
+**Verification:**
+- [ ] `explain()` en staging; logs de T37 antes y después
+
+**Dependencies:** None (requiere aprobación: cambia índices en producción)
+
+**Files likely touched:**
+- `src/members/infraestructure/schemas/user.schema.ts`, `group.schema.ts`
+- `src/chat/infraestructure/schemas/request-chat.schema.ts`
+- `src/members/infraestructure/repositories/user-mongo.repository.ts`
+- `src/members/presentation/users.controller.ts`
+
+**Estimated scope:** S
+
+---
+
+## Task 02: Infraestructura de pruebas y validación
+
+**Repo:** API · **RNF:** CAL-01, CAL-02, SEG-05
+
+**Description:** Crear `test/jest-e2e.json`, un helper para levantar la app Nest con BD de prueba y un generador de `initData` firmado para pruebas. Registrar el `ValidationPipe` global (`whitelist`, `forbidNonWhitelisted`, `transform`) con `class-validator` + `class-transformer`, el mismo en la app y en las e2e. Primera prueba unitaria de ejemplo sobre una entidad existente.
+
+**Acceptance criteria:**
+- [ ] `npm test` y `npm run test:e2e` corren; la BD de e2e corre en memoria con `mongodb-memory-server`, aislada de la de desarrollo
+- [ ] Existe un helper `signInitData(user, botToken)` reutilizable
+- [ ] Un body con campos no declarados en el DTO o con tipos inválidos → 400
+
+**Verification:**
+- [ ] `npm run test:e2e` pasa con una prueba de humo (`GET /` → 200) y una de validación (`vote/:type` inválido → 400)
+
+**Dependencies:** None
+
+**Files likely touched:**
+- `package.json` (`mongodb-memory-server` en devDependencies; `class-validator` y `class-transformer` en dependencies)
+- `src/main.ts` (`ValidationPipe` global)
+- `test/jest-e2e.json`
+- `test/helpers/app.ts`, `test/helpers/init-data.ts`
+- `test/app.e2e-spec.ts`
+
+**Estimated scope:** S
+
+---
+
+## Task 03: Autenticación HTTP por `initData`
+
+**Repo:** API · **RNF:** SEG-01, SEG-02, OBS-02 · **Deuda:** #2, #17
+
+**Description:** Crear el módulo `auth` con un validador puro de `initData` (HMAC-SHA256 con clave `HMAC_SHA256("WebAppData", BOT_TOKEN)`, `auth_date` < 24 h) y un guard global que lea `Authorization: tma <initDataRaw>` y deje el usuario en el request. Reemplaza `user.middleware.ts` y `x-telegram-id`. El usuario se crea o actualiza (upsert) a partir de `initData`, eliminando el flujo muerto `POST /users`.
+
+**Acceptance criteria:**
+- [x] Sin header, con firma inválida o con `auth_date` vencido → 401
+- [x] Con `initData` válido, `request.user` contiene el usuario y existe en BD
+- [x] `x-telegram-id` ya no se lee en ningún lugar
+
+**Verification:**
+- [x] Unitarias del validador (firma válida, alterada, vencida, sin hash)
+- [x] e2e: endpoint protegido con y sin header
+
+**Dependencies:** T02
+
+**Files likely touched:**
+- `src/auth/domain/init-data.validator.ts` (+ `.spec.ts`)
+- `src/auth/presentation/tma-auth.guard.ts`
+- `src/auth/auth.module.ts`
+- `src/shared/middlewares/user.middleware.ts` (eliminar)
+- `src/members/presentation/users.controller.ts`
+
+**Estimated scope:** M
+
+---
+
+## Task 04: Autenticación del socket por `initData`
+
+**Repo:** API · **RNF:** SEG-01, SEG-02 · **Deuda:** #3
+
+**Description:** Validar `handshake.auth.initData` al conectar al gateway, con el mismo validador de T03. El autor de cualquier evento es el usuario del socket, nunca un campo del payload.
+
+**Acceptance criteria:**
+- [x] Conexión sin `initData` válido → desconectada con error
+- [x] Los handlers ignoran `userUUID` del payload y usan `socket.data.user`
+
+**Verification:**
+- [x] e2e con `socket.io-client`: conexión inválida rechazada; mensaje con `userUUID` ajeno queda a nombre del usuario autenticado
+
+**Dependencies:** T03
+
+**Files likely touched:**
+- `src/chat/presentation/chat.gateway.ts`
+- `src/auth/presentation/ws-auth.middleware.ts`
+
+**Estimated scope:** S
+
+---
+
+## Task 39: Telegram fuera del camino crítico al arrancar
+
+**Repo:** API · **RNF:** REN-02, REN-03, REN-08
+
+**Description:** Hoy abrir la App espera `POST /groups/sync`, que hace ~9 llamadas a Telegram en serie (`getMe`, `getChat`, `getChatMember`, `getUserProfilePhotos`, `getFile`…) y ~6 a Mongo. Cambios:
+- Usar `bot.botInfo` (grammY ya lo tiene tras `init`) en vez de `getMe` en cada llamada.
+- Cachear en memoria la info del grupo y del bot (TTL 10 min, como la membresía).
+- Sincronizar la foto del usuario y del grupo en segundo plano, en paralelo y como máximo una vez por TTL. Ninguna petición del usuario la espera.
+- Elegir el tamaño de foto más pequeño adecuado para avatares (no el de 640 px) y tolerar fotos con menos tamaños.
+
+**Acceptance criteria:**
+- [x] Ninguna ruta usada al arrancar espera una llamada a Telegram con la caché caliente
+- [x] `getMe` no se llama después del arranque del bot
+- [x] Si Telegram tarda o falla, la App carga igual con los datos guardados
+
+**Verification:**
+- [x] Unitarias con un cliente de Telegram simulado que tarda 2 s: la respuesta no espera
+- [ ] Logs de T37: duración del arranque antes y después
+
+**Dependencies:** T03
+
+**Files likely touched:**
+- `src/telegram-bot/telegram-bot.service.ts`
+- `src/members/application/groups.service.ts`, `user.service.ts`
+- `src/members/infraestructure/repositories/group-adapter.repository.ts`, `user-mongo.repository.ts`
+
+**Estimated scope:** M
+
+---
+
+## Task 05: Rol en vivo (`membership`) y `GET /me`
+
+**Repo:** API · **RNF:** REN-02, REN-03, REN-08, SEG-10 · **Deuda:** #9
+
+**Description:** Resolver el rol con `getChatMember` (miembro si `creator`, `administrator`, `member` o `restricted` con `is_member=true`) con caché en memoria de TTL 10 min, **invalidada además por eventos**: el bot recibe los updates `chat_member` del grupo (hay que incluirlos en `allowed_updates`, Telegram no los envía por defecto) y, cuando alguien entra, sale, es expulsado o restringido, borra la entrada de ese usuario. La caché expone `invalidate(userId)` para otros módulos (T25). Exponer `GET /me` → `{ user, role, requestChatId?, requestChatState? }`, que reemplaza a `POST /groups/sync` como única petición de arranque. La sincronización de avatar y grupo es la de T39 (en segundo plano).
+
+**Acceptance criteria:**
+- [x] `GET /me` devuelve `role: 'member' | 'applicant'` según Telegram, no según `group.members`; para un solicitante con solicitud incluye `requestChatId`
+- [x] Dos llamadas dentro de 10 min hacen una sola consulta a Telegram; pasados 10 min se vuelve a consultar. Con la caché caliente, `GET /me` no llama a Telegram
+- [x] Un update `chat_member` de un usuario invalida su entrada: la siguiente petición ya refleja el rol nuevo
+
+**Verification:**
+- [x] Unitarias: mapeo de cada `status` a rol; caché, expiración e invalidación
+- [x] e2e con el cliente de Telegram simulado: miembro expulsado → solicitante en la siguiente petición (`GET /me`). El 403 del voto depende de la autorización por rol y se verifica en la matriz de T06.
+
+**Dependencies:** T03, T39
+
+**Files likely touched:**
+- `src/membership/application/membership.service.ts` (+ `.spec.ts`)
+- `src/membership/infraestructure/telegram-membership.adapter.ts`
+- `src/membership/presentation/me.controller.ts`
+- `src/membership/presentation/chat-member.handler.ts`
+- `src/telegram-bot/telegram-bot.server.ts` (`allowed_updates` con `chat_member`)
+- `src/members/application/groups.service.ts`
+
+**Estimated scope:** M
+
+---
+
+## Task 06: Autorización por rol y salas por solicitud
+
+**Repo:** API · **RNF:** SEG-04, PRI-03, OBS-02 · **Deuda:** #3, #4
+
+**Description:** Decoradores/guards `@MembersOnly()` y `@OwnerOrMember()` para HTTP y socket. El gateway une a cada socket solo a `request-chat:<id>` autorizado y, si es miembro, a `members`. Se elimina `server.emit` global.
+
+**Acceptance criteria:**
+- [x] Solicitante pidiendo la solicitud de otro → 403; solicitante votando → 403 (incluye al miembro recién expulsado, RNF-SEG-10)
+- [x] Un solicitante conectado no recibe eventos de otras solicitudes
+- [x] No queda ningún `server.emit` sin `.to(...)`
+
+**Verification:**
+- [x] e2e: matriz rol × endpoint/evento (criterios de éxito 2 y 4)
+
+**Dependencies:** T04, T05
+
+**Files likely touched:**
+- `src/auth/presentation/roles.guard.ts`, `roles.decorator.ts`
+- `src/chat/presentation/request-chat.controller.ts`
+- `src/chat/presentation/chat.gateway.ts`
+- `test/authorization.e2e-spec.ts`
+
+**Estimated scope:** M
+
+### Checkpoint A: después de T01–T06 (con T37–T39)
+- [ ] Criterios de éxito 1, 2 y 4 cubiertos por e2e
+- [ ] Revisión humana antes de seguir
+
+---
+
+## Task 07: App autenticada y enrutada por rol
+
+**Repo:** App · **RNF:** SEG-01, USA-02, REN-02, REN-03 · **Deuda:** #9, #12, #17
+
+**Description:** RTK Query envía `Authorization: tma <initDataRaw>` y socket.io lo envía en `auth`. El arranque llama solo a `GET /me` y enruta según el flujo principal (SPEC §1); lo demás que necesite la pantalla se pide en paralelo, nunca encadenado. Se eliminan la espera de `POST /groups/sync` (`App.tsx:37-40`), los `refetch()` duplicados de `IndexPage.tsx`, `RequireBeMember` basado en BD, el hack `isRequester` con `123456789` y `telegramUserId || 1`.
+
+**Acceptance criteria:**
+- [ ] Ninguna petición envía `x-telegram-id` y nada espera a `POST /groups/sync`
+- [ ] Miembro → Inicio; solicitante sin solicitud → Formulario; con solicitud → su chat / Aprobado / No aprobado
+- [ ] El arranque hace a lo sumo 2 peticiones y ninguna depende de otra (salvo `GET /me`); sin ids fijos de prueba
+
+**Verification:**
+- [ ] Manual en staging con una cuenta miembro y otra no miembro; pestaña Network de DevTools para contar peticiones
+
+**Dependencies:** T05, T06
+
+**Files likely touched:**
+- `src/services/*.service.ts` (baseQuery)
+- `src/components/RequireBeMember.tsx`
+- `src/navigation/routes.tsx`, `private-routes.tsx`
+- `src/components/App.tsx`
+- `src/pages/IndexPage/IndexPage.tsx`
+- `src/state/user.slice.ts`
+
+**Estimated scope:** M
+
+---
+
+## Task 43: App: bundle más liviano
+
+**Repo:** App · **RNF:** REN-02 · **Deuda:** #14
+
+**Description:** El JS inicial es un solo archivo de ~1 MB. Quitar `@tonconnect/ui-react` y `TonConnectUIProvider` (sin uso) y cargar cada página con `React.lazy` + `Suspense`.
+
+**Acceptance criteria:**
+- [ ] `@tonconnect/ui-react` no está en `package.json`
+- [ ] Cada ruta es un chunk separado
+- [ ] El tamaño del JS inicial (gzip) se anota antes y después, y baja
+
+**Verification:**
+- [ ] `npm run build` y comparación del tamaño de `dist/assets`
+
+**Dependencies:** None
+
+**Files likely touched:**
+- `src/components/Root.tsx`
+- `src/navigation/routes.tsx`
+- `package.json`
+
+**Estimated scope:** S
+
+---
+
+## Task 08: Módulo `media`: canal de almacenamiento y proxy `/media/:id`
+
+**Repo:** API · **RNF:** SEG-03, OPE-01 · **Deuda:** #10
+
+**Description:** Subir imágenes con `sendPhoto` al canal `TELEGRAM_STORAGE_CHAT_ID` y guardar `file_id`/`file_unique_id`. `GET /media/:id` resuelve `getFile` (con caché TTL corto) y transmite los bytes con `Cache-Control: private, max-age=86400`, autorizado por rol. Avatares y foto del grupo pasan a guardarse como `file_id`.
+
+**Acceptance criteria:**
+- [x] `GET /media/:id` sin auth → 401; con auth de un usuario no autorizado para esa imagen → 403
+- [x] Ninguna respuesta de la API contiene `api.telegram.org/file/bot`
+- [x] Los usuarios guardan `avatarFileId` en lugar de `file_path`. Se guarda `avatarMediaId`, el id del registro en la colección `media`, que contiene el `file_id`. Así la App pide `/media/:id` sin consultas extra. El grupo guarda `photoMediaId`.
+
+**Verification:**
+- [x] Unitarias del servicio con el cliente de Telegram simulado
+- [x] e2e: subida y descarga
+
+**Notas de implementación:**
+- `POST /media` (multipart, campo `file`) sube una imagen y devuelve `{ id }`. Valida el tipo por los primeros bytes (JPEG/PNG/WebP → si no, 400) y el tamaño (> 10 MB → 413). T14 y T17 la reutilizan.
+- Quién ve cada imagen: un miembro ve todas. Cualquier usuario autenticado ve avatares y la foto del grupo. Una imagen subida solo la ve quien la subió; T14 y T17 la abren a los participantes de su solicitud.
+- `TELEGRAM_STORAGE_CHAT_ID` es opcional. Sin ella, avatares y foto del grupo funcionan, pero `POST /media` responde 503.
+- Los registros viejos con `avatarUrl` y `photoUrl` se ignoran. El avatar y la foto se vuelven a guardar como id de `media` en la siguiente sincronización. Borrar esos campos le toca a T12.
+
+**Dependencies:** T06
+
+**Files likely touched:**
+- `src/media/application/media.service.ts` (+ `.spec.ts`)
+- `src/media/infraestructure/telegram-storage.adapter.ts`
+- `src/media/presentation/media.controller.ts`
+- `src/members/infraestructure/repositories/user-mongo.repository.ts`
+- `src/telegram-bot/telegram-bot.config.ts`
+
+**Estimated scope:** M
+
+---
+
+## Task 09: App sin token del bot
+
+**Repo:** App · **RNF:** SEG-03 · **Deuda:** #1, #14
+
+**Description:** Quitar `VITE_TELEGRAM_BOT_TOKEN` y toda URL `api.telegram.org/file/bot…`. Avatares, foto del grupo e imágenes se piden a `/media/:id` con auth (fetch → blob URL). Sustituir el avatar por defecto de GitHub.
+
+**Acceptance criteria:**
+- [ ] `grep -r "api.telegram.org" dist/` y `grep -r "VITE_TELEGRAM_BOT_TOKEN"` vacíos
+- [ ] Avatares e imágenes se ven igual que antes
+
+**Verification:**
+- [ ] `npm run build` + grep sobre `dist/` (criterio de éxito 3)
+
+**Dependencies:** T01, T08
+
+**Files likely touched:**
+- `src/state/hub.slice.ts`, `src/state/request-chat.slice.ts`
+- `src/components/ChatBubble/ChatBubble.tsx`
+- `src/components/AuthImage.tsx` (nuevo)
+- `.env.example`
+
+**Estimated scope:** M
+
+---
+
+## Task 10: Mensajes en su propia colección
+
+**Repo:** API · **RNF:** CON-01, CAL-04 · **Deuda:** #5, #16
+
+**Description:** Nueva colección `requestchatmessages` (con `requestChatId`, `authorId`, `createdAt` persistido, índices por `requestChatId + createdAt`). Enviar un mensaje es un `insertOne`. Las fechas salen en ISO-8601 UTC.
+
+**Acceptance criteria:**
+- [x] 20 mensajes concurrentes en el mismo chat → 20 persistidos, en orden, con su `createdAt`
+- [x] El documento de la solicitud ya no embebe mensajes
+- [x] Las respuestas devuelven fechas ISO UTC, sin formateo de zona en el servidor
+
+**Verification:**
+- [x] e2e de concurrencia (criterio de éxito 5)
+
+**Notas de implementación:**
+- **Forma del documento.** `{ _id, requestChatId, authorId, content, readBy: [{ userId, at }], createdAt }`, con índice `{ requestChatId: 1, createdAt: 1 }`. Los leídos ya se llaman `readBy`, el destino que fija SPEC §9.1, así que T12 migra directo a esta forma.
+- **`createdAt`.** Lo pone un reloj monótono del servidor (`MonotonicClock`): dos mensajes nunca comparten fecha, y ordenar por `createdAt` da el orden de llegada. Vale para una sola instancia de la API.
+- **Mensajes del bot.** Bienvenida, aprobado y rechazado los crea `RequestChatEntity` y se insertan aparte.
+- **Votos y leídos.** Al votar, la solicitud todavía se guarda completa (lo cambia T11), pero ya sin mensajes. El `GET` sigue marcando leídos, ahora con un solo `updateMany` (T11 lo pasa a una operación explícita).
+- **Listado.** Carga los mensajes de todas las solicitudes en una consulta (T40 lo cambia por una agregación). `lastMessage` es opcional.
+- **Datos existentes.** Las solicitudes creadas antes de T10 no muestran mensajes hasta que corra la migración de T12. **No desplegar T10 a producción sin T12.**
+- **Seed y medición.** El seed de staging escribe en la colección nueva; hay que volver a sembrar con `--reset`. `perf:hydration` mide las consultas nuevas: 418 documentos hidratados con el volumen por defecto.
+
+**Dependencies:** T02
+
+**Files likely touched:**
+- `src/chat/infraestructure/schemas/request-chat-message.schema.ts`
+- `src/chat/infraestructure/repositories/chat-mongo.repository.ts`
+- `src/chat/mappers/request-chat-message.mapper.ts`
+- `src/chat/domain/value-objects/chat-date.value-object.ts`
+
+**Estimated scope:** M
+
+---
+
+## Task 11: Operaciones atómicas y lecturas sin efectos
+
+**Repo:** API · **RNF:** CON-01, CON-05 · **Deuda:** #5, #6
+
+**Description:** Votos y leídos se actualizan con `$set`/`$push`/`$pull` filtrados; nada llama `updateOne` con el agregado completo. `GET` de una solicitud deja de marcar leídos; el marcado pasa a una operación explícita.
+
+**Acceptance criteria:**
+ o `$push` con `votes.from: { $ne }` para fijar. Devuelve la solicitud con los votos de todos.
+- **Cierre.** `outcome()` evalúa los umbrales con esos votos. `ChatRepository.close` es condicional (`InProgress` → `Approved`/`Rejected`): si varios votos cruzan el umbral a la vez, solo uno cierra, así que el mensaje de cierre y los avisos salen una vez. Los votos que llegan después del cierre reciben 409.
+- **Leídos.** `GET /request-chats/:id` ya no escribe. El marcado es `POST /request-chats/:id/read` (204, dueño o miembro), con un solo `updateMany`. La App lo llama al abrir el chat (PR de la App de T11).
+- **Prueba de que las e2e sirven.** Con el código anterior fallan 3 de las 4 e2e nuevas: votos perdidos, cierre repetido y un `GET` que escribe.
 
 **Dependencies:** T10
 
