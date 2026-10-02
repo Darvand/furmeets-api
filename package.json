@@ -18,7 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "perf:baseline": "ts-node --transpile-only scripts/perf/latency-baseline.ts"
+    "perf:baseline": "ts-node --transpile-only scripts/perf/latency-baseline.ts",
+    "seed:staging": "ts-node --transpile-only scripts/seed/staging-seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
