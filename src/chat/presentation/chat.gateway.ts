@@ -9,11 +9,10 @@ import {
   WsException,
 } from '@nestjs/websockets';
 import { CreateRequestChatMessageDto } from './dtos/create-request-chat-message.dto';
-import { ChatService } from '../application/chat.service';
+import { ChatService, type RequestChatView } from '../application/chat.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper';
 import type { Server } from 'socket.io';
-import { RequestChatEntity } from '../domain/entities/request-chat.entity';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
 import { Logger, UseInterceptors } from '@nestjs/common';
@@ -115,23 +114,29 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   emitRequestChatUpdate(
-    requestChat: RequestChatEntity,
+    { requestChat, messages }: RequestChatView,
     user: UserEntity,
   ): void {
     this.toRequestChat(requestChat.id.value).emit(
       'request-chat-update',
-      RequestChatMapper.toDto(requestChat, user),
+      RequestChatMapper.toDto(requestChat, messages, user),
     );
   }
 
-  emitNewRequestChat(requestChat: RequestChatEntity, viewer: UserEntity): void {
+  emitNewRequestChat(
+    { requestChat, messages }: RequestChatView,
+    viewer: UserEntity,
+  ): void {
     // Los sockets ya abiertos del solicitante pasan a la sala de su nueva solicitud.
     this.server
       .in(userRoom(requestChat.props.requester.telegramId))
       .socketsJoin(requestChatRoom(requestChat.id.value));
     this.server
       .to(MEMBERS_ROOM)
-      .emit('new-request-chat', RequestChatMapper.toDto(requestChat, viewer));
+      .emit(
+        'new-request-chat',
+        RequestChatMapper.toDto(requestChat, messages, viewer),
+      );
   }
 
   /** El solicitante de la solicitud y todos los miembros. */

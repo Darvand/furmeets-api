@@ -379,12 +379,21 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Nueva colección `requestchatmessages` (con `requestChatId`, `authorId`, `createdAt` persistido, índices por `requestChatId + createdAt`). Enviar un mensaje es un `insertOne`. Las fechas salen en ISO-8601 UTC.
 
 **Acceptance criteria:**
-- [ ] 20 mensajes concurrentes en el mismo chat → 20 persistidos, en orden, con su `createdAt`
-- [ ] El documento de la solicitud ya no embebe mensajes
-- [ ] Las respuestas devuelven fechas ISO UTC, sin formateo de zona en el servidor
+- [x] 20 mensajes concurrentes en el mismo chat → 20 persistidos, en orden, con su `createdAt`
+- [x] El documento de la solicitud ya no embebe mensajes
+- [x] Las respuestas devuelven fechas ISO UTC, sin formateo de zona en el servidor
 
 **Verification:**
-- [ ] e2e de concurrencia (criterio de éxito 5)
+- [x] e2e de concurrencia (criterio de éxito 5)
+
+**Notas de implementación:**
+- **Forma del documento.** `{ _id, requestChatId, authorId, content, readBy: [{ userId, at }], createdAt }`, con índice `{ requestChatId: 1, createdAt: 1 }`. Los leídos ya se llaman `readBy`, el destino que fija SPEC §9.1, así que T12 migra directo a esta forma.
+- **`createdAt`.** Lo pone un reloj monótono del servidor (`MonotonicClock`): dos mensajes nunca comparten fecha, y ordenar por `createdAt` da el orden de llegada. Vale para una sola instancia de la API.
+- **Mensajes del bot.** Bienvenida, aprobado y rechazado los crea `RequestChatEntity` y se insertan aparte.
+- **Votos y leídos.** Al votar, la solicitud todavía se guarda completa (lo cambia T11), pero ya sin mensajes. El `GET` sigue marcando leídos, ahora con un solo `updateMany` (T11 lo pasa a una operación explícita).
+- **Listado.** Carga los mensajes de todas las solicitudes en una consulta (T40 lo cambia por una agregación). `lastMessage` es opcional.
+- **Datos existentes.** Las solicitudes creadas antes de T10 no muestran mensajes hasta que corra la migración de T12. **No desplegar T10 a producción sin T12.**
+- **Seed y medición.** El seed de staging escribe en la colección nueva; hay que volver a sembrar con `--reset`. `perf:hydration` mide las consultas nuevas: 418 documentos hidratados con el volumen por defecto.
 
 **Dependencies:** T02
 

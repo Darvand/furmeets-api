@@ -13,12 +13,24 @@ describe('RequestChatEntity', () => {
     requestChat = RequestChatEntity.asNew(requester, 'furros', 'Instagram');
   });
 
-  it('una solicitud nueva queda en curso, sin votos ni mensajes', () => {
+  it('una solicitud nueva queda en curso y sin votos', () => {
     expect(requestChat.isInProgress()).toBe(true);
     expect(requestChat.state).toBe('InProgress');
     expect(requestChat.countApproves()).toBe(0);
     expect(requestChat.countRejects()).toBe(0);
-    expect(requestChat.props.messages).toHaveLength(0);
+  });
+
+  it('los mensajes de sistema son del bot, de esta solicitud y nacen sin leer', () => {
+    const bot = user(999);
+    const at = new Date('2026-10-02T15:00:00.000Z');
+
+    const welcome = requestChat.welcomeMessage(bot, at);
+
+    expect(welcome.requestChatId.equals(requestChat.id)).toBe(true);
+    expect(welcome.author).toBe(bot);
+    expect(welcome.createdAt).toBe(at);
+    expect(welcome.isReadBy(requester)).toBe(false);
+    expect(welcome.isReadBy(bot)).toBe(false);
   });
 
   describe('addVote', () => {

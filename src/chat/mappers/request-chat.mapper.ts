@@ -10,8 +10,6 @@ import { ListRequestChatDto } from '../presentation/dtos/list-request-chat.dto';
 import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
 import { RequestChatVoteEntity } from '../domain/entities/request-chat-vote.entity';
 import { DateTime } from 'luxon';
-import { ChatDate } from '../domain/value-objects/chat-date.value-object';
-import { ChatMessageViewedByEntity } from '../domain/entities/chat-message-viewed-by.entity';
 import { User } from 'src/members/infraestructure/schemas/user.schema';
 import { uuidRef } from 'src/shared/infraestructure/mongo-uuid';
 
@@ -25,9 +23,6 @@ export class RequestChatMapper {
         type: vote.props.type,
       })),
       state: requestChat.state,
-      messages: requestChat.props.messages.map((message) =>
-        RequestChatMessageMapper.toDb(message),
-      ),
       interests: requestChat.props.interests,
       whereYouFoundUs: requestChat.props.whereYouFoundUs,
     };
@@ -46,22 +41,6 @@ export class RequestChatMapper {
             createdAt: DateTime.fromJSDate(vote.createdAt!),
           }),
         ),
-        messages: dbRequestChat.messages.map((msg) => {
-          return RequestChatMessageEntity.create(
-            {
-              content: msg.content,
-              user: UserMapper.fromDb(msg.user),
-              createdAt: ChatDate.fromJSDate(msg.createdAt!),
-              viewedBy: msg.viewedBy.map((viewed) =>
-                ChatMessageViewedByEntity.create({
-                  by: UserMapper.fromDb(viewed.by),
-                  at: ChatDate.fromJSDate(viewed.createdAt!),
-                }),
-              ),
-            },
-            UUID.from(msg._id),
-          );
-        }),
         interests: dbRequestChat.interests,
         whereYouFoundUs: dbRequestChat.whereYouFoundUs,
       },
@@ -72,12 +51,13 @@ export class RequestChatMapper {
 
   static toDto(
     requestChat: RequestChatEntity,
+    messages: RequestChatMessageEntity[],
     viewer: UserEntity,
   ): GetRequestChatDto {
     return {
       uuid: requestChat.id.value,
       requester: UserMapper.toDto(requestChat.props.requester),
-      messages: requestChat.props.messages.map((message) =>
+      messages: messages.map((message) =>
         RequestChatMessageMapper.toDto(message, viewer),
       ),
       interests: requestChat.props.interests,
@@ -91,8 +71,14 @@ export class RequestChatMapper {
     };
   }
 
+  /**
+   * Listado de solicitudes con su último mensaje y los no leídos de `viewer`.
+   * `messagesByChat` trae los mensajes de cada solicitud en orden cronológico (T40 lo
+   * cambia por una agregación que no los carga).
+   */
   static toDtoList(
     requestChats: RequestChatEntity[],
+    messagesByChat: Map<string, RequestChatMessageEntity[]>,
     viewer: UserEntity,
   ): ListRequestChatDto {
     return {
@@ -101,17 +87,20 @@ export class RequestChatMapper {
           (a, b) => b.props.createdAt.toMillis() - a.props.createdAt.toMillis(),
         )
         .map((chat) => {
-          const lastMessage = chat.lastMessage();
+          const messages = messagesByChat.get(chat.id.value) ?? [];
+          const lastMessage = messages.at(-1);
           return {
             uuid: chat.id.value,
             requester: UserMapper.toDto(chat.props.requester),
-            lastMessage: {
-              at: lastMessage.props.createdAt.at,
-              content: lastMessage.props.content,
-              from: UserMapper.toDto(lastMessage.props.user),
+            // Una solicitud sin mensajes (antes de migrarla, T12) no tiene último mensaje.
+            lastMessage: lastMessage && {
+              at: lastMessage.createdAt.toISOString(),
+              content: lastMessage.content,
+              from: UserMapper.toDto(lastMessage.author),
             },
             state: chat.state,
-            unreadMessagesCount: chat.unreadMessagesCount(viewer),
+            unreadMessagesCount: messages.filter((m) => !m.isReadBy(viewer))
+              .length,
           };
         }),
     };

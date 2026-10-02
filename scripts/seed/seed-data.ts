@@ -2,7 +2,7 @@
  * Generación de datos parecidos a producción para staging (sin Nest).
  *
  * Escribe directamente en las colecciones con la misma forma que los schemas de Mongoose
- * (`users`, `groups`, `requestchats`). Los usuarios sembrados usan `telegramId` desde
+ * (`users`, `groups`, `requestchats`, `requestchatmessages`). Los usuarios sembrados usan `telegramId` desde
  * `SEED_TELEGRAM_ID_BASE`, fuera del rango de Telegram, y usernames `seed_*`: así no chocan
  * con cuentas reales y se pueden borrar sin tocar nada más (`deleteSeed`).
  *
@@ -244,6 +244,7 @@ function buildVotes(
 
 function buildMessages(
   random: Random,
+  requestChatId: mongo.UUID,
   requester: SeedUser,
   members: SeedUser[],
   count: number,
@@ -276,16 +277,14 @@ function buildMessages(
     const unique = [...new Map(viewers.map((u) => [u.telegramId, u])).values()];
     return {
       _id: uuid(),
-      user: author._id,
+      requestChatId,
+      authorId: author._id,
       content: random.pick(byRequester ? REQUESTER_LINES : MEMBER_LINES),
-      viewedBy: unique.map((viewer) => ({
-        by: viewer._id,
-        createdAt: new Date(
-          createdAt.getTime() + random.int(0, 6 * 60 * 60 * 1000),
-        ),
+      readBy: unique.map((viewer) => ({
+        userId: viewer._id,
+        at: new Date(createdAt.getTime() + random.int(0, 6 * 60 * 60 * 1000)),
       })),
       createdAt,
-      updatedAt: createdAt,
     };
   });
 }
@@ -300,7 +299,6 @@ interface SeedRequestChat {
   whereYouFoundUs?: string;
   interests?: string;
   votes: ReturnType<typeof buildVotes>;
-  messages: ReturnType<typeof buildMessages>;
   state: string;
   createdAt: Date;
   updatedAt: Date;
@@ -316,8 +314,11 @@ const usersOf = (db: mongo.Db) => db.collection<SeedUser>('users');
 const requestChatsOf = (db: mongo.Db) =>
   db.collection<SeedRequestChat>('requestchats');
 const groupsOf = (db: mongo.Db) => db.collection<SeedGroup>('groups');
+type SeedMessage = ReturnType<typeof buildMessages>[number];
+const messagesOf = (db: mongo.Db) =>
+  db.collection<SeedMessage>('requestchatmessages');
 
-/** Inserta usuarios, solicitudes (con mensajes, votos y leídos) y agrega miembros al grupo. */
+/** Inserta usuarios, solicitudes (con votos), sus mensajes (con leídos) y agrega miembros al grupo. */
 export async function seed(
   db: mongo.Db,
   overrides: Partial<SeedOptions> = {},
@@ -337,6 +338,7 @@ export async function seed(
     ...Array<string>(options.rejected).fill('Rejected'),
   ];
   const applicants: SeedUser[] = [];
+  const messages: SeedMessage[] = [];
   const requestChats = states.map((state, i): SeedRequestChat => {
     // En curso: últimas 2 semanas; cerradas: los 6 meses anteriores.
     const createdAt =
@@ -355,22 +357,24 @@ export async function seed(
       createdAt,
     );
     applicants.push(requester);
-    const messages = buildMessages(
+    const requestChatId = uuid();
+    const chatMessages = buildMessages(
       random,
+      requestChatId,
       requester,
       members,
       random.int(options.minMessages, options.maxMessages),
       createdAt,
       closesAt,
     );
-    const updatedAt = messages.at(-1)?.createdAt ?? createdAt;
+    messages.push(...chatMessages);
+    const updatedAt = chatMessages.at(-1)?.createdAt ?? createdAt;
     return {
-      _id: uuid(),
+      _id: requestChatId,
       requester: requester._id,
       ...(random.next() < 0.8 ? { whereYouFoundUs: random.pick(WHERE) } : {}),
       ...(random.next() < 0.8 ? { interests: random.pick(INTERESTS) } : {}),
       votes: buildVotes(random, members, state, options, createdAt, closesAt),
-      messages,
       state,
       createdAt,
       updatedAt,
@@ -381,6 +385,9 @@ export async function seed(
   await usersOf(db).insertMany(users);
   if (requestChats.length > 0) {
     await requestChatsOf(db).insertMany(requestChats);
+  }
+  if (messages.length > 0) {
+    await messagesOf(db).insertMany(messages);
   }
 
   const groupMembers = users.filter((u) => u.isMember).map((u) => u._id);
@@ -403,13 +410,13 @@ export async function seed(
   return {
     users: users.length,
     requestChats: requestChats.length,
-    messages: requestChats.reduce((sum, chat) => sum + chat.messages.length, 0),
+    messages: messages.length,
     votes: requestChats.reduce((sum, chat) => sum + chat.votes.length, 0),
     addedToGroup,
   };
 }
 
-/** Borra solo lo sembrado: usuarios del rango, sus solicitudes y su membresía en el grupo. */
+/** Borra solo lo sembrado: usuarios del rango, sus solicitudes y mensajes, y su membresía en el grupo. */
 export async function deleteSeed(
   db: mongo.Db,
 ): Promise<{ users: number; requestChats: number }> {
@@ -423,8 +430,14 @@ export async function deleteSeed(
   if (ids.length === 0) {
     return { users: 0, requestChats: 0 };
   }
+  const chatIds = (
+    await requestChatsOf(db)
+      .find({ requester: { $in: ids } }, { projection: { _id: 1 } })
+      .toArray()
+  ).map((chat) => chat._id);
+  await messagesOf(db).deleteMany({ requestChatId: { $in: chatIds } });
   const chats = await requestChatsOf(db).deleteMany({
-    requester: { $in: ids },
+    _id: { $in: chatIds },
   });
   // $pullAll equivale a $pull con $in para valores exactos, y el driver sí lo tipa con UUID.
   await groupsOf(db).updateMany({}, { $pullAll: { members: ids } });

@@ -12,25 +12,35 @@ import type {
   ChatRepository,
   RequestChatSummary,
 } from '../domain/services/chat.repository';
+import type { RequestChatMessageRepository } from '../domain/services/request-chat-message.repository';
 import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { UserService } from 'src/members/application/user.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { CreateRequestChatDto } from '../presentation/dtos/create-request-chat.dto';
 import { DateTime } from 'luxon';
-import { ChatMessageViewedByEntity } from '../domain/entities/chat-message-viewed-by.entity';
-import { ChatDate } from '../domain/value-objects/chat-date.value-object';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
 import { RequestChatVoteEntity } from '../domain/entities/request-chat-vote.entity';
 import { ChatGateway } from '../presentation/chat.gateway';
+import { MonotonicClock } from 'src/shared/time/monotonic-clock';
+
+/** Una solicitud con sus mensajes, en orden cronológico. */
+export interface RequestChatView {
+  requestChat: RequestChatEntity;
+  messages: RequestChatMessageEntity[];
+}
 
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
+  /** Fecha de cada mensaje: única y creciente, para que el orden sea el de llegada. */
+  private readonly clock = new MonotonicClock();
 
   constructor(
     @Inject(CHAT_PROVIDERS.RequestChatRepository)
     private readonly requestChatRepository: ChatRepository,
+    @Inject(CHAT_PROVIDERS.RequestChatMessageRepository)
+    private readonly messageRepository: RequestChatMessageRepository,
     private readonly userService: UserService,
     private readonly telegramBotService: TelegramBotService,
     @Inject(forwardRef(() => ChatGateway))
@@ -39,7 +49,7 @@ export class ChatService {
 
   async createRequestChat(
     createRequestChatDto: CreateRequestChatDto,
-  ): Promise<RequestChatEntity> {
+  ): Promise<RequestChatView> {
     this.logger.debug(
       `Creating request chat for requester UUID: ${createRequestChatDto.requesterUUID}`,
     );
@@ -61,29 +71,41 @@ export class ChatService {
       createRequestChatDto.whereYouFoundUs,
     );
     const bot = await this.userService.getBotUser();
-    requestChat.addWelcomeMessage(bot);
+    const welcome = requestChat.welcomeMessage(bot, this.clock.now());
     await this.requestChatRepository.createRequestChat(requestChat);
+    await this.messageRepository.insert(welcome);
+    const view = { requestChat, messages: [welcome] };
+    this.chatGateway.emitNewRequestChat(view, requester);
     await this.telegramBotService.sendMessageToGroup(
       requestChat.announceWelcomeMesssage(),
     );
-    this.chatGateway.emitNewRequestChat(requestChat, requester);
-    return requestChat;
+    return view;
   }
 
+  /**
+   * Una solicitud con sus mensajes. Marca como leídos los que `viewer` no había leído
+   * (T11 lo pasa a una operación explícita: un GET no debería escribir).
+   */
   async getRequestChatByUUID(
     id: UUID,
     viewer: UserEntity,
-  ): Promise<RequestChatEntity> {
-    const requestChat =
-      await this.requestChatRepository.getRequestChatByUUID(id);
-    if (!requestChat) {
-      throw new NotFoundException(`RequestChat with ID ${id.value} not found`);
+  ): Promise<RequestChatView> {
+    const [requestChat, messages] = await Promise.all([
+      this.findRequestChat(id),
+      this.messageRepository.findByRequestChat(id),
+    ]);
+    const at = new Date();
+    const unread = messages.filter((message) => message.markReadBy(viewer, at));
+    if (unread.length > 0) {
+      await this.messageRepository.markAllReadBy(id, viewer, at);
     }
-    requestChat.markLastMessageViewedBy(viewer);
-    await this.requestChatRepository.saveRequestChat(requestChat);
-    return requestChat;
+    return { requestChat, messages };
   }
 
+  /**
+   * Agrega un mensaje con una sola inserción: los envíos concurrentes no se pisan ni
+   * reescriben la solicitud (RNF-CON-01).
+   */
   async addMessageToRequestChat(
     requestChatUUID: UUID,
     user: UserEntity,
@@ -92,23 +114,20 @@ export class ChatService {
     this.logger.debug(
       `Adding message to request chat UUID: ${requestChatUUID.value} from user UUID: ${user.id.value}`,
     );
-    const requestChat = await this.getRequestChatByUUID(requestChatUUID, user);
+    const requestChat = await this.findRequestChat(requestChatUUID);
     if (!requestChat.isInProgress()) {
       throw new ConflictException(
         `Cannot add messages to a request chat that is not in progress`,
       );
     }
-    const messageEntity = RequestChatMessageEntity.create({
-      content,
+    const message = RequestChatMessageEntity.send(
+      requestChat.id,
       user,
-      viewedBy: [
-        ChatMessageViewedByEntity.create({ by: user, at: ChatDate.now() }),
-      ],
-      createdAt: ChatDate.now(),
-    });
-    requestChat.addMessage(messageEntity);
-    await this.requestChatRepository.saveRequestChat(requestChat);
-    if (messageEntity.fromUser(requestChat.props.requester)) {
+      content,
+      this.clock.now(),
+    );
+    await this.messageRepository.insert(message);
+    if (message.fromUser(requestChat.props.requester)) {
       await this.telegramBotService.sendMessageToGroup(
         `Nuevo mensaje de *${requestChat.props.requester.name}* en el chat de solicitud`,
       );
@@ -118,7 +137,7 @@ export class ChatService {
         requestChat.getNewMessageNotificationText(),
       );
     }
-    return messageEntity;
+    return message;
   }
 
   async findRequestChatSummaryOf(
@@ -127,49 +146,75 @@ export class ChatService {
     return this.requestChatRepository.findSummaryByRequester(user.id);
   }
 
-  async getAllRequestChats(): Promise<RequestChatEntity[]> {
+  /** Todas las solicitudes y sus mensajes (T40 lo cambia por un resumen agregado). */
+  async getAllRequestChats(): Promise<{
+    requestChats: RequestChatEntity[];
+    messagesByChat: Map<string, RequestChatMessageEntity[]>;
+  }> {
     this.logger.debug(`Fetching all request chats`);
-    return this.requestChatRepository.getAllRequestChats();
+    const requestChats = await this.requestChatRepository.getAllRequestChats();
+    const messagesByChat = await this.messageRepository.findByRequestChats(
+      requestChats.map((chat) => chat.id),
+    );
+    return { requestChats, messagesByChat };
   }
 
   async voteOnRequestChat(
     requestChatUUID: UUID,
     user: UserEntity,
     type: 'approve' | 'reject',
-  ): Promise<RequestChatEntity> {
+  ): Promise<RequestChatView> {
     this.logger.debug(
       `User UUID: ${user.id.value} voting on request chat UUID: ${requestChatUUID.value} with type: ${type}`,
     );
-    const requestChat = await this.getRequestChatByUUID(requestChatUUID, user);
+    const requestChat = await this.findRequestChat(requestChatUUID);
     if (!requestChat.isInProgress()) {
       throw new ConflictException(
         `Cannot vote on a request chat that is not in progress`,
       );
     }
-    const voteEntity = RequestChatVoteEntity.create({
-      createdAt: DateTime.now(),
-      user,
-      type,
-    });
-    requestChat.addVote(voteEntity);
+    requestChat.addVote(
+      RequestChatVoteEntity.create({ createdAt: DateTime.now(), user, type }),
+    );
+    await this.requestChatRepository.saveRequestChat(requestChat);
+    const closed = !requestChat.isInProgress();
+    if (closed) {
+      const bot = await this.userService.getBotUser();
+      await this.messageRepository.insert(
+        requestChat.isApproved()
+          ? requestChat.approvedMessage(bot, this.clock.now())
+          : requestChat.rejectedMessage(bot, this.clock.now()),
+      );
+    }
+    const view = {
+      requestChat,
+      messages: await this.messageRepository.findByRequestChat(requestChat.id),
+    };
+    if (!closed) {
+      return view;
+    }
+    this.chatGateway.emitRequestChatUpdate(view, user);
     if (requestChat.isApproved()) {
-      this.chatGateway.emitRequestChatUpdate(requestChat, user);
-      requestChat.addApprovedMessage(await this.userService.getBotUser());
       await this.telegramBotService.sendMessageToGroup(
         requestChat.announceApproval(),
       );
       await this.telegramBotService.sendInviteLinkToUser(
         requestChat.props.requester.telegramId,
       );
-    }
-    if (requestChat.isRejected()) {
+    } else {
       await this.telegramBotService.sendMessageToGroup(
         requestChat.announceRejection(),
       );
-      this.chatGateway.emitRequestChatUpdate(requestChat, user);
-      requestChat.addRejectedMessage(await this.userService.getBotUser());
     }
-    await this.requestChatRepository.saveRequestChat(requestChat);
+    return view;
+  }
+
+  private async findRequestChat(id: UUID): Promise<RequestChatEntity> {
+    const requestChat =
+      await this.requestChatRepository.getRequestChatByUUID(id);
+    if (!requestChat) {
+      throw new NotFoundException(`RequestChat with ID ${id.value} not found`);
+    }
     return requestChat;
   }
 }
