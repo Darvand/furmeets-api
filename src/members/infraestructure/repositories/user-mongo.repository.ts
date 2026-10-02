@@ -69,7 +69,7 @@ export class UserMongoRepository implements UserRepository {
     async updateAvatar(user: UserEntity): Promise<void> {
         await this.userModel.updateOne(
             { _id: user.id.value },
-            user.avatarUrl ? { $set: { avatarUrl: user.avatarUrl } } : { $unset: { avatarUrl: '' } },
+            user.avatarMediaId ? { $set: { avatarMediaId: user.avatarMediaId } } : { $unset: { avatarMediaId: '' } },
         );
     }
 }

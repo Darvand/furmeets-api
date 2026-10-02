@@ -9,6 +9,7 @@ import { createTestApp, TEST_BOT_TOKEN, TestApp, tmaAuth } from './helpers/app';
 import { signInitData } from './helpers/init-data';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const AVATAR_MEDIA_ID = '6f1c2a3b-4d5e-4f60-8a71-92b3c4d5e6f7';
 
 describe('Autenticación HTTP por initData (e2e)', () => {
   let testApp: TestApp;
@@ -129,8 +130,9 @@ describe('Autenticación HTTP por initData (e2e)', () => {
         telegramId: 4001,
         name: 'Beto Pérez',
         username: 'beto',
-        avatarUrl: 'https://t.me/i/userpic/320/beto.jpg',
       });
+      // La foto de initData no se guarda: el avatar es un id de `media` (RNF-SEG-03).
+      expect(res.body).not.toHaveProperty('avatarMediaId');
       const stored = await users.findOne({ telegramId: 4001 }).lean();
       expect(stored).toMatchObject({ name: 'Beto Pérez', isMember: false });
     });
@@ -145,7 +147,7 @@ describe('Autenticación HTTP por initData (e2e)', () => {
         .expect(200);
       await users.updateOne(
         { telegramId: 4002 },
-        { isMember: true, species: 'Wolf', avatarUrl: 'guardado' },
+        { isMember: true, species: 'Wolf', avatarMediaId: AVATAR_MEDIA_ID },
       );
       const { _id } = (await users.findOne({ telegramId: 4002 }).lean())!;
 
@@ -164,7 +166,7 @@ describe('Autenticación HTTP por initData (e2e)', () => {
       expect(res.body).toMatchObject({
         name: 'Carolina',
         species: 'Wolf',
-        avatarUrl: 'guardado',
+        avatarMediaId: AVATAR_MEDIA_ID,
       });
       expect(res.body).not.toHaveProperty('username');
       const stored = await users.find({ telegramId: 4002 }).lean();

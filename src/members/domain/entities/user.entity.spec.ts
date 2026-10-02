@@ -16,13 +16,13 @@ const identity = (
 
 describe('UserEntity', () => {
   describe('registerFromTelegram', () => {
-    it('crea un no miembro con los datos de Telegram y la foto como avatar', () => {
+    it('crea un no miembro con los datos de Telegram y sin avatar (lo guarda la sincronización)', () => {
       const user = UserEntity.registerFromTelegram(identity());
 
       expect(user.telegramId).toBe(42);
       expect(user.name).toBe('Ana Gómez');
       expect(user.username).toBe('ana');
-      expect(user.avatarUrl).toBe('https://t.me/i/userpic/320/ana.jpg');
+      expect(user.avatarMediaId).toBeUndefined();
       expect(user.isMember).toBe(false);
       expect(user.createdAt).toBeInstanceOf(Date);
     });
@@ -35,7 +35,7 @@ describe('UserEntity', () => {
           telegramId: 42,
           name: 'Ana Gómez',
           username: 'ana',
-          avatarUrl: 'avatar-del-bot',
+          avatarMediaId: 'avatar-del-bot',
           isMember: true,
           birthdate: new Date('2000-01-01'),
         },
@@ -77,7 +77,7 @@ describe('UserEntity', () => {
 
       user.refreshFrom(identity({ firstName: 'Anita', photoUrl: 'otra.jpg' }));
 
-      expect(user.avatarUrl).toBe('avatar-del-bot');
+      expect(user.avatarMediaId).toBe('avatar-del-bot');
       expect(user.isMember).toBe(true);
       expect(user.species).toBe(Species.Wolf);
       expect(user.birthdate).toEqual(new Date('2000-01-01'));
@@ -102,10 +102,10 @@ describe('UserEntity', () => {
     it('changeAvatar reemplaza o quita el avatar y reporta solo cambios', () => {
       const user = UserEntity.registerFromTelegram(identity());
 
-      expect(user.changeAvatar('photos/a.jpg')).toBe(true);
-      expect(user.changeAvatar('photos/a.jpg')).toBe(false);
+      expect(user.changeAvatar('media-a')).toBe(true);
+      expect(user.changeAvatar('media-a')).toBe(false);
       expect(user.changeAvatar(undefined)).toBe(true);
-      expect(user.avatarUrl).toBeUndefined();
+      expect(user.avatarMediaId).toBeUndefined();
     });
 
     it('registerBot crea al bot como miembro', () => {

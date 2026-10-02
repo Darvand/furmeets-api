@@ -8,7 +8,7 @@ export class UserMapper {
     static fromDb(user: User): UserEntity {
         const userEntity = UserEntity.create({
             username: user.username,
-            avatarUrl: user.avatarUrl,
+            avatarMediaId: user.avatarMediaId ? toUUIDString(user.avatarMediaId) : undefined,
             createdAt: user.createdAt,
             name: user.name,
             telegramId: user.telegramId,
@@ -24,7 +24,7 @@ export class UserMapper {
             uuid: user.id.value,
             name: user.name,
             username: user.username,
-            avatarUrl: user.avatarUrl,
+            avatarMediaId: user.avatarMediaId,
             telegramId: user.telegramId,
             species: user.species,
             birthdate: user.birthdate,
@@ -35,7 +35,7 @@ export class UserMapper {
         return {
             _id: user.id.value,
             username: user.username,
-            avatarUrl: user.avatarUrl,
+            avatarMediaId: user.avatarMediaId,
             name: user.name,
             telegramId: user.telegramId,
             createdAt: user.createdAt,

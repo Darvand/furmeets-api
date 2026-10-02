@@ -17,7 +17,7 @@ type SpeciesType = typeof Species[keyof typeof Species];
 
 export interface UserProps {
     username?: string;
-    avatarUrl?: string;
+    avatarMediaId?: string;
     name: string;
     telegramId: number;
     isMember: boolean;
@@ -39,14 +39,13 @@ export class UserEntity extends Entity<UserProps> {
 
     /**
      * Primer ingreso a la App: el usuario nace como no miembro (el rol se resuelve
-     * contra Telegram) y la foto de Telegram es su avatar inicial.
+     * contra Telegram) y sin avatar: lo guarda la sincronización con el bot (`media`).
      */
     static registerFromTelegram(identity: TelegramIdentity): UserEntity {
         return new UserEntity({
             telegramId: identity.telegramId,
             name: identity.name,
             username: identity.username,
-            avatarUrl: identity.photoUrl,
             isMember: false,
             createdAt: new Date(),
         });
@@ -72,12 +71,16 @@ export class UserEntity extends Entity<UserProps> {
         return true;
     }
 
-    /** Reemplaza el avatar por el actual de Telegram (sin foto = sin avatar). Devuelve si cambió. */
-    changeAvatar(avatarUrl: string | undefined): boolean {
-        if (this.props.avatarUrl === avatarUrl) {
+    /**
+     * Reemplaza el avatar por el actual de Telegram (sin foto = sin avatar). Es el id de
+     * `media`: el `file_path` de Telegram caduca y la URL lleva el token del bot.
+     * Devuelve si cambió.
+     */
+    changeAvatar(avatarMediaId: string | undefined): boolean {
+        if (this.props.avatarMediaId === avatarMediaId) {
             return false;
         }
-        this.props.avatarUrl = avatarUrl;
+        this.props.avatarMediaId = avatarMediaId;
         return true;
     }
 
@@ -106,8 +109,8 @@ export class UserEntity extends Entity<UserProps> {
         return this.props.username;
     }
 
-    get avatarUrl(): string | undefined {
-        return this.props.avatarUrl;
+    get avatarMediaId(): string | undefined {
+        return this.props.avatarMediaId;
     }
 
     get name(): string {

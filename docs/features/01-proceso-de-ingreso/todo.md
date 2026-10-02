@@ -320,13 +320,19 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Subir imágenes con `sendPhoto` al canal `TELEGRAM_STORAGE_CHAT_ID` y guardar `file_id`/`file_unique_id`. `GET /media/:id` resuelve `getFile` (con caché TTL corto) y transmite los bytes con `Cache-Control: private, max-age=86400`, autorizado por rol. Avatares y foto del grupo pasan a guardarse como `file_id`.
 
 **Acceptance criteria:**
-- [ ] `GET /media/:id` sin auth → 401; con auth de un usuario no autorizado para esa imagen → 403
-- [ ] Ninguna respuesta de la API contiene `api.telegram.org/file/bot`
-- [ ] Los usuarios guardan `avatarFileId` en lugar de `file_path`
+- [x] `GET /media/:id` sin auth → 401; con auth de un usuario no autorizado para esa imagen → 403
+- [x] Ninguna respuesta de la API contiene `api.telegram.org/file/bot`
+- [x] Los usuarios guardan `avatarFileId` en lugar de `file_path`. Se guarda `avatarMediaId`, el id del registro en la colección `media`, que contiene el `file_id`. Así la App pide `/media/:id` sin consultas extra. El grupo guarda `photoMediaId`.
 
 **Verification:**
-- [ ] Unitarias del servicio con el cliente de Telegram simulado
-- [ ] e2e: subida y descarga
+- [x] Unitarias del servicio con el cliente de Telegram simulado
+- [x] e2e: subida y descarga
+
+**Notas de implementación:**
+- `POST /media` (multipart, campo `file`) sube una imagen y devuelve `{ id }`. Valida el tipo por los primeros bytes (JPEG/PNG/WebP → si no, 400) y el tamaño (> 10 MB → 413). T14 y T17 la reutilizan.
+- Quién ve cada imagen: un miembro ve todas. Cualquier usuario autenticado ve avatares y la foto del grupo. Una imagen subida solo la ve quien la subió; T14 y T17 la abren a los participantes de su solicitud.
+- `TELEGRAM_STORAGE_CHAT_ID` es opcional. Sin ella, avatares y foto del grupo funcionan, pero `POST /media` responde 503.
+- Los registros viejos con `avatarUrl` y `photoUrl` se ignoran. El avatar y la foto se vuelven a guardar como id de `media` en la siguiente sincronización. Borrar esos campos le toca a T12.
 
 **Dependencies:** T06
 

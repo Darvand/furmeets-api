@@ -12,6 +12,7 @@ import { GroupsController } from "./presentation/groups.controller";
 import { GroupsService } from "./application/groups.service";
 import { GroupAdapterRepository } from "./infraestructure/repositories/group-adapter.repository";
 import { Group, GroupSchema } from "./infraestructure/schemas/group.schema";
+import { MediaModule } from "src/media/media.module";
 
 @Module({
     providers: [
@@ -39,6 +40,7 @@ import { Group, GroupSchema } from "./infraestructure/schemas/group.schema";
         DatabaseModule,
         TelegramBotModule,
         MembershipModule,
+        MediaModule,
         MongooseModule.forFeature([
             { name: User.name, schema: UserSchema },
             { name: Group.name, schema: GroupSchema }

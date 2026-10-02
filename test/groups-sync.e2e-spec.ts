@@ -2,6 +2,7 @@ import { getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { Media } from '../src/media/infraestructure/media.schema';
 import { Group } from '../src/members/infraestructure/schemas/group.schema';
 import { User } from '../src/members/infraestructure/schemas/user.schema';
 import { toUUIDString } from '../src/shared/infraestructure/mongo-uuid';
@@ -15,7 +16,12 @@ const TELEGRAM_GROUP = {
   type: 'supergroup',
   title: 'FurMeets',
   description: 'Grupo de prueba',
-  photo: { small_file_id: 'small', big_file_id: 'big' },
+  photo: {
+    small_file_id: 'small',
+    small_file_unique_id: 'small-u',
+    big_file_id: 'big',
+    big_file_unique_id: 'big-u',
+  },
 };
 
 /** Respuesta de Telegram que tarda 2 s. `unref` para no retener a Jest al terminar. */
@@ -29,19 +35,27 @@ describe('POST /groups/sync (e2e)', () => {
   let server: App;
   let groups: Model<Group>;
   let users: Model<User>;
+  let media: Model<Media>;
 
   beforeAll(async () => {
     testApp = await createTestApp();
     server = testApp.app.getHttpServer() as App;
     groups = testApp.app.get<Model<Group>>(getModelToken(Group.name));
     users = testApp.app.get<Model<User>>(getModelToken(User.name));
+    media = testApp.app.get<Model<Media>>(getModelToken(Media.name));
 
     const tg = testApp.telegramBot;
     tg.getMemberFromGroup.mockResolvedValue({ status: 'member' });
     tg.getBotInfo.mockResolvedValue(BOT);
     tg.getGroup.mockResolvedValue(TELEGRAM_GROUP);
-    tg.getProfilePhotoPathByFileId.mockResolvedValue('photos/group.jpg');
-    tg.getProfilePhotoPath.mockImplementation(() => slow('photos/user.jpg'));
+    tg.getProfilePhoto.mockImplementation(() =>
+      slow({
+        file_id: 'user',
+        file_unique_id: 'user-u',
+        width: 160,
+        height: 160,
+      }),
+    );
   });
 
   afterAll(async () => {
@@ -74,13 +88,13 @@ describe('POST /groups/sync (e2e)', () => {
     expect(group).toMatchObject({
       name: 'FurMeets',
       description: 'Grupo de prueba',
-      photoUrl: 'photos/group.jpg',
     });
     expect(ana?.isMember).toBe(true);
     expect(await memberIds()).toEqual([toUUIDString(ana!._id)]);
-    expect(
-      testApp.telegramBot.getProfilePhotoPathByFileId,
-    ).toHaveBeenCalledWith('small');
+    // La foto pequeña del grupo queda en `media`; el grupo guarda su id, no una URL.
+    const photo = await media.findOne({ kind: 'group-photo' }).lean();
+    expect(photo).toMatchObject({ fileId: 'small', fileUniqueId: 'small-u' });
+    expect(toUUIDString(group!.photoMediaId!)).toBe(toUUIDString(photo!._id));
   });
 
   it('con el grupo guardado no espera a Telegram aunque tarde 2 s', async () => {

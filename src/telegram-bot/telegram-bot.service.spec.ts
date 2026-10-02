@@ -3,6 +3,7 @@ import type { ChatMember, PhotoSize } from 'grammy/types';
 import {
   AVATAR_MIN_SIZE_PX,
   pickAvatarSize,
+  StorageNotConfiguredError,
   TelegramBotService,
 } from './telegram-bot.service';
 
@@ -33,10 +34,11 @@ const member = (status: string, extra: object = {}) =>
   }) as unknown as ChatMember;
 
 /** Servicio real con la API de grammY reemplazada por dobles (sin red). */
-function createService() {
+function createService({ withStorage = true } = {}) {
   const service = new TelegramBotService({
     token: '123:TEST',
     mainChatId: '-100',
+    storageChatId: withStorage ? '-200' : undefined,
   });
   const api = (service as unknown as { bot: { api: Api } }).bot.api;
   const getMe = jest.spyOn(api, 'getMe').mockResolvedValue(ME);
@@ -56,6 +58,9 @@ function createService() {
       file_path: `photos/${fileId}.jpg`,
     }),
   );
+  const sendPhoto = jest
+    .spyOn(api, 'sendPhoto')
+    .mockResolvedValue({ photo: [size(320), size(1280)] } as never);
   return {
     service,
     getMe,
@@ -63,6 +68,7 @@ function createService() {
     getChat,
     getUserProfilePhotos,
     getFile,
+    sendPhoto,
   };
 }
 
@@ -145,19 +151,58 @@ describe('TelegramBotService', () => {
   it('pide una sola foto de perfil, usa el tamaño de avatar y la cachea', async () => {
     const { service, getUserProfilePhotos, getFile } = createService();
 
-    expect(await service.getProfilePhotoPath(1)).toBe('photos/f160.jpg');
-    expect(await service.getProfilePhotoPath(1)).toBe('photos/f160.jpg');
+    expect(await service.getProfilePhoto(1)).toEqual(size(160));
+    expect(await service.getProfilePhoto(1)).toEqual(size(160));
 
     expect(getUserProfilePhotos).toHaveBeenCalledTimes(1);
     expect(getUserProfilePhotos).toHaveBeenCalledWith(1, { limit: 1 });
-    expect(getFile).toHaveBeenCalledWith('f160');
+    // El `file_path` caduca: no se pide aquí, sino al servir la imagen (`media`).
+    expect(getFile).not.toHaveBeenCalled();
   });
 
   it('sin foto de perfil devuelve undefined', async () => {
-    const { service, getUserProfilePhotos, getFile } = createService();
+    const { service, getUserProfilePhotos } = createService();
     getUserProfilePhotos.mockResolvedValue({ total_count: 0, photos: [] });
 
-    expect(await service.getProfilePhotoPath(1)).toBeUndefined();
-    expect(getFile).not.toHaveBeenCalled();
+    expect(await service.getProfilePhoto(1)).toBeUndefined();
+  });
+
+  it('sube al canal de almacenamiento en silencio y devuelve el tamaño más grande', async () => {
+    const { service, sendPhoto } = createService();
+
+    expect(await service.uploadPhotoToStorage(Buffer.from('jpg'))).toEqual(
+      size(1280),
+    );
+    expect(sendPhoto).toHaveBeenCalledWith('-200', expect.anything(), {
+      disable_notification: true,
+    });
+  });
+
+  it('sin canal de almacenamiento no sube nada', async () => {
+    const { service, sendPhoto } = createService({ withStorage: false });
+
+    await expect(
+      service.uploadPhotoToStorage(Buffer.from('jpg')),
+    ).rejects.toBeInstanceOf(StorageNotConfiguredError);
+    expect(sendPhoto).not.toHaveBeenCalled();
+  });
+
+  it('un error de descarga no expone la URL con el token', async () => {
+    const { service } = createService();
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockRejectedValue(
+        new Error('fetch failed: https://api.telegram.org/file/bot123:TEST/x'),
+      );
+
+    const error = await service
+      .downloadFile('photos/x.jpg')
+      .catch((e: unknown) => e);
+
+    expect(String(error)).not.toContain('123:TEST');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://api.telegram.org/file/bot123:TEST/photos/x.jpg',
+    );
+    fetchSpy.mockRestore();
   });
 });
