@@ -40,9 +40,7 @@ export class ChatMongoRepository implements ChatRepository {
     const dbRequestChat = await this.requestChatModel
       .findOne({ _id: id.value })
       .populate('requester')
-      .populate('messages.user')
       .populate('votes.from')
-      .populate('messages.viewedBy.by')
       .exec();
     if (!dbRequestChat) {
       return null;
@@ -56,9 +54,7 @@ export class ChatMongoRepository implements ChatRepository {
     const dbRequestChats = await this.requestChatModel
       .find()
       .populate('requester')
-      .populate('messages.user')
       .populate('votes.from')
-      .populate('messages.viewedBy.by')
       .exec();
     return dbRequestChats.map((doc) => RequestChatMapper.fromDb(doc));
   }

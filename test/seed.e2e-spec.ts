@@ -28,6 +28,7 @@ describe('Datos de staging (scripts/seed) (e2e)', () => {
   let testApp: TestApp;
   let server: App;
   let connection: Connection;
+  const messages = () => connection.db!.collection('requestchatmessages');
   const auth = tmaAuth(MEMBER);
 
   beforeAll(async () => {
@@ -62,6 +63,10 @@ describe('Datos de staging (scripts/seed) (e2e)', () => {
       addedToGroup: true,
     });
     expect(result.messages).toBeGreaterThanOrEqual(5 * 3);
+    // Los mensajes van en su propia colección, no dentro de la solicitud.
+    expect(await messages().countDocuments()).toBe(result.messages);
+    const chat = await connection.db!.collection('requestchats').findOne({});
+    expect(chat).not.toHaveProperty('messages');
   });
 
   it('la API lista las solicitudes sembradas con su último mensaje y no leídos', async () => {
@@ -121,6 +126,7 @@ describe('Datos de staging (scripts/seed) (e2e)', () => {
 
     expect(deleted).toEqual({ users: 11, requestChats: 5 });
     expect(await countSeeded(connection.db!)).toBe(0);
+    expect(await messages().countDocuments()).toBe(0);
     const group = await request(server)
       .get('/groups')
       .set('Authorization', auth);

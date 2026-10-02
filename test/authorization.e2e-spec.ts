@@ -8,6 +8,7 @@ import { InitDataAuthService } from '../src/auth/application/init-data-auth.serv
 import { CHAT_PROVIDERS } from '../src/chat/chat.providers';
 import { RequestChatEntity } from '../src/chat/domain/entities/request-chat.entity';
 import type { ChatRepository } from '../src/chat/domain/services/chat.repository';
+import type { RequestChatMessageRepository } from '../src/chat/domain/services/request-chat-message.repository';
 import { UserService } from '../src/members/application/user.service';
 import { UserEntity } from '../src/members/domain/entities/user.entity';
 import type { ChatMemberUpdate } from '../src/telegram-bot/telegram-bot.service';
@@ -40,6 +41,7 @@ describe('Autorización por rol (e2e)', () => {
   let server: App;
   let url: string;
   let chats: ChatRepository;
+  let messages: RequestChatMessageRepository;
   const statuses = new Map<number, string>([
     [MEMBER.id, 'member'],
     [EXPELLED.id, 'member'],
@@ -63,10 +65,13 @@ describe('Autorización por rol (e2e)', () => {
   const createRequestFor = async (user: TelegramInitDataUser) => {
     // Como en producción: toda solicitud nace con el mensaje de bienvenida del bot.
     const requestChat = RequestChatEntity.asNew(users.get(user.id)!, 'furros');
-    requestChat.addWelcomeMessage(
-      await testApp.app.get(UserService).getBotUser(),
-    );
     await chats.createRequestChat(requestChat);
+    await messages.insert(
+      requestChat.welcomeMessage(
+        await testApp.app.get(UserService).getBotUser(),
+        new Date(),
+      ),
+    );
     return requestChat;
   };
 
@@ -127,6 +132,9 @@ describe('Autorización por rol (e2e)', () => {
     url = `http://127.0.0.1:${port}`;
     chats = testApp.app.get<ChatRepository>(
       CHAT_PROVIDERS.RequestChatRepository,
+    );
+    messages = testApp.app.get<RequestChatMessageRepository>(
+      CHAT_PROVIDERS.RequestChatMessageRepository,
     );
 
     for (const user of [
@@ -280,16 +288,14 @@ describe('Autorización por rol (e2e)', () => {
       const rejected = new Promise<{ message: string }>((resolve) =>
         a.once('exception', resolve),
       );
-      const before = (await chats.getRequestChatByUUID(requestB.id))!.props
-        .messages.length;
+      const before = (await messages.findByRequestChat(requestB.id)).length;
 
       send(a, requestB, 'intruso');
 
       expect((await rejected).message).toBe('forbidden');
       await sleep(SETTLE_MS);
       expect(bInbox).toHaveLength(0);
-      const after = (await chats.getRequestChatByUUID(requestB.id))!.props
-        .messages.length;
+      const after = (await messages.findByRequestChat(requestB.id)).length;
       expect(after).toBe(before);
     });
 

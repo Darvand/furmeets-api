@@ -1,7 +1,8 @@
 /**
- * Cuenta cuántos documentos hidrata Mongoose en `GET /request-chats` (la misma consulta que
- * `ChatMongoRepository.getAllRequestChats`: `find()` + 4 `populate`, sin `lean()`), sobre
- * datos sembrados con `scripts/seed/seed-data.ts` en un Mongo en memoria.
+ * Cuenta cuántos documentos hidrata Mongoose en `GET /request-chats`, con las mismas
+ * consultas que la API: `ChatMongoRepository.getAllRequestChats` (`find()` + 2 `populate`,
+ * sin `lean()`) y `RequestChatMessageMongoRepository.findByRequestChats` (con `lean()`, no
+ * hidrata). Usa datos sembrados con `scripts/seed/seed-data.ts` en un Mongo en memoria.
  *
  * Uso: npm run perf:hydration
  *   Mismas variables de volumen que seed:staging (SEED_MEMBERS, SEED_IN_PROGRESS, ...).
@@ -19,6 +20,10 @@ import {
   RequestChat,
   RequestChatSchema,
 } from '../../src/chat/infraestructure/schemas/request-chat.schema';
+import {
+  RequestChatMessage,
+  RequestChatMessageSchema,
+} from '../../src/chat/infraestructure/schemas/request-chat-message.schema';
 import { DEFAULT_SEED_OPTIONS, seed, SeedOptions } from '../seed/seed-data';
 
 function numberEnv(name: string, fallback: number): number {
@@ -56,7 +61,10 @@ function countDocuments(roots: unknown[]) {
   return { unique: unique.size, references };
 }
 
-async function measure(chatModel: Model<RequestChat>): Promise<{
+async function measure(
+  chatModel: Model<RequestChat>,
+  messageModel: Model<RequestChatMessage>,
+): Promise<{
   ms: number;
   chats: number;
   docs: { unique: number; references: number };
@@ -65,12 +73,16 @@ async function measure(chatModel: Model<RequestChat>): Promise<{
   const chats = await chatModel
     .find()
     .populate('requester')
-    .populate('messages.user')
     .populate('votes.from')
-    .populate('messages.viewedBy.by')
+    .exec();
+  const messages = await messageModel
+    .find({ requestChatId: { $in: chats.map((chat) => chat._id) } })
+    .sort({ createdAt: 1 })
+    .populate('authorId')
+    .lean()
     .exec();
   const ms = performance.now() - startedAt;
-  return { ms, chats: chats.length, docs: countDocuments(chats) };
+  return { ms, chats: chats.length, docs: countDocuments([chats, messages]) };
 }
 
 async function main() {
@@ -80,6 +92,10 @@ async function main() {
   const chatModel = mongoose.model<RequestChat>(
     RequestChat.name,
     RequestChatSchema,
+  );
+  const messageModel = mongoose.model<RequestChatMessage>(
+    RequestChatMessage.name,
+    RequestChatMessageSchema,
   );
   const db = mongoose.connection.db!;
 
@@ -108,22 +124,18 @@ async function main() {
         approved: base.approved! * scale,
         rejected: base.rejected! * scale,
       });
-      const chats = await db.collection('requestchats').find().toArray();
-      const viewedBy = chats.reduce(
-        (sum, c) =>
-          sum +
-          (c.messages as { viewedBy: unknown[] }[]).reduce(
-            (s, m) => s + m.viewedBy.length,
-            0,
-          ),
-        0,
-      );
+      const [{ reads = 0 } = {}] = await db
+        .collection('requestchatmessages')
+        .aggregate<{ reads: number }>([
+          { $group: { _id: null, reads: { $sum: { $size: '$readBy' } } } },
+        ])
+        .toArray();
       // Primera medición calienta la conexión; se reporta la segunda.
-      await measure(chatModel);
-      const { ms, docs } = await measure(chatModel);
+      await measure(chatModel, messageModel);
+      const { ms, docs } = await measure(chatModel, messageModel);
       console.log(
         `x${scale}: ${result.requestChats} solicitudes · ${result.messages} mensajes · ` +
-          `${viewedBy} leídos · ${result.votes} votos → ${docs.references} documentos hidratados ` +
+          `${reads} leídos · ${result.votes} votos → ${docs.references} documentos hidratados ` +
           `(${docs.unique} instancias distintas) · ${ms.toFixed(0)} ms en esta máquina`,
       );
     }

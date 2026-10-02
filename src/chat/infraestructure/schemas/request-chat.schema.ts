@@ -1,9 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
-import {
-  RequestChatMessage,
-  RequestChatMessageSchema,
-} from './request-chat-message.schema';
 import { User } from 'src/members/infraestructure/schemas/user.schema';
 import {
   RequestChatVote,
@@ -31,9 +27,6 @@ export class RequestChat {
 
   @Prop({ type: [RequestChatVoteSchema] })
   votes: RequestChatVote[];
-
-  @Prop({ type: [RequestChatMessageSchema] })
-  messages: RequestChatMessage[];
 
   @Prop()
   state: string;

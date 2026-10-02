@@ -15,6 +15,11 @@ import { TelegramBotModule } from 'src/telegram-bot/telegram-bot.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { MembershipModule } from 'src/membership/membership.module';
 import { RequestChatAccessService } from './application/request-chat-access.service';
+import { RequestChatMessageMongoRepository } from './infraestructure/repositories/request-chat-message-mongo.repository';
+import {
+  RequestChatMessage,
+  RequestChatMessageSchema,
+} from './infraestructure/schemas/request-chat-message.schema';
 
 @Module({
   providers: [
@@ -24,6 +29,10 @@ import { RequestChatAccessService } from './application/request-chat-access.serv
     {
       provide: CHAT_PROVIDERS.RequestChatRepository,
       useClass: ChatMongoRepository,
+    },
+    {
+      provide: CHAT_PROVIDERS.RequestChatMessageRepository,
+      useClass: RequestChatMessageMongoRepository,
     },
   ],
   controllers: [RequestChatController],
@@ -36,6 +45,7 @@ import { RequestChatAccessService } from './application/request-chat-access.serv
     TelegramBotModule,
     MongooseModule.forFeature([
       { name: RequestChat.name, schema: RequestChatSchema },
+      { name: RequestChatMessage.name, schema: RequestChatMessageSchema },
     ]),
   ],
 })

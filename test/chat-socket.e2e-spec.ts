@@ -5,6 +5,7 @@ import { InitDataAuthService } from '../src/auth/application/init-data-auth.serv
 import { CHAT_PROVIDERS } from '../src/chat/chat.providers';
 import { RequestChatEntity } from '../src/chat/domain/entities/request-chat.entity';
 import type { ChatRepository } from '../src/chat/domain/services/chat.repository';
+import type { RequestChatMessageRepository } from '../src/chat/domain/services/request-chat-message.repository';
 import { UserEntity } from '../src/members/domain/entities/user.entity';
 import { createTestApp, TEST_BOT_TOKEN, TestApp } from './helpers/app';
 import { signInitData, TelegramInitDataUser } from './helpers/init-data';
@@ -116,9 +117,13 @@ describe('Autenticación del socket por initData (e2e)', () => {
     expect(message.content).toBe('hola, soy Beto');
     expect(message.user).toMatchObject({ uuid: beto.id.value, name: 'Beto' });
 
-    const stored = await chats.getRequestChatByUUID(requestChat.id);
-    const last = stored!.props.messages.at(-1)!;
-    expect(last.props.content).toBe('hola, soy Beto');
-    expect(last.props.user.telegramId).toBe(BETO.id);
+    const stored = await testApp.app
+      .get<RequestChatMessageRepository>(
+        CHAT_PROVIDERS.RequestChatMessageRepository,
+      )
+      .findByRequestChat(requestChat.id);
+    const last = stored.at(-1)!;
+    expect(last.content).toBe('hola, soy Beto');
+    expect(last.author.telegramId).toBe(BETO.id);
   });
 });

@@ -37,9 +37,9 @@ export class RequestChatController {
     if (createRequestChatDto.requesterUUID !== req.user.id.value) {
       throw new ForbiddenException('Can only create your own request chat');
     }
-    const requestChat =
+    const { requestChat, messages } =
       await this.chatService.createRequestChat(createRequestChatDto);
-    return RequestChatMapper.toDto(requestChat, req.user);
+    return RequestChatMapper.toDto(requestChat, messages, req.user);
   }
 
   @Get(':id')
@@ -48,12 +48,9 @@ export class RequestChatController {
     @Param('id') id: string,
     @Req() req: CustomRequest,
   ): Promise<GetRequestChatDto> {
-    const requestChat = await this.chatService.getRequestChatByUUID(
-      UUID.from(id),
-      req.user,
-    );
-    const dto = RequestChatMapper.toDto(requestChat, req.user);
-    return dto;
+    const { requestChat, messages } =
+      await this.chatService.getRequestChatByUUID(UUID.from(id), req.user);
+    return RequestChatMapper.toDto(requestChat, messages, req.user);
   }
 
   @Get()
@@ -61,8 +58,9 @@ export class RequestChatController {
   async getAllRequestChats(
     @Req() req: CustomRequest,
   ): Promise<ListRequestChatDto> {
-    const requestChats = await this.chatService.getAllRequestChats();
-    return RequestChatMapper.toDtoList(requestChats, req.user);
+    const { requestChats, messagesByChat } =
+      await this.chatService.getAllRequestChats();
+    return RequestChatMapper.toDtoList(requestChats, messagesByChat, req.user);
   }
 
   @Put('/:id/vote/:type')
@@ -71,11 +69,11 @@ export class RequestChatController {
     @Param() { id, type }: VoteRequestChatParamsDto,
     @Req() req: CustomRequest,
   ): Promise<GetRequestChatDto> {
-    const updatedRequestChat = await this.chatService.voteOnRequestChat(
+    const { requestChat, messages } = await this.chatService.voteOnRequestChat(
       UUID.from(id),
       req.user,
       type,
     );
-    return RequestChatMapper.toDto(updatedRequestChat, req.user);
+    return RequestChatMapper.toDto(requestChat, messages, req.user);
   }
 }

@@ -8,7 +8,6 @@ import {
 } from '../value-objects/request-chat-state.value-object';
 import { RequestChatVoteEntity } from './request-chat-vote.entity';
 import { DateTime } from 'luxon';
-import { ChatDate } from '../value-objects/chat-date.value-object';
 
 const APPROVE_THRESHOLD = process.env.APPROVE_THRESHOLD || 5;
 const REJECT_THRESHOLD = process.env.REJECT_THRESHOLD || 3;
@@ -21,9 +20,12 @@ const REJECTED_MESSAGE_CONTENT =
 const APPROVED_MESSAGE_CONTENT =
   '¡Felicidades! Tu solicitud ha sido aprobada. Te damos la bienvenida al grupo.';
 
+/**
+ * Solicitud de ingreso: solicitante, formulario, votos y estado. Los mensajes viven en su
+ * propia colección (`RequestChatMessageEntity`); los de sistema los crea esta entidad.
+ */
 export interface RequestChatProps {
   requester: UserEntity;
-  messages: RequestChatMessageEntity[];
   whereYouFoundUs?: string;
   interests?: string;
   state: RequestChatState;
@@ -46,7 +48,6 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
   ): RequestChatEntity {
     return new RequestChatEntity({
       requester,
-      messages: [],
       interests,
       whereYouFoundUs,
       state: RequestChatState.InProgress(),
@@ -55,38 +56,32 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     });
   }
 
-  addMessage(message: RequestChatMessageEntity): void {
-    this.props.messages.push(message);
+  /** Mensaje de bienvenida del bot con el que nace toda solicitud. */
+  welcomeMessage(bot: UserEntity, at: Date): RequestChatMessageEntity {
+    return this.systemMessage(bot, WELCOME_MESSAGE_CONTENT, at);
   }
 
-  addWelcomeMessage(bot: UserEntity): void {
-    const welcomeMessage = RequestChatMessageEntity.create({
-      content: WELCOME_MESSAGE_CONTENT,
-      user: bot,
-      viewedBy: [],
-      createdAt: ChatDate.now(),
-    });
-    this.props.messages.push(welcomeMessage);
+  rejectedMessage(bot: UserEntity, at: Date): RequestChatMessageEntity {
+    return this.systemMessage(bot, REJECTED_MESSAGE_CONTENT, at);
   }
 
-  addRejectedMessage(bot: UserEntity): void {
-    const rejectedMessage = RequestChatMessageEntity.create({
-      content: REJECTED_MESSAGE_CONTENT,
-      user: bot,
-      viewedBy: [],
-      createdAt: ChatDate.now(),
-    });
-    this.props.messages.push(rejectedMessage);
+  approvedMessage(bot: UserEntity, at: Date): RequestChatMessageEntity {
+    return this.systemMessage(bot, APPROVED_MESSAGE_CONTENT, at);
   }
 
-  addApprovedMessage(bot: UserEntity): void {
-    const approvedMessage = RequestChatMessageEntity.create({
-      content: APPROVED_MESSAGE_CONTENT,
-      user: bot,
-      viewedBy: [],
-      createdAt: ChatDate.now(),
+  /** Los mensajes del bot nacen sin leer, para que cuenten como no leídos. */
+  private systemMessage(
+    bot: UserEntity,
+    content: string,
+    at: Date,
+  ): RequestChatMessageEntity {
+    return RequestChatMessageEntity.create({
+      requestChatId: this.id,
+      author: bot,
+      content,
+      readBy: [],
+      createdAt: at,
     });
-    this.props.messages.push(approvedMessage);
   }
 
   announceWelcomeMesssage(): string {
@@ -116,31 +111,6 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
       `❌ La solicitud de [${this.props.requester.name}](tg://user?id=${this.props.requester.telegramId}) ha sido rechazada.\n` +
       `Lo sentimos, no ha sido posible aceptar su ingreso en este momento.`
     );
-  }
-
-  markLastMessageViewedBy(user: UserEntity): void {
-    this.props.messages.map((msg) => msg.markAsViewedBy(user));
-  }
-
-  lastMessageViewedBy(user: UserEntity): boolean {
-    const lastMessage = this.lastMessage();
-    if (!lastMessage) {
-      return false;
-    }
-    return lastMessage.viewedByUser(user);
-  }
-
-  lastMessage(): RequestChatMessageEntity {
-    return this.props.messages[this.props.messages.length - 1];
-  }
-
-  unreadMessagesCount(viewer: UserEntity): number {
-    const lastMessage = this.lastMessage();
-    if (!lastMessage) {
-      return 0;
-    }
-    return this.props.messages.filter((msg) => !msg.viewedByUser(viewer))
-      .length;
   }
 
   addVote(vote: RequestChatVoteEntity): void {
