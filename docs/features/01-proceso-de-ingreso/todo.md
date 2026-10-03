@@ -565,17 +565,35 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - Voto optimista: el panel refleja el voto al instante y se revierte si la API lo rechaza.
 
 **Acceptance criteria:**
-- [ ] Recibir un mensaje o voto no genera ninguna petición HTTP
-- [ ] Navegar entre inicio y chat no abre conexiones de socket nuevas
-- [ ] El mensaje y el voto propios se ven antes de la respuesta del servidor (probado con red lenta simulada)
+- [x] Recibir un mensaje o voto no genera ninguna petición HTTP
+- [x] Navegar entre inicio y chat no abre conexiones de socket nuevas
+- [ ] El mensaje y el voto propios se ven antes de la respuesta del servidor (probado con red lenta simulada). Comprobado sobre el store; falta la prueba manual con red lenta.
 
 **Verification:**
+- [x] Comprobación del store de la App con socket y `fetch` simulados: parches por evento, filtro por solicitud, cero peticiones al recibir eventos, un solo socket, mensaje optimista con ack, fallo y reintento, voto optimista con reversión y resincronización al reconectar. La App no tiene runner de pruebas: se corrió como script aparte, sin agregarlo al repo.
+- [x] e2e de los eventos en la API (`test/live-events.e2e-spec.ts`)
 - [ ] Manual en staging con DevTools (Network y throttling "Slow 3G") y dos cuentas
+
+**Notas de implementación:**
+- **API.**
+  - Cada mensaje trae `requestChatUUID`, para filtrar por solicitud.
+  - El envío acepta `clientMessageId` (UUID, opcional), que vuelve en el ack y en el evento. Todavía no se guarda: la idempotencia es T16.
+  - Nuevo evento `request-chat-votes`, solo para la sala `members` y tras cada voto: `{ uuid, state, votes }`, sin el voto de nadie (RNF-PRI-01).
+  - `request-chat-update` ya no lleva `userVote`: antes se difundía a todos el voto de quien cerró.
+- **Validación del socket (hallazgo).** El `ValidationPipe` global (`APP_PIPE`) no se aplica a los eventos de socket, así que el payload de `request-chat` no se validaba. Ahora el handler usa `createWsValidationPipe()`: rechaza con `WsException('invalid-payload')`, que llega como evento `exception` con el payload en `cause.data`. La App lo usa para marcar el mensaje como no enviado. Todo handler de socket nuevo debe llevar `@UsePipes(createWsValidationPipe())`.
+- **App.**
+  - **Socket y eventos.** Un solo socket (`services/socket.ts`), que `App` empieza a escuchar en cuanto se conoce `GET /me` (`services/live-updates.ts`). Los eventos parchean la caché de RTK Query con `updateQueryData`. Se eliminaron los slices que la duplicaban (`requestChat` y `hub.requestChats`).
+  - **Mensajes optimistas.** Los propios sin confirmar viven en una bandeja aparte (`state/outbox.slice.ts`), así una recarga de la caché no los pierde. Se confirman por `clientMessageId` con el ack o con el evento, lo que llegue primero, sin duplicarse. Si la API los rechaza o no confirma en 10 s, quedan "No enviado · Reintentar".
+  - **Votos.** El voto propio se aplica al chat y al listado antes de la respuesta, se corrige con los conteos reales y se revierte si falla.
+  - **Reconexión.** Al reconectar se invalida el tag `RequestChat` para recuperar lo perdido durante el corte: es la única recarga.
+- **Pendiente para T16:** reintentar un mensaje cuyo primer intento sí se guardó (ack perdido) lo duplica, hasta que la API guarde el `clientMessageId` con índice único.
 
 **Dependencies:** T06, T40, T41
 
 **Files likely touched:**
 - `src/services/socket.ts` (nuevo)
+- `src/services/live-updates.ts` (nuevo)
+- `src/state/outbox.slice.ts` (nuevo)
 - `src/services/request-chat.service.ts`
 - `src/pages/IndexPage/IndexPage.tsx`
 - `src/pages/RequestChatPage/RequestChatPage.tsx`
