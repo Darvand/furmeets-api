@@ -10,6 +10,8 @@ import { CHAT_PROVIDERS } from '../chat.providers';
 import { RequestChatEntity } from '../domain/entities/request-chat.entity';
 import type {
   ChatRepository,
+  RequestChatCursor,
+  RequestChatPage,
   RequestChatSummary,
 } from '../domain/services/chat.repository';
 import type { RequestChatMessageRepository } from '../domain/services/request-chat-message.repository';
@@ -82,19 +84,13 @@ export class ChatService {
     return view;
   }
 
-  /** Una solicitud con sus mensajes. Solo lee: no marca leídos (ver `markAsRead`). */
+  /** Una solicitud con sus mensajes. Solo lee. */
   async getRequestChatByUUID(id: UUID): Promise<RequestChatView> {
     const [requestChat, messages] = await Promise.all([
       this.findRequestChat(id),
       this.messageRepository.findByRequestChat(id),
     ]);
     return { requestChat, messages };
-  }
-
-  /** Marca como leídos por `reader` todos los mensajes de la solicitud, con una operación. */
-  async markAsRead(id: UUID, reader: UserEntity): Promise<void> {
-    await this.findRequestChat(id);
-    await this.messageRepository.markAllReadBy(id, reader, new Date());
   }
 
   /**
@@ -141,17 +137,12 @@ export class ChatService {
     return this.requestChatRepository.findSummaryByRequester(user.id);
   }
 
-  /** Todas las solicitudes y sus mensajes (T40 lo cambia por un resumen agregado). */
-  async getAllRequestChats(): Promise<{
-    requestChats: RequestChatEntity[];
-    messagesByChat: Map<string, RequestChatMessageEntity[]>;
-  }> {
-    this.logger.debug(`Fetching all request chats`);
-    const requestChats = await this.requestChatRepository.getAllRequestChats();
-    const messagesByChat = await this.messageRepository.findByRequestChats(
-      requestChats.map((chat) => chat.id),
-    );
-    return { requestChats, messagesByChat };
+  /** Una página del listado, con el resumen de cada solicitud para `viewer`. */
+  async listRequestChats(
+    viewer: UserEntity,
+    page: { limit: number; after?: RequestChatCursor },
+  ): Promise<RequestChatPage> {
+    return this.requestChatRepository.listSummaries(viewer.id, page);
   }
 
   async voteOnRequestChat(

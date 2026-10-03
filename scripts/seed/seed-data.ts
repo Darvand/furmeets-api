@@ -251,40 +251,23 @@ function buildMessages(
   from: Date,
   to: Date,
 ) {
-  // Un grupo de miembros conversa con el solicitante; otros solo leen.
+  // Un grupo de miembros conversa con el solicitante.
   const talkers = random.sample(
     members,
     random.int(2, Math.min(8, members.length)),
-  );
-  const readers = random.sample(
-    members,
-    random.int(talkers.length, Math.min(members.length, 30)),
   );
   const step = (to.getTime() - from.getTime()) / Math.max(1, count);
   return Array.from({ length: count }, (_, i) => {
     const byRequester = i === 0 || random.next() < 0.4;
     const author = byRequester ? requester : random.pick(talkers);
-    const createdAt = new Date(
-      from.getTime() + step * i + random.next() * step * 0.8,
-    );
-    // Los mensajes recientes tienen menos lectores: genera "no leídos" en el listado.
-    const age = i / count;
-    const viewers = [
-      author,
-      ...readers.filter(() => random.next() > age * 0.7),
-    ];
-    if (!byRequester && random.next() > age * 0.5) viewers.push(requester);
-    const unique = [...new Map(viewers.map((u) => [u.telegramId, u])).values()];
     return {
       _id: uuid(),
       requestChatId,
       authorId: author._id,
       content: random.pick(byRequester ? REQUESTER_LINES : MEMBER_LINES),
-      readBy: unique.map((viewer) => ({
-        userId: viewer._id,
-        at: new Date(createdAt.getTime() + random.int(0, 6 * 60 * 60 * 1000)),
-      })),
-      createdAt,
+      createdAt: new Date(
+        from.getTime() + step * i + random.next() * step * 0.8,
+      ),
     };
   });
 }
@@ -318,7 +301,7 @@ type SeedMessage = ReturnType<typeof buildMessages>[number];
 const messagesOf = (db: mongo.Db) =>
   db.collection<SeedMessage>('requestchatmessages');
 
-/** Inserta usuarios, solicitudes (con votos), sus mensajes (con leídos) y agrega miembros al grupo. */
+/** Inserta usuarios, solicitudes (con votos), sus mensajes y agrega miembros al grupo. */
 export async function seed(
   db: mongo.Db,
   overrides: Partial<SeedOptions> = {},

@@ -185,17 +185,6 @@ describe('Autorización por rol (e2e)', () => {
         .expect(status);
     });
 
-    it.each([
-      ['solicitante marca leída su solicitud', 204, APPLICANT_A],
-      ['solicitante marca leída la solicitud de otro', 403, APPLICANT_B],
-      ['miembro marca leída cualquier solicitud', 204, MEMBER],
-    ])('%s → %i', async (_, status, user) => {
-      await request(server)
-        .post(`/request-chats/${requestA.id.value}/read`)
-        .set('Authorization', auth(user))
-        .expect(status);
-    });
-
     it('solicitante pide una solicitud que no existe → 403 (no revela si existe)', async () => {
       await request(server)
         .get(`/request-chats/${randomUUID()}`)

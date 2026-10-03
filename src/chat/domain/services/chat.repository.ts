@@ -1,3 +1,4 @@
+import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import {
   RequestChatEntity,
@@ -12,6 +13,34 @@ import {
 export interface RequestChatSummary {
   id: UUID;
   state: RequestChatStateType;
+}
+
+/** Posición en el listado: la última solicitud de la página anterior. */
+export interface RequestChatCursor {
+  createdAt: Date;
+  id: UUID;
+}
+
+/**
+ * Una solicitud tal como sale en el listado: resumen, sin mensajes ni votos.
+ * De los votos solo hay conteos y el voto de quien mira (RNF-PRI-01).
+ */
+export interface RequestChatListItem {
+  id: UUID;
+  requester: UserEntity;
+  state: RequestChatStateType;
+  createdAt: Date;
+  /** Falta si la solicitud no tiene mensajes (solicitudes antiguas sin migrar, T12). */
+  lastMessage?: { author: UserEntity; content: string; at: Date };
+  votes: { approved: number; rejected: number };
+  viewerVote?: 'approve' | 'reject';
+}
+
+/** Una página del listado, de la más reciente a la más antigua. */
+export interface RequestChatPage {
+  items: RequestChatListItem[];
+  /** Falta en la última página. */
+  next?: RequestChatCursor;
 }
 
 /**
@@ -40,5 +69,12 @@ export interface ChatRepository {
   ): Promise<RequestChatSummary | null>;
   /** Solo el solicitante de una solicitud (para autorizar), sin cargar el resto. */
   findRequesterId(id: UUID): Promise<UUID | null>;
-  getAllRequestChats(): Promise<RequestChatEntity[]>;
+  /**
+   * Una página del listado con el resumen de cada solicitud, armado en la BD: no carga
+   * mensajes, así el costo no depende de cuántos mensajes hay en total (RNF-REN-04).
+   */
+  listSummaries(
+    viewer: UUID,
+    page: { limit: number; after?: RequestChatCursor },
+  ): Promise<RequestChatPage>;
 }

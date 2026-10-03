@@ -74,7 +74,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     return this.systemMessage(bot, APPROVED_MESSAGE_CONTENT, at);
   }
 
-  /** Los mensajes del bot nacen sin leer, para que cuenten como no leídos. */
+  /** Mensaje del bot en esta solicitud. */
   private systemMessage(
     bot: UserEntity,
     content: string,
@@ -84,7 +84,6 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
       requestChatId: this.id,
       author: bot,
       content,
-      readBy: [],
       createdAt: at,
     });
   }

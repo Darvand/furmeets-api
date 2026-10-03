@@ -3,11 +3,10 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  HttpCode,
-  HttpStatus,
   Param,
   Post,
   Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import { ChatService } from '../application/chat.service';
@@ -15,7 +14,12 @@ import { CreateRequestChatDto } from './dtos/create-request-chat.dto';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { GetRequestChatDto } from './dtos/get-request-chat.dto';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
-import { ListRequestChatDto } from './dtos/list-request-chat.dto';
+import {
+  DEFAULT_LIST_LIMIT,
+  ListRequestChatDto,
+  ListRequestChatQueryDto,
+} from './dtos/list-request-chat.dto';
+import { RequestChatCursorCodec } from './request-chat-cursor';
 import { VoteRequestChatParamsDto } from './dtos/vote-request-chat-params.dto';
 import { UserService } from 'src/members/application/user.service';
 import type { CustomRequest } from 'src/shared/types/custom-request.interface';
@@ -55,25 +59,17 @@ export class RequestChatController {
     return RequestChatMapper.toDto(requestChat, messages, req.user);
   }
 
-  /** Marca como leídos todos los mensajes de la solicitud para quien la abre. */
-  @Post(':id/read')
-  @OwnerOrMember()
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async markAsRead(
-    @Param('id') id: string,
-    @Req() req: CustomRequest,
-  ): Promise<void> {
-    await this.chatService.markAsRead(UUID.from(id), req.user);
-  }
-
   @Get()
   @MembersOnly()
-  async getAllRequestChats(
+  async listRequestChats(
+    @Query() { limit, cursor }: ListRequestChatQueryDto,
     @Req() req: CustomRequest,
   ): Promise<ListRequestChatDto> {
-    const { requestChats, messagesByChat } =
-      await this.chatService.getAllRequestChats();
-    return RequestChatMapper.toDtoList(requestChats, messagesByChat, req.user);
+    const page = await this.chatService.listRequestChats(req.user, {
+      limit: limit ?? DEFAULT_LIST_LIMIT,
+      after: cursor ? RequestChatCursorCodec.decode(cursor) : undefined,
+    });
+    return RequestChatMapper.toDtoList(page);
   }
 
   @Put('/:id/vote/:type')

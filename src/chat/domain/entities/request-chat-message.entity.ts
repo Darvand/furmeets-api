@@ -2,17 +2,10 @@ import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { Entity } from 'src/shared/domain/entities/entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 
-/** Quién leyó un mensaje y cuándo. */
-export interface MessageRead {
-  userId: string;
-  at: Date;
-}
-
 export interface RequestChatMessageProps {
   requestChatId: UUID;
   author: UserEntity;
   content: string;
-  readBy: MessageRead[];
   /** Lo fija el servidor al persistir y no cambia después (deuda #5). */
   createdAt: Date;
 }
@@ -34,7 +27,7 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
     return new RequestChatMessageEntity(props, id);
   }
 
-  /** Mensaje nuevo: su autor ya lo leyó. */
+  /** Mensaje nuevo de `author`. */
   static send(
     requestChatId: UUID,
     author: UserEntity,
@@ -45,22 +38,8 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
       requestChatId,
       author,
       content,
-      readBy: [{ userId: author.id.value, at }],
       createdAt: at,
     });
-  }
-
-  /** Marca el mensaje como leído por `user`. Devuelve si cambió. */
-  markReadBy(user: UserEntity, at: Date): boolean {
-    if (this.isReadBy(user)) {
-      return false;
-    }
-    this.props.readBy.push({ userId: user.id.value, at });
-    return true;
-  }
-
-  isReadBy(user: UserEntity): boolean {
-    return this.props.readBy.some((read) => read.userId === user.id.value);
   }
 
   fromUser(user: UserEntity): boolean {

@@ -40,7 +40,6 @@ interface ListDto {
   items: {
     uuid: string;
     lastMessage?: { content: string; at: string };
-    unreadMessagesCount: number;
   }[];
 }
 
@@ -167,39 +166,6 @@ describe('Mensajes en su propia colección (e2e)', () => {
     const item = list.items.find((i) => i.uuid === requestChat.uuid)!;
     expect(item.lastMessage?.at).toMatch(ISO_UTC);
     expect(item.lastMessage?.at).toBe(messages.at(-1)!.sentAt);
-  });
-
-  it('abrir la solicitud no marca leídos; el marcado es POST /:id/read', async () => {
-    const unreadOfMember = async () => {
-      const list = (
-        await request(server)
-          .get('/request-chats')
-          .set('Authorization', tmaAuth(MEMBER))
-          .expect(200)
-      ).body as ListDto;
-      return list.items.find((i) => i.uuid === requestChat.uuid)!
-        .unreadMessagesCount;
-    };
-    const ana = await connect(APPLICANT);
-    const delivered = new Promise((resolve) =>
-      ana.once('request-chat', resolve),
-    );
-    ana.emit('request-chat', {
-      requestChatUUID: requestChat.uuid,
-      content: 'uno más',
-    });
-    await delivered;
-    const unread = await unreadOfMember();
-    expect(unread).toBeGreaterThan(0);
-
-    await getRequestChat(MEMBER);
-    expect(await unreadOfMember()).toBe(unread);
-
-    await request(server)
-      .post(`/request-chats/${requestChat.uuid}/read`)
-      .set('Authorization', tmaAuth(MEMBER))
-      .expect(204);
-    expect(await unreadOfMember()).toBe(0);
   });
 
   it('al cerrarse por votos agrega el mensaje de sistema y avisa por socket con él', async () => {

@@ -394,7 +394,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [x] e2e de concurrencia (criterio de éxito 5)
 
 **Notas de implementación:**
-- **Forma del documento.** `{ _id, requestChatId, authorId, content, readBy: [{ userId, at }], createdAt }`, con índice `{ requestChatId: 1, createdAt: 1 }`. Los leídos ya se llaman `readBy`, el destino que fija SPEC §9.1, así que T12 migra directo a esta forma.
+- **Forma del documento.** `{ _id, requestChatId, authorId, content, createdAt }`, con índice `{ requestChatId: 1, createdAt: 1 }`. T12 migra directo a esta forma. (T40 quitó los leídos por mensaje.)
 - **`createdAt`.** Lo pone un reloj monótono del servidor (`MonotonicClock`): dos mensajes nunca comparten fecha, y ordenar por `createdAt` da el orden de llegada. Vale para una sola instancia de la API.
 - **Mensajes del bot.** Bienvenida, aprobado y rechazado los crea `RequestChatEntity` y se insertan aparte.
 - **Votos y leídos.** Al votar, la solicitud todavía se guarda completa (lo cambia T11), pero ya sin mensajes. El `GET` sigue marcando leídos, ahora con un solo `updateMany` (T11 lo pasa a una operación explícita).
@@ -431,7 +431,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Notas de implementación:**
 - **Votos.** `RequestChatEntity.addVote` decide qué cambia y no toca el estado: si el miembro repite su voto, se retira; si es nuevo o distinto, se fija. `ChatRepository.applyVote` lo guarda con una operación filtrada por `state: InProgress`. Para retirar usa `$pull`. Para fijar usa `$set` sobre `votes.$`, o `$push` con `votes.from: { $ne }`. Devuelve la solicitud con los votos de todos.
 - **Cierre.** `outcome()` evalúa los umbrales con esos votos. `ChatRepository.close` es condicional (`InProgress` → `Approved`/`Rejected`). Si varios votos cruzan el umbral a la vez, solo uno cierra la solicitud, así que el mensaje de cierre y los avisos salen una vez. Los votos que llegan después del cierre reciben 409.
-- **Leídos.** `GET /request-chats/:id` ya no escribe. El marcado de leídos es `POST /request-chats/:id/read`: responde 204, lo pueden usar el dueño o un miembro, y hace un solo `updateMany`. La App lo llama al abrir el chat (PR de la App de T11).
+- **Leídos.** `GET /request-chats/:id` ya no escribe. El marcado de leídos es `POST /request-chats/:id/read`: responde 204, lo pueden usar el dueño o un miembro, y hace un solo `updateMany`. La App lo llama al abrir el chat (PR de la App de T11). T40 quitó este endpoint junto con los leídos.
 - **Las pruebas detectan el problema.** Con el código anterior fallan 3 de las 4 e2e nuevas: votos perdidos, cierre repetido y un `GET` que escribe.
 
 **Dependencies:** T10
@@ -449,7 +449,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** CON-06, PRI-05
 
-**Description:** Script versionado e idempotente según SPEC §9.1: mueve mensajes embebidos a la colección nueva conservando `_id`, `viewedBy` → `readBy`, `whereYouFoundUs` → "¿Cómo conociste FurMeets?", `interests` → `legacy.interests`, marca `legacy: true`, `species` a texto libre, descarta `avatarUrl`. Renombra la colección original sin borrarla.
+**Description:** Script versionado e idempotente según SPEC §9.1: mueve mensajes embebidos a la colección nueva conservando solo `_id`, autor, contenido y `createdAt`, `whereYouFoundUs` → "¿Cómo conociste FurMeets?", `interests` → `legacy.interests`, marca `legacy: true`, `species` a texto libre, descarta `avatarUrl`. Renombra la colección original sin borrarla.
 
 **Acceptance criteria:**
 - [ ] Correrlo dos veces no duplica nada
@@ -477,15 +477,32 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** REN-04, REN-07
 
-**Description:** Hoy `GET /request-chats` carga todas las solicitudes con todos sus mensajes y 4 `populate`, aunque la lista solo usa el último mensaje y los no leídos. Devolver el resumen con una agregación sobre la colección de mensajes (último mensaje, conteo de no leídos del usuario, conteo de votos a favor y en contra), paginado y sin cargar mensajes completos.
+**Description:** Hoy `GET /request-chats` carga todas las solicitudes con todos sus mensajes y 4 `populate`, aunque la lista solo usa un resumen. Devolver el resumen con una agregación (último mensaje, conteo de votos a favor y en contra), paginado y sin cargar mensajes completos.
 
 **Acceptance criteria:**
-- [ ] La respuesta no contiene arreglos de mensajes ni de leídos
-- [ ] El tiempo de respuesta no crece con la cantidad total de mensajes (medido con datos de prueba de 50 solicitudes × 200 mensajes)
-- [ ] Solo expone conteos de votos en contra, nunca identidades (RNF-PRI-01)
+- [x] La respuesta no contiene arreglos de mensajes ni de leídos
+- [x] El tiempo de respuesta no crece con la cantidad total de mensajes (medido con datos de prueba de 50 solicitudes × 200 mensajes)
+- [x] Solo expone conteos de votos en contra, nunca identidades (RNF-PRI-01)
 
 **Verification:**
-- [ ] e2e sobre la forma de la respuesta; medición con el script de T37
+- [x] e2e sobre la forma de la respuesta (`test/request-chat-list.e2e-spec.ts`)
+- [x] Medición con `npm run perf:list` (Mongo en memoria). El script de T37 mide contra staging y queda para cuando se tome la línea base.
+
+**Notas de implementación:**
+- **Una agregación.** Ordena por `createdAt` y `_id` descendentes (índice nuevo `{ createdAt: -1, _id: -1 }`). Trae el solicitante y el último mensaje con su autor con `$lookup`, y cuenta votos con `$filter`. No hay `populate` ni documentos de Mongoose.
+- **Respuesta.** Cada solicitud trae `uuid`, `requester`, `lastMessage?`, `state`, `votes: { approved, rejected }`, `userVote?` (solo el de quien pide) y `createdAt`. La lista trae `nextCursor` si hay otra página.
+- **Paginación.** `GET /request-chats?limit=&cursor=`. `limit` va de 1 a 100 y por defecto es 50, holgado mientras la App pide solo la primera página (pagina en T23). `cursor` es opaco (base64url de fecha + id), y uno ajeno da 400.
+- **Sin leídos (decidido el 2026-10-02 y el 2026-10-03).** No interesa saber quién vio cada mensaje ni llevar un contador de no leídos. Se quitaron los leídos de cada mensaje, `unreadMessagesCount` del listado y `POST /request-chats/:id/read`.
+- **Medición** (`npm run perf:list`, 50 solicitudes, p50; antes son las consultas de T10):
+
+  | Mensajes por solicitud | Total | Antes | Ahora |
+  |---|---|---|---|
+  | 10 | 500 | 32 ms | 17 ms |
+  | 50 | 2.500 | 74 ms | 17 ms |
+  | 200 | 10.000 | 240 ms | 17 ms |
+  | 400 | 20.000 | 467 ms | 17 ms |
+- **Seed.** Ya no siembra leídos: hay que volver a sembrar staging con `--reset` para limpiar los que dejó T10.
+- **Reemplaza a `perf:hydration`**, que medía las consultas de T10.
 
 **Dependencies:** T10
 
@@ -688,28 +705,27 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 18: Chat: leídos y no leídos
+## Task 18: Chat: historial paginado
 
 **Repo:** API · **RNF:** REN-04
 
-**Description:** Marcado explícito de leídos (`readBy` con usuario y fecha) con operación atómica y evento de actualización a la sala, que también actualiza el contador de no leídos del listado de T40. Historial de mensajes de un chat paginado. (El resumen del listado se hace en T40.)
+**Description:** Historial de mensajes de un chat paginado: abrir un chat trae los últimos mensajes y los anteriores se piden por páginas. (El resumen del listado se hace en T40. Los leídos y no leídos se quitaron el 2026-10-03, SPEC §15.)
 
 **Acceptance criteria:**
-- [ ] Marcar leído dos veces no duplica la entrada
-- [ ] Al marcar leído, el contador de no leídos del listado baja sin recargarlo
-- [ ] El solicitante también ve quién leyó sus mensajes; el historial se pide por páginas
+- [ ] Abrir un chat con muchos mensajes trae solo la última página
+- [ ] Las páginas anteriores no repiten ni saltan mensajes
 
 **Verification:**
-- [ ] e2e de leídos y de paginación del historial
+- [ ] e2e de paginación del historial
 
-**Dependencies:** T16, T40
+**Dependencies:** T16
 
 **Files likely touched:**
 - `src/chat/application/chat.service.ts`
 - `src/chat/infraestructure/repositories/chat-mongo.repository.ts`
 - `src/chat/presentation/chat.gateway.ts`
 
-**Estimated scope:** M
+**Estimated scope:** S
 
 ---
 
@@ -741,7 +757,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** REN-01, CAL-04, USA-01, USA-02
 
-**Description:** Chat con texto, imágenes (adjuntar), responder, "Leído por N" con lista, mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
+**Description:** Chat con texto, imágenes (adjuntar), responder, mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
 
 **Acceptance criteria:**
 - [ ] Un mensaje enviado aparece en otro cliente conectado sin recargar
@@ -823,10 +839,10 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** PRI-02, REN-04, USA-01
 
-**Description:** Solicitudes en curso con no leídos y etiqueta "Falta tu voto", estadísticas (total, aceptadas, no aprobadas) e historial paginado. Actualización en vivo por la sala `members`.
+**Description:** Solicitudes en curso con su último mensaje y la etiqueta "Falta tu voto", estadísticas (total, aceptadas, no aprobadas) e historial paginado. Actualización en vivo por la sala `members`.
 
 **Acceptance criteria:**
-- [ ] Un mensaje nuevo incrementa el contador sin recargar
+- [ ] Un mensaje nuevo actualiza el último mensaje de la lista sin recargar
 - [ ] No se lista quién falta por votar
 
 **Verification:**

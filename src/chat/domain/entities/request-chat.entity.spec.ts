@@ -20,7 +20,7 @@ describe('RequestChatEntity', () => {
     expect(requestChat.countRejects()).toBe(0);
   });
 
-  it('los mensajes de sistema son del bot, de esta solicitud y nacen sin leer', () => {
+  it('los mensajes de sistema son del bot y de esta solicitud', () => {
     const bot = user(999);
     const at = new Date('2026-10-02T15:00:00.000Z');
 
@@ -29,8 +29,6 @@ describe('RequestChatEntity', () => {
     expect(welcome.requestChatId.equals(requestChat.id)).toBe(true);
     expect(welcome.author).toBe(bot);
     expect(welcome.createdAt).toBe(at);
-    expect(welcome.isReadBy(requester)).toBe(false);
-    expect(welcome.isReadBy(bot)).toBe(false);
   });
 
   describe('addVote', () => {

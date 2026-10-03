@@ -12,6 +12,8 @@ import { RequestChatVoteEntity } from '../domain/entities/request-chat-vote.enti
 import { DateTime } from 'luxon';
 import { User } from 'src/members/infraestructure/schemas/user.schema';
 import { uuidRef } from 'src/shared/infraestructure/mongo-uuid';
+import type { RequestChatPage } from '../domain/services/chat.repository';
+import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
 
 export class RequestChatMapper {
   static toDb(requestChat: RequestChatEntity): RequestChat {
@@ -58,7 +60,7 @@ export class RequestChatMapper {
       uuid: requestChat.id.value,
       requester: UserMapper.toDto(requestChat.props.requester),
       messages: messages.map((message) =>
-        RequestChatMessageMapper.toDto(message, viewer),
+        RequestChatMessageMapper.toDto(message),
       ),
       interests: requestChat.props.interests,
       whereYouFoundUs: requestChat.props.whereYouFoundUs,
@@ -71,38 +73,24 @@ export class RequestChatMapper {
     };
   }
 
-  /**
-   * Listado de solicitudes con su último mensaje y los no leídos de `viewer`.
-   * `messagesByChat` trae los mensajes de cada solicitud en orden cronológico (T40 lo
-   * cambia por una agregación que no los carga).
-   */
-  static toDtoList(
-    requestChats: RequestChatEntity[],
-    messagesByChat: Map<string, RequestChatMessageEntity[]>,
-    viewer: UserEntity,
-  ): ListRequestChatDto {
+  /** Una página del listado. Fechas en ISO-8601 UTC; de los votos, solo conteos. */
+  static toDtoList(page: RequestChatPage): ListRequestChatDto {
     return {
-      items: requestChats
-        .sort(
-          (a, b) => b.props.createdAt.toMillis() - a.props.createdAt.toMillis(),
-        )
-        .map((chat) => {
-          const messages = messagesByChat.get(chat.id.value) ?? [];
-          const lastMessage = messages.at(-1);
-          return {
-            uuid: chat.id.value,
-            requester: UserMapper.toDto(chat.props.requester),
-            // Una solicitud sin mensajes (antes de migrarla, T12) no tiene último mensaje.
-            lastMessage: lastMessage && {
-              at: lastMessage.createdAt.toISOString(),
-              content: lastMessage.content,
-              from: UserMapper.toDto(lastMessage.author),
-            },
-            state: chat.state,
-            unreadMessagesCount: messages.filter((m) => !m.isReadBy(viewer))
-              .length,
-          };
-        }),
+      items: page.items.map((item) => ({
+        uuid: item.id.value,
+        requester: UserMapper.toDto(item.requester),
+        // Una solicitud sin mensajes (antes de migrarla, T12) no tiene último mensaje.
+        lastMessage: item.lastMessage && {
+          at: item.lastMessage.at.toISOString(),
+          content: item.lastMessage.content,
+          from: UserMapper.toDto(item.lastMessage.author),
+        },
+        state: item.state,
+        votes: { ...item.votes },
+        userVote: item.viewerVote,
+        createdAt: item.createdAt.toISOString(),
+      })),
+      nextCursor: page.next && RequestChatCursorCodec.encode(page.next),
     };
   }
 }
