@@ -9,6 +9,7 @@ import { AppController } from './app.controller';
 import { VALIDATION_PIPE_PROVIDER } from './shared/validation/validation';
 import { AuthModule } from './auth/auth.module';
 import { MeModule } from './membership/me.module';
+import { ApplicationsModule } from './applications/applications.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { MeModule } from './membership/me.module';
     AuthModule,
     TelegramBotModule,
     ChatModule,
+    ApplicationsModule,
     MeModule,
     ConfigModule.forRoot({
       isGlobal: true,

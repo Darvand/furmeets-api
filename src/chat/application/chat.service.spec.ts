@@ -10,11 +10,13 @@ import { BackgroundQueue } from 'src/shared/async/background-queue';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import type { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
 import { RequestChatEntity } from '../domain/entities/request-chat.entity';
-import type {
-  ChatRepository,
-  RequestChatHeader,
-  VoteApplied,
+import {
+  DuplicateRequestChatError,
+  type ChatRepository,
+  type RequestChatHeader,
+  type VoteApplied,
 } from '../domain/services/chat.repository';
+import { ApplicationForm } from 'src/applications/domain/application-form';
 import type { RequestChatMessageRepository } from '../domain/services/request-chat-message.repository';
 import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
 import type { ChatGateway } from '../presentation/chat.gateway';
@@ -71,6 +73,8 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     getRequestChatByUUID: jest.fn(() =>
       Promise.resolve<RequestChatEntity | null>(requestChat),
     ),
+    chatAlreadyExistsForRequester: jest.fn(() => Promise.resolve(false)),
+    createRequestChat: jest.fn(() => Promise.resolve()),
   };
   const messages = {
     insert: jest.fn(() => Promise.resolve()),
@@ -85,7 +89,11 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     sendMessageToUser: jest.fn(() => Promise.resolve()),
     sendInviteLinkToUser: jest.fn(() => Promise.resolve()),
   };
-  const gateway = { emitRequestChatUpdate: jest.fn(), emitVotes: jest.fn() };
+  const gateway = {
+    emitRequestChatUpdate: jest.fn(),
+    emitVotes: jest.fn(),
+    emitNewRequestChat: jest.fn(),
+  };
   const access = {
     canAccessLoaded: jest.fn(() => Promise.resolve(true)),
   };
@@ -124,6 +132,59 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
 }
 
 describe('ChatService', () => {
+  describe('openRequestChat', () => {
+    const application = () =>
+      RequestChatEntity.apply(
+        requester,
+        ApplicationForm.submit({
+          age: 16,
+          city: 'Bogotá',
+        }),
+      );
+
+    it('abre la solicitud con su bienvenida, avisa a los miembros y anuncia después', async () => {
+      const ctx = setup();
+      const requestChat = application();
+
+      const view = await ctx.service.openRequestChat(requestChat);
+
+      expect(ctx.chats.createRequestChat).toHaveBeenCalledWith(requestChat);
+      expect(view.messages).toHaveLength(1);
+      expect(ctx.gateway.emitNewRequestChat).toHaveBeenCalledWith(
+        view,
+        requester,
+      );
+      await ctx.queue.drain();
+      const announcement = ctx.telegram.sendMessageToGroup.mock
+        .calls[0] as unknown as [string];
+      expect(announcement[0]).toContain('Menor de edad');
+      expect(announcement[0]).toContain('Bogotá');
+    });
+
+    it('una por usuario: si ya tiene una (en cualquier estado) → 409', async () => {
+      const ctx = setup();
+      ctx.chats.chatAlreadyExistsForRequester.mockResolvedValue(true);
+
+      await expect(
+        ctx.service.openRequestChat(application()),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(ctx.chats.createRequestChat).not.toHaveBeenCalled();
+    });
+
+    it('si otro envío se adelanta (índice único) → 409 y no deja mensajes', async () => {
+      const ctx = setup();
+      ctx.chats.createRequestChat.mockRejectedValue(
+        new DuplicateRequestChatError(),
+      );
+
+      await expect(
+        ctx.service.openRequestChat(application()),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(ctx.messages.insert).not.toHaveBeenCalled();
+      expect(ctx.gateway.emitNewRequestChat).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getRequestChatByUUID', () => {
     it('solo lee: no escribe nada', async () => {
       const { service, requestChat, chats, messages } = setup();

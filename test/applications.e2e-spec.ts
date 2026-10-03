@@ -1,0 +1,157 @@
+import { getConnectionToken } from '@nestjs/mongoose';
+import { mongo, type Connection } from 'mongoose';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { InitDataAuthService } from '../src/auth/application/init-data-auth.service';
+import {
+  createTestApp,
+  TEST_BOT_TOKEN,
+  TEST_GROUP_ID,
+  TestApp,
+  tmaAuth,
+} from './helpers/app';
+import { signInitData, TelegramInitDataUser } from './helpers/init-data';
+
+const MEMBER = { id: 9901, first_name: 'Miembro' };
+const ANA = { id: 9902, first_name: 'Ana' };
+const BETO = { id: 9903, first_name: 'Beto' };
+const CECI = { id: 9904, first_name: 'Ceci' };
+const DANI = { id: 9905, first_name: 'Dani' };
+const BOT = { id: 999, is_bot: true, first_name: 'FurBot', username: 'furbot' };
+const TELEGRAM_GROUP = { id: Number(TEST_GROUP_ID), type: 'supergroup' };
+
+const FORM = { age: 16, city: 'Bogotá' };
+
+interface RequestChatDto {
+  uuid: string;
+  state: string;
+  requester: { uuid: string; name: string };
+  messages: unknown[];
+  form?: Record<string, unknown> & { isMinor: boolean };
+}
+
+describe('Formulario de solicitud: POST /applications (e2e)', () => {
+  let testApp: TestApp;
+  let server: App;
+  let db: Connection;
+
+  const authenticate = (user: TelegramInitDataUser) =>
+    testApp.app
+      .get(InitDataAuthService)
+      .authenticate(signInitData(user, TEST_BOT_TOKEN));
+
+  const apply = (user: TelegramInitDataUser, body: object) =>
+    request(server)
+      .post('/applications')
+      .set('Authorization', tmaAuth(user))
+      .send(body);
+
+  const chatsOf = async (user: TelegramInitDataUser) => {
+    const entity = await authenticate(user);
+    return db
+      .collection('requestchats')
+      .countDocuments({ requester: new mongo.UUID(entity.id.value) });
+  };
+
+  beforeAll(async () => {
+    testApp = await createTestApp();
+    const tg = testApp.telegramBot;
+    tg.getMemberFromGroup.mockImplementation((id: number) =>
+      Promise.resolve({ status: id === MEMBER.id ? 'member' : 'left' }),
+    );
+    tg.getBotInfo.mockResolvedValue(BOT);
+    tg.getGroup.mockResolvedValue(TELEGRAM_GROUP);
+    server = testApp.app.getHttpServer() as App;
+    db = testApp.app.get<Connection>(getConnectionToken());
+    await Promise.all([MEMBER, ANA, BETO, CECI, DANI].map(authenticate));
+  });
+
+  afterAll(async () => {
+    await testApp?.close();
+  });
+
+  it('crea la solicitud del usuario autenticado, con su formulario y la etiqueta de menor', async () => {
+    const beto = await authenticate(BETO);
+
+    const res = await apply(ANA, {
+      ...FORM,
+      // De otro usuario: se ignora, el solicitante es siempre quien está autenticado.
+      requesterUUID: beto.id.value,
+      fursonaName: '  Kiba ',
+      species: 'Lobo',
+      howDidYouFindUs: 'Por Instagram',
+    }).expect(201);
+
+    const chat = res.body as RequestChatDto;
+    expect(chat.requester.name).toBe('Ana');
+    expect(chat.state).toBe('InProgress');
+    expect(chat.messages).toHaveLength(1);
+    expect(chat.form).toEqual({
+      age: 16,
+      city: 'Bogotá',
+      fursonaName: 'Kiba',
+      species: 'Lobo',
+      howDidYouFindUs: 'Por Instagram',
+      isMinor: true,
+    });
+    expect(await chatsOf(BETO)).toBe(0);
+
+    // Un miembro ve el formulario al abrir la solicitud.
+    const opened = await request(server)
+      .get(`/request-chats/${chat.uuid}`)
+      .set('Authorization', tmaAuth(MEMBER))
+      .expect(200);
+    expect((opened.body as RequestChatDto).form).toMatchObject({
+      city: 'Bogotá',
+      isMinor: true,
+    });
+  });
+
+  it('una segunda solicitud del mismo usuario → 409', async () => {
+    await apply(ANA, { ...FORM, age: 30 }).expect(409);
+
+    expect(await chatsOf(ANA)).toBe(1);
+  });
+
+  it('dos envíos simultáneos dejan una sola solicitud', async () => {
+    const responses = await Promise.all([
+      apply(CECI, FORM),
+      apply(CECI, FORM),
+      apply(CECI, FORM),
+    ]);
+
+    expect(responses.map((r) => r.status).sort()).toEqual([201, 409, 409]);
+    expect(await chatsOf(CECI)).toBe(1);
+  });
+
+  it.each([
+    ['sin edad', { city: 'Cali' }],
+    ['con edad 0', { ...FORM, age: 0 }],
+    ['con edad no entera', { ...FORM, age: 17.5 }],
+    ['con edad como texto', { ...FORM, age: '17' }],
+    ['sin ciudad', { age: 20 }],
+    ['con ciudad vacía', { ...FORM, city: '' }],
+    ['con un campo desconocido', { ...FORM, interests: 'furros' }],
+  ])('%s → 400 y no crea nada', async (_, body) => {
+    await apply(DANI, body).expect(400);
+
+    expect(await chatsOf(DANI)).toBe(0);
+  });
+
+  it('un miembro no puede crear una solicitud → 403', async () => {
+    await apply(MEMBER, FORM).expect(403);
+
+    expect(await chatsOf(MEMBER)).toBe(0);
+  });
+
+  it.each(['put', 'patch'] as const)(
+    'no hay endpoint para editarla (%s → 404)',
+    async (method) => {
+      await request(server)
+        [method]('/applications')
+        .set('Authorization', tmaAuth(ANA))
+        .send({ ...FORM, city: 'Cali' })
+        .expect(404);
+    },
+  );
+});

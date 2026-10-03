@@ -8,6 +8,7 @@ import {
 } from '../value-objects/request-chat-state.value-object';
 import { RequestChatVoteEntity } from './request-chat-vote.entity';
 import { DateTime } from 'luxon';
+import { ApplicationForm } from 'src/applications/domain/application-form';
 
 const APPROVE_THRESHOLD = process.env.APPROVE_THRESHOLD || 5;
 const REJECT_THRESHOLD = process.env.REJECT_THRESHOLD || 3;
@@ -48,6 +49,9 @@ export interface VoteTally {
  */
 export interface RequestChatProps {
   requester: UserEntity;
+  /** Falta en las solicitudes anteriores al formulario (las migra T12). */
+  form?: ApplicationForm;
+  /** Campos del formulario anterior: los migra T12. */
   whereYouFoundUs?: string;
   interests?: string;
   state: RequestChatState;
@@ -63,6 +67,21 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     return new RequestChatEntity(props, id);
   }
 
+  /** Solicitud nueva a partir del formulario enviado por `requester`. */
+  static apply(
+    requester: UserEntity,
+    form: ApplicationForm,
+  ): RequestChatEntity {
+    return new RequestChatEntity({
+      requester,
+      form,
+      state: RequestChatState.InProgress(),
+      createdAt: DateTime.now(),
+      votes: [],
+    });
+  }
+
+  /** Formulario anterior (`POST /request-chats`). Se elimina cuando la App use T13 (T15). */
   static asNew(
     requester: UserEntity,
     interests?: string,
@@ -106,17 +125,24 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
   }
 
   announceWelcomeMesssage(): string {
+    const form = this.props.form?.props;
+    const line = (label: string, value?: string | number) =>
+      value === undefined || value === ''
+        ? ''
+        : `*${label}* ${escapeMarkdown(String(value))}\n`;
     return (
       `🚨Nueva solicitud de ingreso🚨\n` +
-      `Hay una nueva solicitud de parte de [${this.props.requester.name}](tg://user?id=${this.props.requester.telegramId}).\n` +
+      `Hay una nueva solicitud de parte de [${escapeMarkdown(this.props.requester.name)}](tg://user?id=${this.props.requester.telegramId}).\n` +
+      (this.props.form?.isMinor ? `⚠️ *Menor de edad*\n` : '') +
       `Pasate por el chat para conversar 💬, conocerlo mejor y considerar su ingreso al grupo.\n` +
-      (this.props.whereYouFoundUs
-        ? `*¿Dónde nos encontró?* ${this.props.whereYouFoundUs}\n`
-        : '') +
-      (this.props.interests
-        ? `*¿Cuáles son sus intereses?* ${this.props.interests}\n`
-        : '') +
-      `Dirigite a este [link](${TELEGRAM_BOT_LINK}) para ver las peticiones.`
+      line('Edad:', form?.age) +
+      line('Ciudad:', form?.city) +
+      line('Fursona:', form?.fursonaName) +
+      line('Especie:', form?.species) +
+      line('¿Cómo conoció FurMeets?', form?.howDidYouFindUs) +
+      line('¿Dónde nos encontró?', this.props.whereYouFoundUs) +
+      line('¿Cuáles son sus intereses?', this.props.interests) +
+      `[Ver solicitud](${TELEGRAM_BOT_LINK}?startapp=${this.id.value})`
     );
   }
 
