@@ -80,11 +80,11 @@ La Fase 0 está en producción, junto con el formulario de la API (T13) y la mig
   - Índices creados al arrancar (`users.telegramId` y `requestchats.requester` únicos); las búsquedas de T38 usan `EXPRESS_IXSCAN`.
   - En la Mini App de producción, las solicitudes se abren con sus mensajes y la App va rápida.
 - **Bundle de producción de la App:** sin `api.telegram.org`, `VITE_TELEGRAM_BOT_TOKEN` ni tokens de bot (build de `main`, criterio de éxito 3).
-- **Latencia en staging** (script de T37, p50): el arranque bajó de ~55 s a menos de 1 s, enviar de 948 a ~300 ms y votar de 620 a ~260 ms.
+- **Latencia en staging** (script de T37, n=20, p50 desde el cliente): el arranque bajó de ~55 s a 783 ms, enviar de 948 a 297 ms y votar de 620 a 275 ms. Estimado en la API: enviar ~150 ms y votar ~140 ms.
+- **T01:** token del bot revocado y rotado en staging y en producción (confirmado el 2026-10-03).
 
 **Pendiente del release:**
-- [ ] **T01:** confirmar que el token anterior del bot está revocado y que el nuevo solo está en Render y en `.env` local.
-- [ ] **REN-07 y REN-08:** revisar en los logs de la API las líneas `Timing` de enviar y votar (p95 < 500 ms medido en la API, sin llamadas a Telegram).
+- [ ] **REN-07:** enviar y votar cumplen p95 < 500 ms (medición del 2026-10-03, ver T37 en todo.md). Abrir chat queda en ~500 ms porque trae todo el historial: se resuelve con T18. Para el dato exacto, revisar las líneas `Timing` en los logs de Render.
 - [ ] **REN-06 / T42:** prueba manual con dos cuentas y la red en "Slow 3G".
 - [ ] **Copia de la migración:** borrar `requestchats_pre_001` en producción y en staging cuando ya no haga falta (se conserva por ahora, decisión del 2026-10-03).
 
@@ -94,7 +94,7 @@ La Fase 0 está en producción, junto con el formulario de la API (T13) y la mig
 
 Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas en el orden de ejecución. T37, T38 y T43 no dependen de nada y pueden hacerse de inmediato.
 
-- [ ] T01: Revocar el token del bot y rotar secretos (sin confirmar)
+- [x] T01: Revocar el token del bot y rotar secretos
 - [x] T37: Línea base de latencia
 - [x] T38: Índices y lecturas livianas
 - [x] T02: Infraestructura de pruebas y validación
@@ -106,7 +106,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 
 #### Checkpoint A: Autenticación
 - [x] Criterios de éxito 1, 2 y 4 (SPEC §13) cubiertos por pruebas e2e
-- [x] Revisión humana antes de seguir (PRs revisados y mergeados; queda solo T01, ver arriba)
+- [x] Revisión humana antes de seguir (PRs revisados y mergeados; T01 hecho)
 
 - [x] T07: App autenticada y enrutada por rol
 - [x] T43: App: bundle más liviano
@@ -123,7 +123,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] Criterios de éxito 1–5 y 14
 - [x] Bundle de la App sin token (criterio 3)
 - [x] Migración ensayada en staging
-- [ ] Latencia medida de nuevo con el script de T37 y comparada con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos. El script ya se corrió y se comparó; faltan los logs de la API y la prueba manual con red lenta.
+- [ ] Latencia medida de nuevo con el script de T37 y comparada con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos. Enviar y votar cumplen; abrir chat queda en el límite (T18). Falta la prueba manual con red lenta (REN-06).
 - [x] Revisión humana; despliegue a producción de la Fase 0 (2026-10-03)
 
 ### Fase 1 — v1 funcional
