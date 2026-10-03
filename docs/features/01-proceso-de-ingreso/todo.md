@@ -287,10 +287,10 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - **1. Sin `initData` válido → 401 o rechazo:** `test/auth.e2e-spec.ts` (HTTP: sin header, otro esquema, firma inválida, usuario alterado, `auth_date` vencido, solo `x-telegram-id`) y `test/chat-socket.e2e-spec.ts` (socket: sin `initData`, firma inválida, vencido, `initData` que no es texto).
   - **2. Solicitante que pide la solicitud de otro → 403; solicitante que vota → 403:** `test/authorization.e2e-spec.ts`, incluido el miembro recién expulsado (RNF-SEG-10).
   - **4. Un solicitante no recibe eventos de otras solicitudes:** `test/authorization.e2e-spec.ts`, en la sección `socket`.
-- [ ] Revisión humana antes de seguir. Falta además completar lo manual:
-  - **T01:** revocar el token y comprobar los secretos.
-  - **T37:** anotar la línea base.
-  - **T38 y T39:** logs de T37 antes y después.
+- [x] Revisión humana antes de seguir: los PRs se revisaron y mergearon. Lo manual quedó así:
+  - **T01:** revocar el token y comprobar los secretos. **Sin confirmar** (ver el estado del release en plan.md).
+  - **T37:** línea base anotada (2026-10-03) y medida de nuevo tras T38–T42.
+  - **T38 y T39:** el script de T37 se corrió antes y después; los índices se verificaron en staging y en producción (`EXPRESS_IXSCAN`). Faltan las líneas `Timing` de los logs.
 
 ---
 
@@ -388,11 +388,11 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Quitar `VITE_TELEGRAM_BOT_TOKEN` y toda URL `api.telegram.org/file/bot…`. Avatares, foto del grupo e imágenes se piden a `/media/:id` con auth (fetch → blob URL). Sustituir el avatar por defecto de GitHub.
 
 **Acceptance criteria:**
-- [ ] `grep -r "api.telegram.org" dist/` y `grep -r "VITE_TELEGRAM_BOT_TOKEN"` vacíos
+- [x] `grep -r "api.telegram.org" dist/` y `grep -r "VITE_TELEGRAM_BOT_TOKEN"` vacíos (build de `main`, 2026-10-03)
 - [ ] Avatares e imágenes se ven igual que antes
 
 **Verification:**
-- [ ] `npm run build` + grep sobre `dist/` (criterio de éxito 3)
+- [x] `npm run build` + grep sobre `dist/` (criterio de éxito 3)
 
 **Dependencies:** T01, T08
 
@@ -482,7 +482,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [x] Correrlo dos veces no duplica nada
 - [x] Mismo conteo de mensajes y votos antes y después: el script lo verifica al final y termina con código 1 si no cuadra
 - [x] Ensayado en staging (2026-10-03), con los datos sembrados de staging y no con una copia de producción: producción tiene los `telegramId` reales de los miembros y no se copia (decisión del 2026-10-03)
-- [ ] Ejecución en producción solo con respaldo y aprobación humana
+- [x] Ejecución en producción solo con respaldo y aprobación humana: 2026-10-03, tras el respaldo y el despliegue del release. 83 solicitudes; 1647 mensajes migrados; 431 votos; 121 `avatarUrl` quitados. Verificación OK y copia `requestchats_pre_001` conservada.
 
 **Verification:**
 - [x] Unitarias de las transformaciones y de la idempotencia (`scripts/migrations/001-request-chat-split.spec.ts`, contra un Mongo en memoria). Cubren solo lectura, migración completa, segunda corrida, corte a mitad de camino y mensaje sin autor.
@@ -671,9 +671,13 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Estimated scope:** M
 
 ### Checkpoint B: Fase 0 completa
-- [ ] Criterios de éxito 1–5 y 14
-- [ ] Script de T37 corrido de nuevo y comparado con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos
-- [ ] Revisión humana; despliegue de API y App juntas a staging y luego a producción
+- [x] Criterios de éxito 1–5 y 14:
+  - **1, 2 y 4:** e2e del Checkpoint A.
+  - **3:** build de producción de la App (`main`, 2026-10-03) sin `api.telegram.org`, `VITE_TELEGRAM_BOT_TOKEN` ni tokens de bot.
+  - **5:** `test/request-chat-messages.e2e-spec.ts` (20 mensajes concurrentes, en orden y con su `createdAt`).
+  - **14:** migración en producción con mensajes 1647/1647 y votos 431/431, y la Mini App de producción abre las solicitudes con sus mensajes.
+- [ ] Script de T37 corrido de nuevo y comparado con la línea base (hecho, ver T37); RNF-REN-06, REN-07 y REN-08 cumplidos. Faltan las líneas `Timing` de los logs de la API (REN-07, REN-08) y la prueba manual con red lenta (REN-06).
+- [x] Revisión humana; despliegue de API y App juntas a staging y luego a producción (2026-10-03: API PR #23, App PR #11)
 
 ---
 
