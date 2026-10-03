@@ -61,7 +61,7 @@ describe('RequestChatEntity', () => {
     it('del formulario anterior: solo sus líneas, sin las del formulario nuevo', () => {
       const text = requestChat.announceWelcomeMesssage();
 
-      expect(text).toContain('*¿Dónde nos encontró?* Instagram');
+      expect(text).toContain('*¿Cómo conoció FurMeets?* Instagram');
       expect(text).toContain('*¿Cuáles son sus intereses?* furros');
       expect(text).not.toContain('Edad:');
       expect(text).not.toContain('Ciudad:');
@@ -81,7 +81,7 @@ describe('RequestChatEntity', () => {
       expect(text).toContain('*Edad:* 16');
       expect(text).toContain('*Especie:* Zorro\\_rojo');
       expect(text).not.toContain('Fursona:');
-      expect(text).not.toContain('¿Dónde nos encontró?');
+      expect(text).not.toContain('intereses');
       expect(text).not.toContain('Menor de edad');
       expect(text).not.toMatch(/\n\n/);
     });

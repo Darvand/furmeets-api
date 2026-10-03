@@ -160,7 +160,7 @@ describe('ChatService', () => {
       expect(announcement[0]).toContain('*Edad:* 16');
       expect(announcement[0]).toContain('*Ciudad:* Bogotá');
       // Sin las líneas del formulario anterior ni la etiqueta de menor.
-      expect(announcement[0]).not.toContain('¿Dónde nos encontró?');
+      expect(announcement[0]).not.toContain('intereses');
       expect(announcement[0]).not.toContain('Menor de edad');
     });
 

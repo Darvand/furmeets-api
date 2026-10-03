@@ -9,6 +9,10 @@ import {
 import { RequestChatVoteEntity } from './request-chat-vote.entity';
 import { DateTime } from 'luxon';
 import { ApplicationForm } from 'src/applications/domain/application-form';
+import {
+  legacyApplication,
+  type LegacyApplication,
+} from 'src/applications/domain/legacy-application';
 
 const APPROVE_THRESHOLD = process.env.APPROVE_THRESHOLD || 5;
 const REJECT_THRESHOLD = process.env.REJECT_THRESHOLD || 3;
@@ -49,11 +53,10 @@ export interface VoteTally {
  */
 export interface RequestChatProps {
   requester: UserEntity;
-  /** Falta en las solicitudes anteriores al formulario (las migra T12). */
+  /** Falta en las solicitudes anteriores al formulario actual: esas llevan `legacy`. */
   form?: ApplicationForm;
-  /** Campos del formulario anterior: los migra T12. */
-  whereYouFoundUs?: string;
-  interests?: string;
+  /** Solicitud anterior al formulario actual (`legacy: true`), con sus respuestas. */
+  legacy?: LegacyApplication;
   state: RequestChatState;
   createdAt: DateTime;
   votes: RequestChatVoteEntity[];
@@ -81,7 +84,10 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     });
   }
 
-  /** Formulario anterior (`POST /request-chats`). Se elimina cuando la App use T13 (T15). */
+  /**
+   * Formulario anterior (`POST /request-chats`): nace como solicitud `legacy`, igual que
+   * las que migra T12. Se elimina cuando la App use `POST /applications` (T15).
+   */
   static asNew(
     requester: UserEntity,
     interests?: string,
@@ -89,8 +95,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
   ): RequestChatEntity {
     return new RequestChatEntity({
       requester,
-      interests,
-      whereYouFoundUs,
+      legacy: legacyApplication(whereYouFoundUs, interests),
       state: RequestChatState.InProgress(),
       createdAt: DateTime.now(),
       votes: [],
@@ -130,6 +135,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
    */
   announceWelcomeMesssage(): string {
     const form = this.props.form?.props;
+    const legacy = this.props.legacy;
     const line = (label: string, value?: string | number) =>
       value === undefined || value === ''
         ? ''
@@ -142,9 +148,11 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
       line('Ciudad:', form?.city) +
       line('Fursona:', form?.fursonaName) +
       line('Especie:', form?.species) +
-      line('¿Cómo conoció FurMeets?', form?.howDidYouFindUs) +
-      line('¿Dónde nos encontró?', this.props.whereYouFoundUs) +
-      line('¿Cuáles son sus intereses?', this.props.interests) +
+      line(
+        '¿Cómo conoció FurMeets?',
+        form?.howDidYouFindUs ?? legacy?.howDidYouFindUs,
+      ) +
+      line('¿Cuáles son sus intereses?', legacy?.interests) +
       `[Ver solicitud](${TELEGRAM_BOT_LINK}?startapp=${this.id.value})`
     );
   }

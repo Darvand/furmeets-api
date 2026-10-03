@@ -34,8 +34,7 @@ export class RequestChatMapper {
       form:
         requestChat.props.form &&
         ApplicationFormMapper.toDb(requestChat.props.form),
-      interests: requestChat.props.interests,
-      whereYouFoundUs: requestChat.props.whereYouFoundUs,
+      legacy: requestChat.props.legacy && { ...requestChat.props.legacy },
     };
   }
 
@@ -55,8 +54,10 @@ export class RequestChatMapper {
         form:
           dbRequestChat.form &&
           ApplicationFormMapper.fromDb(dbRequestChat.form),
-        interests: dbRequestChat.interests,
-        whereYouFoundUs: dbRequestChat.whereYouFoundUs,
+        legacy: dbRequestChat.legacy && {
+          howDidYouFindUs: dbRequestChat.legacy.howDidYouFindUs,
+          interests: dbRequestChat.legacy.interests,
+        },
       },
       UUID.from(dbRequestChat._id),
     );
@@ -78,8 +79,7 @@ export class RequestChatMapper {
       form:
         requestChat.props.form &&
         ApplicationFormMapper.toDto(requestChat.props.form),
-      interests: requestChat.props.interests,
-      whereYouFoundUs: requestChat.props.whereYouFoundUs,
+      legacy: requestChat.props.legacy && { ...requestChat.props.legacy },
       votes: {
         approved: requestChat.countApproves(),
         rejected: requestChat.countRejects(),

@@ -1,6 +1,6 @@
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { TelegramIdentity } from '../value-objects/telegram-identity.value-object';
-import { Species, UserEntity } from './user.entity';
+import { UserEntity } from './user.entity';
 
 const identity = (
   overrides: Partial<Parameters<typeof TelegramIdentity.create>[0]> = {},
@@ -41,7 +41,7 @@ describe('UserEntity', () => {
         },
         UUID.generate(),
       );
-      user.species = Species.Wolf;
+      user.species = 'Lobo ártico';
       return user;
     };
 
@@ -79,7 +79,7 @@ describe('UserEntity', () => {
 
       expect(user.avatarMediaId).toBe('avatar-del-bot');
       expect(user.isMember).toBe(true);
-      expect(user.species).toBe(Species.Wolf);
+      expect(user.species).toBe('Lobo ártico');
       expect(user.birthdate).toEqual(new Date('2000-01-01'));
     });
 

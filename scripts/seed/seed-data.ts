@@ -279,8 +279,8 @@ function buildMessages(
 interface SeedRequestChat {
   _id: mongo.UUID;
   requester: mongo.UUID;
-  whereYouFoundUs?: string;
-  interests?: string;
+  /** Respuestas del formulario anterior: las solicitudes sembradas son de ese tipo. */
+  legacy: { howDidYouFindUs?: string; interests?: string };
   votes: ReturnType<typeof buildVotes>;
   state: string;
   createdAt: Date;
@@ -355,8 +355,10 @@ export async function seed(
     return {
       _id: requestChatId,
       requester: requester._id,
-      ...(random.next() < 0.8 ? { whereYouFoundUs: random.pick(WHERE) } : {}),
-      ...(random.next() < 0.8 ? { interests: random.pick(INTERESTS) } : {}),
+      legacy: {
+        ...(random.next() < 0.8 ? { howDidYouFindUs: random.pick(WHERE) } : {}),
+        ...(random.next() < 0.8 ? { interests: random.pick(INTERESTS) } : {}),
+      },
       votes: buildVotes(random, members, state, options, createdAt, closesAt),
       state,
       createdAt,
