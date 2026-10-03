@@ -449,7 +449,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** CON-06, PRI-05
 
-**Description:** Script versionado e idempotente según SPEC §9.1: mueve mensajes embebidos a la colección nueva conservando `_id`, `viewedBy` → `readBy`, `whereYouFoundUs` → "¿Cómo conociste FurMeets?", `interests` → `legacy.interests`, marca `legacy: true`, `species` a texto libre, descarta `avatarUrl`. Renombra la colección original sin borrarla.
+**Description:** Script versionado e idempotente según SPEC §9.1: mueve mensajes embebidos a la colección nueva conservando `_id`, `viewedBy` → última lectura de cada usuario en `requestchatreads` (la fecha del mensaje más reciente que vio), `whereYouFoundUs` → "¿Cómo conociste FurMeets?", `interests` → `legacy.interests`, marca `legacy: true`, `species` a texto libre, descarta `avatarUrl`. Renombra la colección original sin borrarla.
 
 **Acceptance criteria:**
 - [ ] Correrlo dos veces no duplica nada
@@ -480,12 +480,33 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Hoy `GET /request-chats` carga todas las solicitudes con todos sus mensajes y 4 `populate`, aunque la lista solo usa el último mensaje y los no leídos. Devolver el resumen con una agregación sobre la colección de mensajes (último mensaje, conteo de no leídos del usuario, conteo de votos a favor y en contra), paginado y sin cargar mensajes completos.
 
 **Acceptance criteria:**
-- [ ] La respuesta no contiene arreglos de mensajes ni de leídos
-- [ ] El tiempo de respuesta no crece con la cantidad total de mensajes (medido con datos de prueba de 50 solicitudes × 200 mensajes)
-- [ ] Solo expone conteos de votos en contra, nunca identidades (RNF-PRI-01)
+- [x] La respuesta no contiene arreglos de mensajes ni de leídos
+- [x] El tiempo de respuesta no crece con la cantidad total de mensajes (medido con datos de prueba de 50 solicitudes × 200 mensajes)
+- [x] Solo expone conteos de votos en contra, nunca identidades (RNF-PRI-01)
 
 **Verification:**
-- [ ] e2e sobre la forma de la respuesta; medición con el script de T37
+- [x] e2e sobre la forma de la respuesta (`test/request-chat-list.e2e-spec.ts`)
+- [x] Medición con `npm run perf:list` (Mongo en memoria). El script de T37 mide contra staging y queda para cuando se tome la línea base.
+
+**Notas de implementación:**
+- **Una agregación.** Ordena por `createdAt` y `_id` descendentes (índice nuevo `{ createdAt: -1, _id: -1 }`). Trae el solicitante y el último mensaje con su autor con `$lookup`, y cuenta votos con `$filter`. No hay `populate` ni documentos de Mongoose.
+- **Respuesta.** Cada solicitud trae `uuid`, `requester`, `lastMessage?`, `unreadMessagesCount`, `state`, `votes: { approved, rejected }`, `userVote?` (solo el de quien pide) y `createdAt`. La lista trae `nextCursor` si hay otra página.
+- **Paginación.** `GET /request-chats?limit=&cursor=`. `limit` va de 1 a 100 y por defecto es 50, holgado mientras la App pide solo la primera página (pagina en T23). `cursor` es opaco (base64url de fecha + id), y uno ajeno da 400.
+- **Sin "Leído por" (decidido el 2026-10-02).** Se quitó `readBy` de los mensajes y `viewedByRequester` de la respuesta; la App no lo mostraba. Contar no leídos revisando `readBy` mensaje por mensaje crecía con el total de mensajes. Ahora `requestchatreads` guarda, por usuario y solicitud, hasta dónde leyó (`lastReadAt`). `POST /request-chats/:id/read` la avanza con `$max` en una operación.
+- **No leídos.** Son los mensajes posteriores a `lastReadAt` que no escribió quien mira, contados por el índice `requestChatId + createdAt` hasta un tope de 100 ("100 o más"; la App muestra "99+" en T23). Las lecturas de quien mira se traen una vez por página, con un `$lookup` sin correlación.
+- **Medición** (`npm run perf:list`, 50 solicitudes, p50; antes son las consultas de T10):
+
+  | Mensajes por solicitud | Total | Antes | Ahora |
+  |---|---|---|---|
+  | 10 | 500 | 36 ms | 35 ms |
+  | 50 | 2.500 | 81 ms | 38 ms |
+  | 100 | 5.000 | 138 ms | 44 ms |
+  | 200 | 10.000 | 251 ms | 43 ms |
+  | 400 | 20.000 | 497 ms | 47 ms |
+
+  Hasta 100 mensajes por solicitud sube un poco porque se cuentan los no leídos uno a uno; desde el tope queda plano.
+- **Datos existentes.** Mientras no corra T12, nadie tiene `lastReadAt`, así que todo cuenta como no leído hasta abrir cada chat. T12 deriva `lastReadAt` de `viewedBy`. El seed de staging ya siembra lecturas: hay que volver a sembrar con `--reset`.
+- **Reemplaza a `perf:hydration`**, que medía las consultas de T10.
 
 **Dependencies:** T10
 
@@ -688,19 +709,19 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 18: Chat: leídos y no leídos
+## Task 18: Chat: no leídos en vivo e historial paginado
 
 **Repo:** API · **RNF:** REN-04
 
-**Description:** Marcado explícito de leídos (`readBy` con usuario y fecha) con operación atómica y evento de actualización a la sala, que también actualiza el contador de no leídos del listado de T40. Historial de mensajes de un chat paginado. (El resumen del listado se hace en T40.)
+**Description:** Al marcar leído (`POST /request-chats/:id/read`, que desde T40 mueve la última lectura del usuario) y al llegar un mensaje, un evento a la sala `members` actualiza el contador de no leídos del listado. Historial de mensajes de un chat paginado. (El resumen del listado se hace en T40. "Leído por" se quitó el 2026-10-02, SPEC §15.)
 
 **Acceptance criteria:**
-- [ ] Marcar leído dos veces no duplica la entrada
 - [ ] Al marcar leído, el contador de no leídos del listado baja sin recargarlo
-- [ ] El solicitante también ve quién leyó sus mensajes; el historial se pide por páginas
+- [ ] Un mensaje nuevo sube el contador de los demás sin recargar
+- [ ] El historial se pide por páginas
 
 **Verification:**
-- [ ] e2e de leídos y de paginación del historial
+- [ ] e2e del evento de no leídos y de paginación del historial
 
 **Dependencies:** T16, T40
 
@@ -741,7 +762,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** REN-01, CAL-04, USA-01, USA-02
 
-**Description:** Chat con texto, imágenes (adjuntar), responder, "Leído por N" con lista, mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
+**Description:** Chat con texto, imágenes (adjuntar), responder, mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
 
 **Acceptance criteria:**
 - [ ] Un mensaje enviado aparece en otro cliente conectado sin recargar
