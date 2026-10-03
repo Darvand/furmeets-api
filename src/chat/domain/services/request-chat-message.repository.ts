@@ -7,10 +7,9 @@ export interface RequestChatMessageRepository {
   insert(message: RequestChatMessageEntity): Promise<void>;
   /** Mensajes de una solicitud, del más antiguo al más reciente. */
   findByRequestChat(requestChatId: UUID): Promise<RequestChatMessageEntity[]>;
-  /** Mensajes de varias solicitudes en una consulta, agrupados por id de solicitud. */
-  findByRequestChats(
-    requestChatIds: UUID[],
-  ): Promise<Map<string, RequestChatMessageEntity[]>>;
-  /** Marca como leídos por `user` todos los mensajes de la solicitud que no había leído. */
-  markAllReadBy(requestChatId: UUID, user: UserEntity, at: Date): Promise<void>;
+  /**
+   * `user` leyó la solicitud hasta `at`: los mensajes de antes dejan de contar como no
+   * leídos. Una operación; si ya había leído más adelante, no retrocede.
+   */
+  markReadUpTo(requestChatId: UUID, user: UserEntity, at: Date): Promise<void>;
 }

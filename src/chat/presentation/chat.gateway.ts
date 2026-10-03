@@ -109,7 +109,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     );
     this.toRequestChat(message.requestChatUUID).emit(
       'request-chat',
-      RequestChatMessageMapper.toDto(messageEntity, author),
+      RequestChatMessageMapper.toDto(messageEntity),
     );
   }
 

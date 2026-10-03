@@ -1,24 +1,79 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, mongo } from 'mongoose';
 import {
   RequestChatEntity,
   type VoteChange,
 } from 'src/chat/domain/entities/request-chat.entity';
 import {
   ChatRepository,
+  RequestChatCursor,
+  RequestChatListItem,
+  RequestChatPage,
   RequestChatSummary,
+  UNREAD_COUNT_CAP,
 } from 'src/chat/domain/services/chat.repository';
 import { RequestChatState } from 'src/chat/domain/value-objects/request-chat-state.value-object';
 import { toUUIDString } from 'src/shared/infraestructure/mongo-uuid';
 import { RequestChat } from '../schemas/request-chat.schema';
+import { REQUEST_CHAT_MESSAGES_COLLECTION } from '../schemas/request-chat-message.schema';
+import { REQUEST_CHAT_READS_COLLECTION } from '../schemas/request-chat-read.schema';
 import { RequestChatMapper } from 'src/chat/mappers/request-chat.mapper';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
+import {
+  User,
+  USERS_COLLECTION,
+} from 'src/members/infraestructure/schemas/user.schema';
+import { UserMapper } from 'src/members/mappers/user.mapper';
+
+type UUIDValue = Parameters<typeof toUUIDString>[0];
+
+/** Quien nunca abrió la solicitud no leyó nada. */
+const NEVER = new Date(0);
+
+/** Lo que devuelve la agregación de `listSummaries` por cada solicitud. */
+interface RequestChatSummaryDoc {
+  _id: UUIDValue;
+  requester: User;
+  state: string;
+  createdAt: Date;
+  lastMessage?: { author: User; content: string; createdAt: Date };
+  unreadMessagesCount: number;
+  approved: number;
+  rejected: number;
+  viewerVote?: 'approve' | 'reject';
+}
+
+function countVotes(type: 'approve' | 'reject') {
+  return {
+    $size: {
+      $filter: {
+        input: { $ifNull: ['$votes', []] },
+        cond: { $eq: ['$$this.type', type] },
+      },
+    },
+  };
+}
+
+function toListItem(doc: RequestChatSummaryDoc): RequestChatListItem {
+  return {
+    id: UUID.from(toUUIDString(doc._id)),
+    requester: UserMapper.fromDb(doc.requester),
+    state: RequestChatState.create(doc.state).props.value,
+    createdAt: doc.createdAt,
+    lastMessage: doc.lastMessage && {
+      author: UserMapper.fromDb(doc.lastMessage.author),
+      content: doc.lastMessage.content,
+      at: doc.lastMessage.createdAt,
+    },
+    unreadMessagesCount: doc.unreadMessagesCount,
+    votes: { approved: doc.approved, rejected: doc.rejected },
+    viewerVote: doc.viewerVote,
+  };
+}
 
 @Injectable()
 export class ChatMongoRepository implements ChatRepository {
-  private readonly logger = new Logger(ChatMongoRepository.name);
-
   constructor(
     @InjectModel(RequestChat.name)
     private readonly requestChatModel: Model<RequestChat>,
@@ -98,14 +153,151 @@ export class ChatMongoRepository implements ChatRepository {
     return requestChatEntity;
   }
 
-  async getAllRequestChats(): Promise<RequestChatEntity[]> {
-    this.logger.debug(`Fetching all request chats from database`);
-    const dbRequestChats = await this.requestChatModel
-      .find()
-      .populate('requester')
-      .populate('votes.from')
+  async listSummaries(
+    viewer: UUID,
+    { limit, after }: { limit: number; after?: RequestChatCursor },
+  ): Promise<RequestChatPage> {
+    // Las agregaciones no pasan por los casts de Mongoose: los UUID van como `Binary`.
+    const viewerId = new mongo.UUID(viewer.value);
+    const docs = await this.requestChatModel
+      .aggregate<RequestChatSummaryDoc>([
+        ...(after
+          ? [
+              {
+                $match: {
+                  $or: [
+                    { createdAt: { $lt: after.createdAt } },
+                    {
+                      createdAt: after.createdAt,
+                      _id: { $lt: new mongo.UUID(after.id.value) },
+                    },
+                  ],
+                },
+              },
+            ]
+          : []),
+        { $sort: { createdAt: -1, _id: -1 } },
+        // Uno de más para saber si hay otra página.
+        { $limit: limit + 1 },
+        {
+          $lookup: {
+            from: USERS_COLLECTION,
+            localField: 'requester',
+            foreignField: '_id',
+            as: 'requester',
+          },
+        },
+        { $unwind: '$requester' },
+        // Solo el último mensaje, por el índice `requestChatId + createdAt`.
+        {
+          $lookup: {
+            from: REQUEST_CHAT_MESSAGES_COLLECTION,
+            localField: '_id',
+            foreignField: 'requestChatId',
+            as: 'lastMessage',
+            pipeline: [
+              { $sort: { createdAt: -1 } },
+              { $limit: 1 },
+              {
+                $lookup: {
+                  from: USERS_COLLECTION,
+                  localField: 'authorId',
+                  foreignField: '_id',
+                  as: 'author',
+                },
+              },
+              { $unwind: '$author' },
+              { $project: { _id: 0, author: 1, content: 1, createdAt: 1 } },
+            ],
+          },
+        },
+        // No leídos: mensajes posteriores a la última lectura de quien mira que no
+        // escribió él. Se cuentan en la BD por el índice `requestChatId + createdAt` y
+        // hasta un tope, así el costo no depende de cuántos mensajes hay.
+        // Sin correlación con la solicitud: Mongo trae las lecturas de quien mira una vez
+        // para toda la página, no una vez por solicitud.
+        {
+          $lookup: {
+            from: REQUEST_CHAT_READS_COLLECTION,
+            as: 'reads',
+            pipeline: [
+              { $match: { userId: viewerId } },
+              { $project: { _id: 0, requestChatId: 1, lastReadAt: 1 } },
+            ],
+          },
+        },
+        {
+          $lookup: {
+            from: REQUEST_CHAT_MESSAGES_COLLECTION,
+            localField: '_id',
+            foreignField: 'requestChatId',
+            let: {
+              after: {
+                $ifNull: [
+                  {
+                    $first: {
+                      $map: {
+                        input: {
+                          $filter: {
+                            input: '$reads',
+                            cond: { $eq: ['$$this.requestChatId', '$_id'] },
+                          },
+                        },
+                        in: '$$this.lastReadAt',
+                      },
+                    },
+                  },
+                  NEVER,
+                ],
+              },
+            },
+            as: 'unread',
+            pipeline: [
+              { $match: { $expr: { $gt: ['$createdAt', '$$after'] } } },
+              { $match: { authorId: { $ne: viewerId } } },
+              { $limit: UNREAD_COUNT_CAP },
+              { $count: 'count' },
+            ],
+          },
+        },
+        {
+          $project: {
+            requester: 1,
+            state: 1,
+            createdAt: 1,
+            lastMessage: { $first: '$lastMessage' },
+            unreadMessagesCount: {
+              $ifNull: [{ $first: '$unread.count' }, 0],
+            },
+            // De los votos solo salen conteos y el voto propio (RNF-PRI-01).
+            approved: countVotes('approve'),
+            rejected: countVotes('reject'),
+            viewerVote: {
+              $first: {
+                $map: {
+                  input: {
+                    $filter: {
+                      input: { $ifNull: ['$votes', []] },
+                      cond: { $eq: ['$$this.from', viewerId] },
+                    },
+                  },
+                  in: '$$this.type',
+                },
+              },
+            },
+          },
+        },
+      ])
       .exec();
-    return dbRequestChats.map((doc) => RequestChatMapper.fromDb(doc));
+    const items = docs.slice(0, limit).map(toListItem);
+    const last = items.at(-1);
+    return {
+      items,
+      next:
+        docs.length > limit && last
+          ? { createdAt: last.createdAt, id: last.id }
+          : undefined,
+    };
   }
 
   async chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean> {

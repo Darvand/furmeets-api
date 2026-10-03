@@ -2,13 +2,15 @@ import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { RequestChatEntity } from '../domain/entities/request-chat.entity';
 import { RequestChatMapper } from './request-chat.mapper';
+import { BadRequestException } from '@nestjs/common';
+import type { RequestChatListItem } from '../domain/services/chat.repository';
+import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
 
 const user = (telegramId: number) =>
   UserEntity.create({ name: `User ${telegramId}`, telegramId, isMember: true });
 
 describe('RequestChatMapper', () => {
   const requester = user(1);
-  const member = user(2);
   const bot = user(999);
   const requestChat = RequestChatEntity.asNew(requester, 'furros');
   const welcome = requestChat.welcomeMessage(
@@ -33,27 +35,66 @@ describe('RequestChatMapper', () => {
       '2026-10-02T15:00:00.000Z',
       '2026-10-02T15:05:30.123Z',
     ]);
-    expect(dto.messages.map((m) => m.viewedByRequester)).toEqual([false, true]);
   });
 
-  it('el listado da el último mensaje en ISO UTC y los no leídos de quien mira', () => {
-    const list = RequestChatMapper.toDtoList(
-      [requestChat],
-      new Map([[requestChat.id.value, [welcome, hello]]]),
-      member,
-    );
+  describe('listado', () => {
+    const item: RequestChatListItem = {
+      id: requestChat.id,
+      requester,
+      state: 'InProgress',
+      createdAt: new Date('2026-10-02T14:59:59.000Z'),
+      lastMessage: {
+        author: requester,
+        content: 'hola',
+        at: new Date('2026-10-02T15:05:30.123Z'),
+      },
+      unreadMessagesCount: 2,
+      votes: { approved: 1, rejected: 2 },
+      viewerVote: 'approve',
+    };
 
-    expect(list.items[0].lastMessage).toMatchObject({
-      content: 'hola',
-      at: '2026-10-02T15:05:30.123Z',
+    it('da el último mensaje y las fechas en ISO UTC, y los conteos tal cual', () => {
+      const [dto] = RequestChatMapper.toDtoList({ items: [item] }).items;
+
+      expect(dto).toMatchObject({
+        uuid: requestChat.id.value,
+        lastMessage: { content: 'hola', at: '2026-10-02T15:05:30.123Z' },
+        unreadMessagesCount: 2,
+        votes: { approved: 1, rejected: 2 },
+        userVote: 'approve',
+        createdAt: '2026-10-02T14:59:59.000Z',
+      });
     });
-    expect(list.items[0].unreadMessagesCount).toBe(2);
-  });
 
-  it('una solicitud sin mensajes (sin migrar) sale sin último mensaje', () => {
-    const list = RequestChatMapper.toDtoList([requestChat], new Map(), member);
+    it('una solicitud sin mensajes (sin migrar) sale sin último mensaje', () => {
+      const [dto] = RequestChatMapper.toDtoList({
+        items: [{ ...item, lastMessage: undefined }],
+      }).items;
 
-    expect(list.items[0].lastMessage).toBeUndefined();
-    expect(list.items[0].unreadMessagesCount).toBe(0);
+      expect(dto.lastMessage).toBeUndefined();
+    });
+
+    it('el cursor de la página siguiente es opaco y vuelve a la misma posición', () => {
+      const next = { createdAt: item.createdAt, id: item.id };
+      const { nextCursor } = RequestChatMapper.toDtoList({
+        items: [item],
+        next,
+      });
+
+      expect(nextCursor).toMatch(/^[A-Za-z0-9_-]+$/);
+      expect(RequestChatCursorCodec.decode(nextCursor!)).toEqual(next);
+      expect(
+        RequestChatMapper.toDtoList({ items: [item] }).nextCursor,
+      ).toBeUndefined();
+    });
+
+    it.each(['no-es-base64-json', 'WzEsMl0', 'WyJ4IiwieSJd'])(
+      'un cursor ajeno (%s) es un 400',
+      (raw) => {
+        expect(() => RequestChatCursorCodec.decode(raw)).toThrow(
+          BadRequestException,
+        );
+      },
+    );
   });
 });

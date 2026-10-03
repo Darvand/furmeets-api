@@ -3,7 +3,10 @@ import mongoose, { HydratedDocument } from 'mongoose';
 
 export type UserDocument = HydratedDocument<User>;
 
-@Schema({ _id: false })
+/** Nombre fijo: otras colecciones lo usan en `$lookup`. */
+export const USERS_COLLECTION = 'users';
+
+@Schema({ _id: false, collection: USERS_COLLECTION })
 export class User {
   @Prop({
     type: mongoose.Schema.Types.UUID,

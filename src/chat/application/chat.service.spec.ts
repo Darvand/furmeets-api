@@ -34,7 +34,7 @@ function setup(stored: RequestChatEntity) {
   const messages = {
     insert: jest.fn(() => Promise.resolve()),
     findByRequestChat: jest.fn(() => Promise.resolve([])),
-    markAllReadBy: jest.fn(() => Promise.resolve()),
+    markReadUpTo: jest.fn(() => Promise.resolve()),
   };
   const telegram = {
     sendMessageToGroup: jest.fn(() => Promise.resolve()),
@@ -58,7 +58,7 @@ describe('ChatService', () => {
 
       await service.getRequestChatByUUID(requestChatWith(0).id);
 
-      expect(messages.markAllReadBy).not.toHaveBeenCalled();
+      expect(messages.markReadUpTo).not.toHaveBeenCalled();
       expect(messages.insert).not.toHaveBeenCalled();
       expect(chats.applyVote).not.toHaveBeenCalled();
       expect(chats.close).not.toHaveBeenCalled();
@@ -66,15 +66,15 @@ describe('ChatService', () => {
   });
 
   describe('markAsRead', () => {
-    it('marca todos los mensajes con una sola operación', async () => {
+    it('avanza hasta dónde leyó, con una sola operación', async () => {
       const stored = requestChatWith(0);
       const { service, messages } = setup(stored);
       const reader = user(2);
 
       await service.markAsRead(stored.id, reader);
 
-      expect(messages.markAllReadBy).toHaveBeenCalledTimes(1);
-      expect(messages.markAllReadBy).toHaveBeenCalledWith(
+      expect(messages.markReadUpTo).toHaveBeenCalledTimes(1);
+      expect(messages.markReadUpTo).toHaveBeenCalledWith(
         stored.id,
         reader,
         expect.any(Date),
@@ -90,7 +90,7 @@ describe('ChatService', () => {
       await expect(
         service.markAsRead(requestChatWith(0).id, user(2)),
       ).rejects.toBeInstanceOf(NotFoundException);
-      expect(messages.markAllReadBy).not.toHaveBeenCalled();
+      expect(messages.markReadUpTo).not.toHaveBeenCalled();
     });
   });
 
