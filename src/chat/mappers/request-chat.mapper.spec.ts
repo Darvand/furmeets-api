@@ -48,18 +48,16 @@ describe('RequestChatMapper', () => {
         content: 'hola',
         at: new Date('2026-10-02T15:05:30.123Z'),
       },
-      unreadMessagesCount: 2,
       votes: { approved: 1, rejected: 2 },
       viewerVote: 'approve',
     };
 
-    it('da el último mensaje y las fechas en ISO UTC, y los conteos tal cual', () => {
+    it('da el último mensaje y las fechas en ISO UTC, y los conteos de votos tal cual', () => {
       const [dto] = RequestChatMapper.toDtoList({ items: [item] }).items;
 
       expect(dto).toMatchObject({
         uuid: requestChat.id.value,
         lastMessage: { content: 'hola', at: '2026-10-02T15:05:30.123Z' },
-        unreadMessagesCount: 2,
         votes: { approved: 1, rejected: 2 },
         userVote: 'approve',
         createdAt: '2026-10-02T14:59:59.000Z',

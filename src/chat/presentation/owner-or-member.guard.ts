@@ -11,7 +11,7 @@ import { RequestChatAccessService } from '../application/request-chat-access.ser
 /**
  * Permite la ruta a cualquier miembro o al dueño de la solicitud del parámetro `:id`.
  * Un solicitante que pide la solicitud de otro (o una que no existe) recibe 403, sin
- * revelar si existe. Corre antes del handler, así no hay efectos (p. ej. marcar leídos).
+ * revelar si existe. Corre antes del handler, así no hay efectos.
  */
 @Injectable()
 export class OwnerOrMemberGuard implements CanActivate {

@@ -11,13 +11,11 @@ import {
   RequestChatListItem,
   RequestChatPage,
   RequestChatSummary,
-  UNREAD_COUNT_CAP,
 } from 'src/chat/domain/services/chat.repository';
 import { RequestChatState } from 'src/chat/domain/value-objects/request-chat-state.value-object';
 import { toUUIDString } from 'src/shared/infraestructure/mongo-uuid';
 import { RequestChat } from '../schemas/request-chat.schema';
 import { REQUEST_CHAT_MESSAGES_COLLECTION } from '../schemas/request-chat-message.schema';
-import { REQUEST_CHAT_READS_COLLECTION } from '../schemas/request-chat-read.schema';
 import { RequestChatMapper } from 'src/chat/mappers/request-chat.mapper';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import {
@@ -28,9 +26,6 @@ import { UserMapper } from 'src/members/mappers/user.mapper';
 
 type UUIDValue = Parameters<typeof toUUIDString>[0];
 
-/** Quien nunca abrió la solicitud no leyó nada. */
-const NEVER = new Date(0);
-
 /** Lo que devuelve la agregación de `listSummaries` por cada solicitud. */
 interface RequestChatSummaryDoc {
   _id: UUIDValue;
@@ -38,7 +33,6 @@ interface RequestChatSummaryDoc {
   state: string;
   createdAt: Date;
   lastMessage?: { author: User; content: string; createdAt: Date };
-  unreadMessagesCount: number;
   approved: number;
   rejected: number;
   viewerVote?: 'approve' | 'reject';
@@ -66,7 +60,6 @@ function toListItem(doc: RequestChatSummaryDoc): RequestChatListItem {
       content: doc.lastMessage.content,
       at: doc.lastMessage.createdAt,
     },
-    unreadMessagesCount: doc.unreadMessagesCount,
     votes: { approved: doc.approved, rejected: doc.rejected },
     viewerVote: doc.viewerVote,
   };
@@ -211,64 +204,12 @@ export class ChatMongoRepository implements ChatRepository {
             ],
           },
         },
-        // No leídos: mensajes posteriores a la última lectura de quien mira que no
-        // escribió él. Se cuentan en la BD por el índice `requestChatId + createdAt` y
-        // hasta un tope, así el costo no depende de cuántos mensajes hay.
-        // Sin correlación con la solicitud: Mongo trae las lecturas de quien mira una vez
-        // para toda la página, no una vez por solicitud.
-        {
-          $lookup: {
-            from: REQUEST_CHAT_READS_COLLECTION,
-            as: 'reads',
-            pipeline: [
-              { $match: { userId: viewerId } },
-              { $project: { _id: 0, requestChatId: 1, lastReadAt: 1 } },
-            ],
-          },
-        },
-        {
-          $lookup: {
-            from: REQUEST_CHAT_MESSAGES_COLLECTION,
-            localField: '_id',
-            foreignField: 'requestChatId',
-            let: {
-              after: {
-                $ifNull: [
-                  {
-                    $first: {
-                      $map: {
-                        input: {
-                          $filter: {
-                            input: '$reads',
-                            cond: { $eq: ['$$this.requestChatId', '$_id'] },
-                          },
-                        },
-                        in: '$$this.lastReadAt',
-                      },
-                    },
-                  },
-                  NEVER,
-                ],
-              },
-            },
-            as: 'unread',
-            pipeline: [
-              { $match: { $expr: { $gt: ['$createdAt', '$$after'] } } },
-              { $match: { authorId: { $ne: viewerId } } },
-              { $limit: UNREAD_COUNT_CAP },
-              { $count: 'count' },
-            ],
-          },
-        },
         {
           $project: {
             requester: 1,
             state: 1,
             createdAt: 1,
             lastMessage: { $first: '$lastMessage' },
-            unreadMessagesCount: {
-              $ifNull: [{ $first: '$unread.count' }, 0],
-            },
             // De los votos solo salen conteos y el voto propio (RNF-PRI-01).
             approved: countVotes('approve'),
             rejected: countVotes('reject'),

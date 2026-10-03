@@ -74,7 +74,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     return this.systemMessage(bot, APPROVED_MESSAGE_CONTENT, at);
   }
 
-  /** Mensaje del bot: cuenta como no leído para todos (no lo escribió nadie que lo lea). */
+  /** Mensaje del bot en esta solicitud. */
   private systemMessage(
     bot: UserEntity,
     content: string,

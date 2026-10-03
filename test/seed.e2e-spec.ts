@@ -17,7 +17,7 @@ const SMALL = {
 };
 
 type ListBody = {
-  items: { uuid: string; state: string; unreadMessagesCount: number }[];
+  items: { uuid: string; state: string; lastMessage?: unknown }[];
 };
 
 /**
@@ -69,7 +69,7 @@ describe('Datos de staging (scripts/seed) (e2e)', () => {
     expect(chat).not.toHaveProperty('messages');
   });
 
-  it('la API lista las solicitudes sembradas con su último mensaje y no leídos', async () => {
+  it('la API lista las solicitudes sembradas con su último mensaje', async () => {
     const res = await request(server)
       .get('/request-chats')
       .set('Authorization', auth)
@@ -84,8 +84,7 @@ describe('Datos de staging (scripts/seed) (e2e)', () => {
       'InProgress',
       'Rejected',
     ]);
-    // El miembro real no leyó nada sembrado.
-    expect(items.every((item) => item.unreadMessagesCount > 0)).toBe(true);
+    expect(items.every((item) => item.lastMessage)).toBe(true);
   });
 
   it('la API abre una solicitud sembrada y permite votar sin cerrarla', async () => {

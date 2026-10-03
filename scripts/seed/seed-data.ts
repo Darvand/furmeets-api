@@ -2,7 +2,7 @@
  * Generación de datos parecidos a producción para staging (sin Nest).
  *
  * Escribe directamente en las colecciones con la misma forma que los schemas de Mongoose
- * (`users`, `groups`, `requestchats`, `requestchatmessages`, `requestchatreads`). Los usuarios sembrados usan `telegramId` desde
+ * (`users`, `groups`, `requestchats`, `requestchatmessages`). Los usuarios sembrados usan `telegramId` desde
  * `SEED_TELEGRAM_ID_BASE`, fuera del rango de Telegram, y usernames `seed_*`: así no chocan
  * con cuentas reales y se pueden borrar sin tocar nada más (`deleteSeed`).
  *
@@ -251,17 +251,13 @@ function buildMessages(
   from: Date,
   to: Date,
 ) {
-  // Un grupo de miembros conversa con el solicitante; otros solo leen.
+  // Un grupo de miembros conversa con el solicitante.
   const talkers = random.sample(
     members,
     random.int(2, Math.min(8, members.length)),
   );
-  const readers = random.sample(
-    members,
-    random.int(talkers.length, Math.min(members.length, 30)),
-  );
   const step = (to.getTime() - from.getTime()) / Math.max(1, count);
-  const messages = Array.from({ length: count }, (_, i) => {
+  return Array.from({ length: count }, (_, i) => {
     const byRequester = i === 0 || random.next() < 0.4;
     const author = byRequester ? requester : random.pick(talkers);
     return {
@@ -274,24 +270,6 @@ function buildMessages(
       ),
     };
   });
-  // Cada lector leyó hasta algún mensaje; casi nadie hasta el último: así hay
-  // "no leídos" en el listado.
-  const reads = [requester, ...readers].flatMap((reader) => {
-    const upTo = random.int(0, count);
-    if (upTo === 0) return [];
-    return [
-      {
-        _id: new mongo.ObjectId(),
-        requestChatId,
-        userId: reader._id,
-        lastReadAt: new Date(
-          messages[upTo - 1].createdAt.getTime() +
-            random.int(0, 6 * 60 * 60 * 1000),
-        ),
-      },
-    ];
-  });
-  return { messages, reads };
 }
 
 /**
@@ -319,13 +297,11 @@ const usersOf = (db: mongo.Db) => db.collection<SeedUser>('users');
 const requestChatsOf = (db: mongo.Db) =>
   db.collection<SeedRequestChat>('requestchats');
 const groupsOf = (db: mongo.Db) => db.collection<SeedGroup>('groups');
-type SeedMessage = ReturnType<typeof buildMessages>['messages'][number];
+type SeedMessage = ReturnType<typeof buildMessages>[number];
 const messagesOf = (db: mongo.Db) =>
   db.collection<SeedMessage>('requestchatmessages');
-type SeedRead = ReturnType<typeof buildMessages>['reads'][number];
-const readsOf = (db: mongo.Db) => db.collection<SeedRead>('requestchatreads');
 
-/** Inserta usuarios, solicitudes (con votos), sus mensajes, hasta dónde los leyó cada uno y agrega miembros al grupo. */
+/** Inserta usuarios, solicitudes (con votos), sus mensajes y agrega miembros al grupo. */
 export async function seed(
   db: mongo.Db,
   overrides: Partial<SeedOptions> = {},
@@ -346,7 +322,6 @@ export async function seed(
   ];
   const applicants: SeedUser[] = [];
   const messages: SeedMessage[] = [];
-  const reads: SeedRead[] = [];
   const requestChats = states.map((state, i): SeedRequestChat => {
     // En curso: últimas 2 semanas; cerradas: los 6 meses anteriores.
     const createdAt =
@@ -366,7 +341,7 @@ export async function seed(
     );
     applicants.push(requester);
     const requestChatId = uuid();
-    const { messages: chatMessages, reads: chatReads } = buildMessages(
+    const chatMessages = buildMessages(
       random,
       requestChatId,
       requester,
@@ -376,7 +351,6 @@ export async function seed(
       closesAt,
     );
     messages.push(...chatMessages);
-    reads.push(...chatReads);
     const updatedAt = chatMessages.at(-1)?.createdAt ?? createdAt;
     return {
       _id: requestChatId,
@@ -397,9 +371,6 @@ export async function seed(
   }
   if (messages.length > 0) {
     await messagesOf(db).insertMany(messages);
-  }
-  if (reads.length > 0) {
-    await readsOf(db).insertMany(reads);
   }
 
   const groupMembers = users.filter((u) => u.isMember).map((u) => u._id);
@@ -428,7 +399,7 @@ export async function seed(
   };
 }
 
-/** Borra solo lo sembrado: usuarios del rango, sus solicitudes, mensajes y lecturas, y su membresía en el grupo. */
+/** Borra solo lo sembrado: usuarios del rango, sus solicitudes y mensajes, y su membresía en el grupo. */
 export async function deleteSeed(
   db: mongo.Db,
 ): Promise<{ users: number; requestChats: number }> {
@@ -448,7 +419,6 @@ export async function deleteSeed(
       .toArray()
   ).map((chat) => chat._id);
   await messagesOf(db).deleteMany({ requestChatId: { $in: chatIds } });
-  await readsOf(db).deleteMany({ requestChatId: { $in: chatIds } });
   const chats = await requestChatsOf(db).deleteMany({
     _id: { $in: chatIds },
   });

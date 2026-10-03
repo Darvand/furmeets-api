@@ -84,19 +84,13 @@ export class ChatService {
     return view;
   }
 
-  /** Una solicitud con sus mensajes. Solo lee: no marca leídos (ver `markAsRead`). */
+  /** Una solicitud con sus mensajes. Solo lee. */
   async getRequestChatByUUID(id: UUID): Promise<RequestChatView> {
     const [requestChat, messages] = await Promise.all([
       this.findRequestChat(id),
       this.messageRepository.findByRequestChat(id),
     ]);
     return { requestChat, messages };
-  }
-
-  /** `reader` leyó la solicitud hasta ahora: sus no leídos bajan a cero. */
-  async markAsRead(id: UUID, reader: UserEntity): Promise<void> {
-    await this.findRequestChat(id);
-    await this.messageRepository.markReadUpTo(id, reader, this.clock.now());
   }
 
   /**

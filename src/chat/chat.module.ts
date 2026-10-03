@@ -20,10 +20,6 @@ import {
   RequestChatMessage,
   RequestChatMessageSchema,
 } from './infraestructure/schemas/request-chat-message.schema';
-import {
-  RequestChatRead,
-  RequestChatReadSchema,
-} from './infraestructure/schemas/request-chat-read.schema';
 
 @Module({
   providers: [
@@ -50,7 +46,6 @@ import {
     MongooseModule.forFeature([
       { name: RequestChat.name, schema: RequestChatSchema },
       { name: RequestChatMessage.name, schema: RequestChatMessageSchema },
-      { name: RequestChatRead.name, schema: RequestChatReadSchema },
     ]),
   ],
 })

@@ -39,8 +39,6 @@ class RequestChatItemDto {
     /** ISO-8601 UTC. */
     at: string;
   };
-  /** Mensajes que quien mira no leyó; como máximo 100, que significa "100 o más". */
-  unreadMessagesCount: number;
   state: string;
   /** Solo conteos: nunca quién votó (RNF-PRI-01). */
   votes: {

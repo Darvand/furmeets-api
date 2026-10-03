@@ -15,12 +15,6 @@ export interface RequestChatSummary {
   state: RequestChatStateType;
 }
 
-/**
- * Tope del contador de no leídos del listado: contar más costaría recorrer todos los
- * mensajes. La App lo muestra como "99+".
- */
-export const UNREAD_COUNT_CAP = 100;
-
 /** Posición en el listado: la última solicitud de la página anterior. */
 export interface RequestChatCursor {
   createdAt: Date;
@@ -28,7 +22,7 @@ export interface RequestChatCursor {
 }
 
 /**
- * Una solicitud tal como sale en el listado: resumen, sin mensajes, leídos ni votos.
+ * Una solicitud tal como sale en el listado: resumen, sin mensajes ni votos.
  * De los votos solo hay conteos y el voto de quien mira (RNF-PRI-01).
  */
 export interface RequestChatListItem {
@@ -38,8 +32,6 @@ export interface RequestChatListItem {
   createdAt: Date;
   /** Falta si la solicitud no tiene mensajes (solicitudes antiguas sin migrar, T12). */
   lastMessage?: { author: UserEntity; content: string; at: Date };
-  /** Mensajes que quien mira no leyó, hasta `UNREAD_COUNT_CAP` ("o más"). */
-  unreadMessagesCount: number;
   votes: { approved: number; rejected: number };
   viewerVote?: 'approve' | 'reject';
 }

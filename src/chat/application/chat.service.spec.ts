@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import type { UserService } from 'src/members/application/user.service';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import type { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
@@ -34,7 +34,6 @@ function setup(stored: RequestChatEntity) {
   const messages = {
     insert: jest.fn(() => Promise.resolve()),
     findByRequestChat: jest.fn(() => Promise.resolve([])),
-    markReadUpTo: jest.fn(() => Promise.resolve()),
   };
   const telegram = {
     sendMessageToGroup: jest.fn(() => Promise.resolve()),
@@ -53,44 +52,14 @@ function setup(stored: RequestChatEntity) {
 
 describe('ChatService', () => {
   describe('getRequestChatByUUID', () => {
-    it('solo lee: no marca leídos ni escribe nada', async () => {
+    it('solo lee: no escribe nada', async () => {
       const { service, chats, messages } = setup(requestChatWith(0));
 
       await service.getRequestChatByUUID(requestChatWith(0).id);
 
-      expect(messages.markReadUpTo).not.toHaveBeenCalled();
       expect(messages.insert).not.toHaveBeenCalled();
       expect(chats.applyVote).not.toHaveBeenCalled();
       expect(chats.close).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('markAsRead', () => {
-    it('avanza hasta dónde leyó, con una sola operación', async () => {
-      const stored = requestChatWith(0);
-      const { service, messages } = setup(stored);
-      const reader = user(2);
-
-      await service.markAsRead(stored.id, reader);
-
-      expect(messages.markReadUpTo).toHaveBeenCalledTimes(1);
-      expect(messages.markReadUpTo).toHaveBeenCalledWith(
-        stored.id,
-        reader,
-        expect.any(Date),
-      );
-    });
-
-    it('una solicitud que no existe → 404', async () => {
-      const { service, chats, messages } = setup(requestChatWith(0));
-      chats.getRequestChatByUUID.mockResolvedValue(
-        null as unknown as RequestChatEntity,
-      );
-
-      await expect(
-        service.markAsRead(requestChatWith(0).id, user(2)),
-      ).rejects.toBeInstanceOf(NotFoundException);
-      expect(messages.markReadUpTo).not.toHaveBeenCalled();
     });
   });
 

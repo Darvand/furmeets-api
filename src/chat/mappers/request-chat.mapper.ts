@@ -86,7 +86,6 @@ export class RequestChatMapper {
           from: UserMapper.toDto(item.lastMessage.author),
         },
         state: item.state,
-        unreadMessagesCount: item.unreadMessagesCount,
         votes: { ...item.votes },
         userVote: item.viewerVote,
         createdAt: item.createdAt.toISOString(),

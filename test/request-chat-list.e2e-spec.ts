@@ -32,7 +32,6 @@ interface ItemDto {
   uuid: string;
   requester: { uuid: string; name: string };
   lastMessage?: { from: { name: string }; content: string; at: string };
-  unreadMessagesCount: number;
   state: string;
   votes: { approved: number; rejected: number };
   userVote?: string;
@@ -129,7 +128,6 @@ describe('Listado liviano de solicitudes (e2e)', () => {
         'uuid',
         'requester',
         'lastMessage',
-        'unreadMessagesCount',
         'state',
         'votes',
         'userVote',
@@ -163,41 +161,6 @@ describe('Listado liviano de solicitudes (e2e)', () => {
     expect((await item(MEMBERS[3], newest)).userVote).toBeUndefined();
     expect((await item(MEMBERS[0], newest)).userVote).toBe('approve');
     expect((await item(MEMBERS[1], newest)).userVote).toBe('reject');
-  });
-
-  it('cuenta los no leídos de quien mira, y bajan al marcarlos leídos', async () => {
-    const [oldest] = created;
-    await send(APPLICANTS[0], oldest, 'uno');
-    await send(APPLICANTS[0], oldest, 'dos');
-
-    // Bienvenida del bot + 2 del solicitante.
-    expect((await item(MEMBERS[3], oldest)).unreadMessagesCount).toBe(3);
-    // Lo que escribe quien mira no cuenta como no leído.
-    await send(MEMBERS[3], oldest, 'hola');
-    expect((await item(MEMBERS[3], oldest)).unreadMessagesCount).toBe(3);
-
-    await request(server)
-      .post(`/request-chats/${oldest}/read`)
-      .set('Authorization', tmaAuth(MEMBERS[3]))
-      .expect(204);
-    expect((await item(MEMBERS[3], oldest)).unreadMessagesCount).toBe(0);
-    expect((await item(MEMBERS[2], oldest)).unreadMessagesCount).toBe(4);
-  });
-
-  it('el contador de no leídos tiene tope 100 ("100 o más")', async () => {
-    const chat = created[1];
-    for (let i = 0; i < 100; i++) {
-      await send(APPLICANTS[1], chat, `mensaje ${i}`);
-    }
-
-    // Bienvenida + 100 mensajes = 101 sin leer.
-    expect((await item(MEMBERS[0], chat)).unreadMessagesCount).toBe(100);
-    await request(server)
-      .post(`/request-chats/${chat}/read`)
-      .set('Authorization', tmaAuth(MEMBERS[0]))
-      .expect(204);
-    await send(APPLICANTS[1], chat, 'uno más');
-    expect((await item(MEMBERS[0], chat)).unreadMessagesCount).toBe(1);
   });
 
   it('pagina de la más reciente a la más antigua, sin repetir ni saltar', async () => {
