@@ -9,6 +9,10 @@ import {
   ApplicationFormDoc,
   ApplicationFormSchema,
 } from 'src/applications/infraestructure/application-form.schema';
+import {
+  LegacyApplicationDoc,
+  LegacyApplicationSchema,
+} from 'src/applications/infraestructure/legacy-application.schema';
 
 export type RequestChatDocument = HydratedDocument<RequestChat>;
 
@@ -24,15 +28,13 @@ export class RequestChat {
   @Prop({ type: mongoose.Schema.Types.UUID, ref: User.name, unique: true })
   requester: User;
 
-  /** Falta en las solicitudes anteriores al formulario (las migra T12). */
+  /** Falta en las solicitudes anteriores al formulario actual: esas llevan `legacy`. */
   @Prop({ type: ApplicationFormSchema })
   form?: ApplicationFormDoc;
 
-  @Prop()
-  whereYouFoundUs?: string;
-
-  @Prop()
-  interests?: string;
+  /** Solicitud anterior al formulario actual (`legacy: true`). La crea la migración de T12. */
+  @Prop({ type: LegacyApplicationSchema })
+  legacy?: LegacyApplicationDoc;
 
   @Prop({ type: [RequestChatVoteSchema] })
   votes: RequestChatVote[];

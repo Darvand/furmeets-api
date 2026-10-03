@@ -12,8 +12,11 @@ export class GetRequestChatDto {
   };
   state: string;
   userVote?: string;
-  /** Falta en las solicitudes anteriores al formulario (las migra T12). */
+  /** Falta en las solicitudes anteriores al formulario actual: esas traen `legacy`. */
   form?: GetApplicationFormDto;
-  whereYouFoundUs?: string;
-  interests?: string;
+  /**
+   * Solo en solicitudes anteriores al formulario actual: la App las muestra como
+   * "Solicitud anterior al formulario actual" (T24).
+   */
+  legacy?: { howDidYouFindUs?: string; interests?: string };
 }
