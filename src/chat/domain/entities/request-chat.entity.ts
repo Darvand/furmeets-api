@@ -124,6 +124,10 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     });
   }
 
+  /**
+   * Anuncio de la solicitud en el grupo. Solo lleva las líneas con valor. La etiqueta
+   * "Menor de edad" no va aquí: se muestra en señales y comentarios de la App.
+   */
   announceWelcomeMesssage(): string {
     const form = this.props.form?.props;
     const line = (label: string, value?: string | number) =>
@@ -133,7 +137,6 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     return (
       `🚨Nueva solicitud de ingreso🚨\n` +
       `Hay una nueva solicitud de parte de [${escapeMarkdown(this.props.requester.name)}](tg://user?id=${this.props.requester.telegramId}).\n` +
-      (this.props.form?.isMinor ? `⚠️ *Menor de edad*\n` : '') +
       `Pasate por el chat para conversar 💬, conocerlo mejor y considerar su ingreso al grupo.\n` +
       line('Edad:', form?.age) +
       line('Ciudad:', form?.city) +

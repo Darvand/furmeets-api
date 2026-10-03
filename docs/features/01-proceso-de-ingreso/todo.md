@@ -660,7 +660,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - `POST /applications`, solo para solicitantes (`@ApplicantsOnly`). Devuelve la solicitud completa (como `GET /request-chats/:id`), así la App navega al chat sin pedirla de nuevo.
   - `requesterUUID` se acepta y se ignora; cualquier otro campo desconocido da 400.
   - Límites: textos cortos de 100 caracteres y largos de 2.000; edad entera de 1 a 120 (el tope solo descarta errores de tipeo).
-- **Apertura.** `ChatService.openRequestChat` es el flujo común del endpoint nuevo y del viejo: unicidad, bienvenida, `new-request-chat` y anuncio en el grupo en segundo plano. El anuncio usa el formulario, marca "Menor de edad", escapa el texto del usuario y enlaza a la solicitud con `startapp`.
+- **Apertura.** `ChatService.openRequestChat` es el flujo común del endpoint nuevo y del viejo: unicidad, bienvenida, `new-request-chat` y anuncio en el grupo en segundo plano. El anuncio usa el formulario y solo lleva las líneas con valor; escapa el texto del usuario y enlaza a la solicitud con `startapp`. La etiqueta "Menor de edad" no va en el anuncio: se muestra en señales y comentarios de la App.
 - **Lectura.** `GET /request-chats/:id` incluye `form` con `isMinor`.
 - **Una por usuario.**
   - Además de la lectura previa, `requestchats.requester` pasa a ser índice único: un doble toque en "Enviar" no crea dos solicitudes. El `E11000` se traduce a 409.

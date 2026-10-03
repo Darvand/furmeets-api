@@ -157,8 +157,11 @@ describe('ChatService', () => {
       await ctx.queue.drain();
       const announcement = ctx.telegram.sendMessageToGroup.mock
         .calls[0] as unknown as [string];
-      expect(announcement[0]).toContain('Menor de edad');
-      expect(announcement[0]).toContain('Bogotá');
+      expect(announcement[0]).toContain('*Edad:* 16');
+      expect(announcement[0]).toContain('*Ciudad:* Bogotá');
+      // Sin las líneas del formulario anterior ni la etiqueta de menor.
+      expect(announcement[0]).not.toContain('¿Dónde nos encontró?');
+      expect(announcement[0]).not.toContain('Menor de edad');
     });
 
     it('una por usuario: si ya tiene una (en cualquier estado) → 409', async () => {

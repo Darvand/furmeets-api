@@ -1,5 +1,6 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatEntity } from './request-chat.entity';
+import { ApplicationForm } from 'src/applications/domain/application-form';
 
 const user = (telegramId: number) =>
   UserEntity.create({ name: `User ${telegramId}`, telegramId, isMember: true });
@@ -53,6 +54,36 @@ describe('RequestChatEntity', () => {
           rejected: 3,
         })?.isRejected(),
       ).toBe(true);
+    });
+  });
+
+  describe('announceWelcomeMesssage', () => {
+    it('del formulario anterior: solo sus líneas, sin las del formulario nuevo', () => {
+      const text = requestChat.announceWelcomeMesssage();
+
+      expect(text).toContain('*¿Dónde nos encontró?* Instagram');
+      expect(text).toContain('*¿Cuáles son sus intereses?* furros');
+      expect(text).not.toContain('Edad:');
+      expect(text).not.toContain('Ciudad:');
+    });
+
+    it('del formulario nuevo: solo las líneas con valor, sin etiqueta de menor', () => {
+      const text = RequestChatEntity.apply(
+        requester,
+        ApplicationForm.submit({
+          age: 16,
+          city: 'Cali',
+          species: 'Zorro_rojo',
+          fursonaName: '  ',
+        }),
+      ).announceWelcomeMesssage();
+
+      expect(text).toContain('*Edad:* 16');
+      expect(text).toContain('*Especie:* Zorro\\_rojo');
+      expect(text).not.toContain('Fursona:');
+      expect(text).not.toContain('¿Dónde nos encontró?');
+      expect(text).not.toContain('Menor de edad');
+      expect(text).not.toMatch(/\n\n/);
     });
   });
 
