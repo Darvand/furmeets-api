@@ -20,7 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "perf:baseline": "ts-node --transpile-only scripts/perf/latency-baseline.ts",
     "perf:list": "ts-node -r tsconfig-paths/register --transpile-only scripts/perf/request-list.ts",
-    "seed:staging": "ts-node --transpile-only scripts/seed/staging-seed.ts"
+    "seed:staging": "ts-node --transpile-only scripts/seed/staging-seed.ts",
+    "migrate:001": "ts-node --transpile-only scripts/migrations/001-request-chat-split.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -78,7 +79,8 @@
     "rootDir": ".",
     "roots": [
       "<rootDir>/src",
-      "<rootDir>/test"
+      "<rootDir>/test",
+      "<rootDir>/scripts"
     ],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
