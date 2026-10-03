@@ -44,10 +44,10 @@
 **Acceptance criteria:**
 - [x] Cada petición y evento deja una línea de log con ruta/evento y duración en ms (sin datos personales)
 - [x] El script reporta p50 y p95 de arranque, abrir chat, enviar y votar
-- [ ] La línea base queda anotada abajo, con fecha
+- [x] La línea base queda anotada abajo, con fecha
 
 **Verification:**
-- [ ] Correr el script dos veces en staging y obtener números consistentes
+- [x] Correr el script dos veces en staging y obtener números consistentes
 
 **Dependencies:** None
 
@@ -59,11 +59,20 @@
 
 **Estimated scope:** S
 
-**Línea base (por completar):** arranque — · abrir chat — · enviar — · votar —
+**Línea base (2026-10-03, staging con el código de `main`, servidor despierto, 2 corridas de n=3, p50 / p95):**
+
+| Escenario | Corrida 1 | Corrida 2 |
+|---|---|---|
+| arranque (6 HTTP + 1 socket) | 54683 / 57999 ms | 53900 / 55383 ms |
+| abrir chat | 433 / 452 ms | 478 / 582 ms |
+| enviar | 948 / 1029 ms | 904 / 918 ms |
+| votar | 620 / 673 ms | 612 / 627 ms |
+
+Casi todo el arranque son las dos `GET /request-chats` (24–28 s cada una, con 41 chats); `POST /groups/sync` ~2.3 s; el resto < 0.6 s. En corridas anteriores con el límite de 30 s, el socket del arranque falló (`xhr post error`) mientras el servidor armaba la lista, y lo mismo pasó en producción; en estas dos corridas conectó las 6 veces. Producción no se midió completa: el arranque no termina con el límite de 30 s y no se quiso cargarla más.
 
 **Cómo medirla:** con el servidor de staging desplegado, correr dos veces
 `PERF_BASE_URL=<url-staging> PERF_TELEGRAM_ID=<id-de-prueba> PERF_CHAT_ID=<uuid-chat-de-prueba> PERF_WRITES=1 npm run perf:baseline`
-y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo mide arranque y abrir chat; enviar y votar escriben en la BD y notifican por Telegram, así que van contra un chat de prueba en curso al que le falten al menos 2 votos para el umbral. Las variables y precauciones están al inicio de `scripts/perf/latency-baseline.ts`. El desglose Mongo / Telegram de cada petición sale en las líneas `Timing` de los logs del servidor, p. ej. `HTTP GET /request-chats/:id 200 132ms (mongo 95ms/3 · telegram 0ms/0)`.
+y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo mide arranque y abrir chat; enviar y votar escriben en la BD y notifican por Telegram, así que van contra un chat de prueba en curso al que le falten al menos 2 votos para el umbral. Las variables y precauciones están al inicio de `scripts/perf/latency-baseline.ts`. Contra el código anterior a T40, `GET /request-chats` tarda ~28 s: usar `PERF_TIMEOUT_MS=60000 PERF_ITERATIONS=3`. Un socket que no conecta no detiene la corrida; se reporta como fallo junto al escenario. El desglose Mongo / Telegram de cada petición sale en las líneas `Timing` de los logs del servidor, p. ej. `HTTP GET /request-chats/:id 200 132ms (mongo 95ms/3 · telegram 0ms/0)`.
 
 ---
 
