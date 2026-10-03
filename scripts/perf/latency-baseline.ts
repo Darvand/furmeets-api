@@ -29,6 +29,12 @@
  *                     mensajes reales por Telegram. Sin esta variable solo se hacen lecturas.
  *   PERF_VOTE_TYPE    (opcional) `approve` (por defecto) o `reject`.
  *   PERF_ITERATIONS   (opcional) repeticiones por escenario; 10 por defecto.
+ *   PERF_TIMEOUT_MS   (opcional) límite por petición, conexión de socket y mensaje; 30000
+ *                     por defecto. Subirlo si alguna ruta tarda más (p. ej. la lista antes
+ *                     de T40).
+ *
+ * Un socket que no conecta en el arranque o al abrir chat no detiene la corrida: cuenta
+ * como fallo y se reporta junto al escenario (el tiempo del escenario se mide igual).
  *
  * Cuidado con PERF_WRITES=1: usar un chat de prueba en estado `InProgress`, en el que el
  * usuario aún no haya votado y al que le falten al menos 2 votos para el umbral. El voto
@@ -64,7 +70,7 @@ const CHAT_ID = env('PERF_CHAT_ID');
 const WRITES = env('PERF_WRITES') === '1';
 const VOTE_TYPE = env('PERF_VOTE_TYPE') ?? 'approve';
 const ITERATIONS = Math.max(1, Number(env('PERF_ITERATIONS') ?? 10));
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = Math.max(1_000, Number(env('PERF_TIMEOUT_MS') ?? 30_000));
 
 if (VOTE_TYPE !== 'approve' && VOTE_TYPE !== 'reject') {
   console.error('PERF_VOTE_TYPE debe ser "approve" o "reject".');
@@ -109,6 +115,29 @@ function connectSocket(): Promise<{ ms: number; socket: Socket }> {
   });
 }
 
+const BOOTSTRAP = 'arranque (6 HTTP + 1 socket)';
+const OPEN_CHAT = 'abrir chat';
+const SEND = 'enviar mensaje';
+
+/** Fallos de conexión del socket por escenario: no detienen la corrida, se reportan al final. */
+const socketFailures = new Map<string, string[]>();
+
+/** Como `connectSocket`, pero un fallo se anota en `socketFailures` y devuelve `null`. */
+async function tryConnectSocket(
+  scenario: string,
+): Promise<{ ms: number; socket: Socket } | null> {
+  try {
+    return await connectSocket();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    socketFailures.set(scenario, [
+      ...(socketFailures.get(scenario) ?? []),
+      message,
+    ]);
+    return null;
+  }
+}
+
 /** App.tsx: sync → lista → grupo → usuario, en serie; luego IndexPage: lista, usuario y socket en paralelo. */
 async function bootstrap(steps: Sample[]): Promise<number> {
   const startedAt = now();
@@ -121,27 +150,27 @@ async function bootstrap(steps: Sample[]): Promise<number> {
     const { ms } = await http(method, path);
     steps.push({ name, ms });
   }
-  const [list, user, { ms: socketMs, socket }] = await Promise.all([
+  const [list, user, connection] = await Promise.all([
     http('GET', '/request-chats'),
     http('GET', `/users/${TELEGRAM_ID}`),
-    connectSocket(),
+    tryConnectSocket(BOOTSTRAP),
   ]);
   const total = now() - startedAt;
-  socket.close();
+  connection?.socket.close();
   steps.push({ name: 'GET /request-chats (IndexPage)', ms: list.ms });
   steps.push({ name: 'GET /users/:telegramId (IndexPage)', ms: user.ms });
-  steps.push({ name: 'socket connect', ms: socketMs });
+  if (connection) steps.push({ name: 'socket connect', ms: connection.ms });
   return total;
 }
 
 async function openChat(chatId: string): Promise<number> {
   const startedAt = now();
-  const [, { socket }] = await Promise.all([
+  const [, connection] = await Promise.all([
     http('GET', `/request-chats/${chatId}`),
-    connectSocket(),
+    tryConnectSocket(OPEN_CHAT),
   ]);
   const total = now() - startedAt;
-  socket.close();
+  connection?.socket.close();
   return total;
 }
 
@@ -273,13 +302,19 @@ async function main(): Promise<void> {
       );
     }
 
-    const { socket } = await connectSocket();
-    try {
-      for (let i = 0; i < ITERATIONS; i++) {
-        sendTimes.push(await sendMessage(socket, CHAT_ID, me.uuid, i));
+    const connection = await tryConnectSocket(SEND);
+    if (connection) {
+      try {
+        for (let i = 0; i < ITERATIONS; i++) {
+          sendTimes.push(
+            await sendMessage(connection.socket, CHAT_ID, me.uuid, i),
+          );
+        }
+      } finally {
+        connection.socket.close();
       }
-    } finally {
-      socket.close();
+    } else {
+      console.warn('El socket no conectó: se omite enviar.');
     }
 
     // Número par de votos: votar dos veces el mismo tipo lo quita, así el chat queda igual.
@@ -304,9 +339,9 @@ async function main(): Promise<void> {
   }
 
   const summary = printTable('Resultados (servidor despierto)', [
-    ['arranque (6 HTTP + 1 socket)', bootstrapTimes],
-    ['abrir chat', openTimes],
-    ['enviar mensaje', sendTimes],
+    [BOOTSTRAP, bootstrapTimes],
+    [OPEN_CHAT, openTimes],
+    [SEND, sendTimes],
     ['votar', voteTimes],
   ]);
 
@@ -316,15 +351,37 @@ async function main(): Promise<void> {
   }
   printTable('Detalle del arranque, por petición', [...byStep.entries()]);
 
+  const attempts = new Map([
+    [BOOTSTRAP, bootstrapTimes.length],
+    [OPEN_CHAT, openTimes.length],
+    [SEND, 1],
+  ]);
+  if (socketFailures.size > 0) {
+    console.log('\nSockets que no conectaron');
+    for (const [scenario, errors] of socketFailures) {
+      const counts = new Map<string, number>();
+      for (const e of errors) counts.set(e, (counts.get(e) ?? 0) + 1);
+      const detail = [...counts].map(([e, n]) => `${n}× ${e}`).join('; ');
+      console.log(
+        `  ${scenario}`.padEnd(40) +
+          `${errors.length}/${attempts.get(scenario)} · ${detail}`,
+      );
+    }
+  }
+
   const cell = (name: string) => {
     const s = summary.get(name);
-    return s ? `${fmt(s.p50)} / ${fmt(s.p95)}` : '—';
+    const failed = socketFailures.get(name)?.length;
+    const failures = failed
+      ? ` (socket falló ${failed}/${attempts.get(name)})`
+      : '';
+    return (s ? `${fmt(s.p50)} / ${fmt(s.p95)}` : '—') + failures;
   };
   const date = new Date().toISOString().slice(0, 10);
   console.log('\nLínea para todo.md (p50 / p95):');
   console.log(
-    `**Línea base (${date}, n=${ITERATIONS}, p50 / p95):** arranque ${cell('arranque (6 HTTP + 1 socket)')} · ` +
-      `abrir chat ${cell('abrir chat')} · enviar ${cell('enviar mensaje')} · votar ${cell('votar')}`,
+    `**Línea base (${date}, n=${ITERATIONS}, p50 / p95):** arranque ${cell(BOOTSTRAP)} · ` +
+      `abrir chat ${cell(OPEN_CHAT)} · enviar ${cell(SEND)} · votar ${cell('votar')}`,
   );
 }
 
