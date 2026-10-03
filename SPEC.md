@@ -385,19 +385,19 @@ Las solicitudes actuales (colección `requestchats`, con mensajes y votos embebi
 | Dato actual | Destino en el nuevo modelo |
 |---|---|
 | `requester`, `state`, `createdAt` | Se conservan tal cual |
-| `whereYouFoundUs` | → "¿Cómo conociste FurMeets?" |
+| `whereYouFoundUs` | → "¿Cómo conociste FurMeets?", en `legacy.howDidYouFindUs` |
 | `interests` | → campo legado `legacy.interests`, que se muestra en el *Resumen* |
-| Campos nuevos del formulario (fursona, edad, etc.) | Vacíos; la solicitud se marca `legacy: true` |
+| Campos nuevos del formulario (fursona, edad, etc.) | Vacíos (sin `form`). La solicitud lleva el bloque `legacy`, que equivale a `legacy: true`. Toda solicitud sin `form` se marca así, también las creadas con el formulario anterior hasta T15 |
 | `messages[]` embebidos | → colección de mensajes, conservando solo `_id`, autor, contenido y `createdAt`. `createdAt` se toma de lo que haya en BD (puede estar alterado por el bug de la deuda #5; se acepta) |
 | `votes[]` | → votos. Los votos en contra quedan anónimos automáticamente por la regla de §3.3 |
 | `users.avatarUrl` (`file_path` caducable) | Se descarta; el avatar se resincroniza como `file_id` en la siguiente sincronización del usuario |
-| `users.species` (enum) | → texto libre |
+| `users.species` (enum) | → texto libre (el dato ya es texto; el código dejó de exigir el enum) |
 
 Reglas de la migración:
 - Es un script **idempotente** (se puede correr varias veces sin duplicar), versionado en el repo.
 - Se ensaya primero en staging, con una copia de la BD de producción.
 - En producción se corre con respaldo previo (export de Atlas). Requiere aprobación (§12, *preguntar primero*).
-- La colección original se conserva, renombrada, hasta verificar la migración. No se borra.
+- La colección original se conserva como copia (`requestchats_pre_001`) hasta verificar la migración. No se borra. Se copia en lugar de renombrar para que la colección viva conserve sus índices.
 
 ---
 

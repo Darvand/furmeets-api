@@ -479,14 +479,43 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Script versionado e idempotente según SPEC §9.1: mueve mensajes embebidos a la colección nueva conservando solo `_id`, autor, contenido y `createdAt`, `whereYouFoundUs` → "¿Cómo conociste FurMeets?", `interests` → `legacy.interests`, marca `legacy: true`, `species` a texto libre, descarta `avatarUrl`. Renombra la colección original sin borrarla.
 
 **Acceptance criteria:**
-- [ ] Correrlo dos veces no duplica nada
-- [ ] Mismo conteo de mensajes y votos antes y después
+- [x] Correrlo dos veces no duplica nada
+- [x] Mismo conteo de mensajes y votos antes y después: el script lo verifica al final y termina con código 1 si no cuadra
 - [ ] Ensayado en staging con una copia de producción
 - [ ] Ejecución en producción solo con respaldo y aprobación humana
 
 **Verification:**
-- [ ] Unitarias de las transformaciones y de la idempotencia
+- [x] Unitarias de las transformaciones y de la idempotencia (`scripts/migrations/001-request-chat-split.spec.ts`, contra un Mongo en memoria). Cubren solo lectura, migración completa, segunda corrida, corte a mitad de camino y mensaje sin autor.
+- [x] e2e del criterio de éxito 14 (`test/migration-001.e2e-spec.ts`). Una solicitud con el formato de `main` se abre sin mensajes antes de migrar; después aparece con sus mensajes en orden, sus votos, su bloque `legacy` y su último mensaje en el listado.
 - [ ] Reporte de conteos del ensayo en staging (criterio de éxito 14)
+
+**Notas de implementación:**
+- **Uso.** `DB_URI=... npm run migrate:001` solo informa. Para migrar: `DB_URI=... CONFIRM=<base> npm run migrate:001 -- --apply`. Correrla con la API detenida o sin tráfico: un voto durante la migración descuadra el conteo de votos (no se pierde).
+- **Pasos** (correrla de nuevo no duplica nada):
+  1. Copia `requestchats` en `requestchats_pre_001`, solo la primera vez.
+  2. Pasa los mensajes embebidos a `requestchatmessages` con su mismo `_id`. Inserta sin pisar y después quita `messages`. Se descartan `viewedBy` y `updatedAt`.
+  3. Marca `legacy` toda solicitud sin `form`.
+  4. Quita `users.avatarUrl`.
+  5. Verifica que los mensajes de la copia estén en la colección nueva y que los votos coincidan.
+- **Diferencias con SPEC §9.1** (la SPEC ya está actualizada):
+  - **Copia en lugar de renombrar:** renombrar se lleva los índices de la colección viva, entre ellos el único de `requester`.
+  - **`whereYouFoundUs` va a `legacy.howDidYouFindUs`,** que es la pregunta "¿Cómo conociste FurMeets?". No va a `form`, porque `form` exige edad y ciudad.
+  - **`legacy: true` es el bloque `legacy`:** su presencia marca la solicitud.
+- **Modelo.**
+  - La solicitud ya no tiene `whereYouFoundUs` ni `interests` sueltos: tiene `legacy` (`LegacyApplication`). `GET /request-chats/:id` devuelve `legacy` en lugar de esos dos campos; la App actual no los mostraba.
+  - `POST /request-chats` (formulario anterior, hasta T15) crea solicitudes `legacy`.
+  - `species` del usuario es texto libre: con el enum, una especie fuera de la lista hacía fallar la lectura del usuario.
+  - El seed escribe `legacy`.
+- **Staging hoy (solo lectura, 2026-10-03).**
+  - Sus 41 solicitudes son del seed anterior a T10: tienen 2683 mensajes embebidos y ninguno está en la colección nueva. Por eso casi todas se abren sin mensajes.
+  - La migración insertaría los 2683, marcaría las 41 como `legacy` y quitaría 5 `avatarUrl`. Votos: 179.
+- **Producción, en el release.**
+  1. Respaldo con el export de Atlas.
+  2. `migrate:001` en modo lectura.
+  3. Desplegar API y App.
+  4. `--apply` enseguida, con poco tráfico.
+  5. Revisar la verificación final.
+  6. Borrar `requestchats_pre_001` cuando todo se vea bien.
 
 **Dependencies:** T10, T11, T13
 
@@ -494,7 +523,9 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Files likely touched:**
 - `scripts/migrations/001-request-chat-split.ts` (+ `.spec.ts`)
-- `package.json` (script `migrate`)
+- `package.json` (script `migrate:001` y `scripts` en las raíces de Jest)
+- `src/applications/domain/legacy-application.ts`, `src/chat/domain/entities/request-chat.entity.ts`, `src/members/domain/entities/user.entity.ts`
+- `test/migration-001.e2e-spec.ts`
 
 **Estimated scope:** M
 
