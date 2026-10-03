@@ -431,7 +431,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Notas de implementación:**
 - **Votos.** `RequestChatEntity.addVote` decide qué cambia y no toca el estado: si el miembro repite su voto, se retira; si es nuevo o distinto, se fija. `ChatRepository.applyVote` lo guarda con una operación filtrada por `state: InProgress`. Para retirar usa `$pull`. Para fijar usa `$set` sobre `votes.$`, o `$push` con `votes.from: { $ne }`. Devuelve la solicitud con los votos de todos.
 - **Cierre.** `outcome()` evalúa los umbrales con esos votos. `ChatRepository.close` es condicional (`InProgress` → `Approved`/`Rejected`). Si varios votos cruzan el umbral a la vez, solo uno cierra la solicitud, así que el mensaje de cierre y los avisos salen una vez. Los votos que llegan después del cierre reciben 409.
-- **Leídos.** `GET /request-chats/:id` ya no escribe. El marcado de leídos es `POST /request-chats/:id/read`: responde 204, lo pueden usar el dueño o un miembro, y hace un solo `updateMany`. La App lo llama al abrir el chat (PR de la App de T11).
+- **Leídos.** `GET /request-chats/:id` ya no escribe. El marcado de leídos es `POST /request-chats/:id/read`: responde 204, lo pueden usar el dueño o un miembro, y hace un solo `updateMany`. La App lo llama al abrir el chat (PR de la App de T11). T40 quitó este endpoint junto con los leídos.
 - **Las pruebas detectan el problema.** Con el código anterior fallan 3 de las 4 e2e nuevas: votos perdidos, cierre repetido y un `GET` que escribe.
 
 **Dependencies:** T10
@@ -477,7 +477,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** REN-04, REN-07
 
-**Description:** Hoy `GET /request-chats` carga todas las solicitudes con todos sus mensajes y 4 `populate`, aunque la lista solo usa el último mensaje y los no leídos. Devolver el resumen con una agregación sobre la colección de mensajes (último mensaje, conteo de no leídos del usuario, conteo de votos a favor y en contra), paginado y sin cargar mensajes completos.
+**Description:** Hoy `GET /request-chats` carga todas las solicitudes con todos sus mensajes y 4 `populate`, aunque la lista solo usa un resumen. Devolver el resumen con una agregación (último mensaje, conteo de votos a favor y en contra), paginado y sin cargar mensajes completos.
 
 **Acceptance criteria:**
 - [x] La respuesta no contiene arreglos de mensajes ni de leídos
@@ -490,22 +490,18 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Notas de implementación:**
 - **Una agregación.** Ordena por `createdAt` y `_id` descendentes (índice nuevo `{ createdAt: -1, _id: -1 }`). Trae el solicitante y el último mensaje con su autor con `$lookup`, y cuenta votos con `$filter`. No hay `populate` ni documentos de Mongoose.
-- **Respuesta.** Cada solicitud trae `uuid`, `requester`, `lastMessage?`, `unreadMessagesCount`, `state`, `votes: { approved, rejected }`, `userVote?` (solo el de quien pide) y `createdAt`. La lista trae `nextCursor` si hay otra página.
+- **Respuesta.** Cada solicitud trae `uuid`, `requester`, `lastMessage?`, `state`, `votes: { approved, rejected }`, `userVote?` (solo el de quien pide) y `createdAt`. La lista trae `nextCursor` si hay otra página.
 - **Paginación.** `GET /request-chats?limit=&cursor=`. `limit` va de 1 a 100 y por defecto es 50, holgado mientras la App pide solo la primera página (pagina en T23). `cursor` es opaco (base64url de fecha + id), y uno ajeno da 400.
-- **Sin "Leído por" (decidido el 2026-10-02).** No interesa saber quién vio cada mensaje ni cuándo: se quitaron los leídos por mensaje de la colección y de la respuesta (la App no los mostraba). Además, contarlos mensaje por mensaje crecía con el total de mensajes. Ahora `requestchatreads` guarda, por usuario y solicitud, hasta dónde leyó (`lastReadAt`). `POST /request-chats/:id/read` la avanza con `$max` en una operación.
-- **No leídos.** Son los mensajes posteriores a `lastReadAt` que no escribió quien mira, contados por el índice `requestChatId + createdAt` hasta un tope de 100 ("100 o más"; la App muestra "99+" en T23). Las lecturas de quien mira se traen una vez por página, con un `$lookup` sin correlación.
+- **Sin leídos (decidido el 2026-10-02 y el 2026-10-03).** No interesa saber quién vio cada mensaje ni llevar un contador de no leídos. Se quitaron los leídos de cada mensaje, `unreadMessagesCount` del listado y `POST /request-chats/:id/read`.
 - **Medición** (`npm run perf:list`, 50 solicitudes, p50; antes son las consultas de T10):
 
   | Mensajes por solicitud | Total | Antes | Ahora |
   |---|---|---|---|
-  | 10 | 500 | 36 ms | 35 ms |
-  | 50 | 2.500 | 81 ms | 38 ms |
-  | 100 | 5.000 | 138 ms | 44 ms |
-  | 200 | 10.000 | 251 ms | 43 ms |
-  | 400 | 20.000 | 497 ms | 47 ms |
-
-  Hasta 100 mensajes por solicitud sube un poco porque se cuentan los no leídos uno a uno; desde el tope queda plano.
-- **Datos existentes.** Las solicitudes anteriores no traen lecturas y T12 no las migra: hasta que cada miembro abra un chat, sus mensajes cuentan como no leídos (con el tope de 100). El seed de staging ya siembra lecturas: hay que volver a sembrar con `--reset`.
+  | 10 | 500 | 32 ms | 17 ms |
+  | 50 | 2.500 | 74 ms | 17 ms |
+  | 200 | 10.000 | 240 ms | 17 ms |
+  | 400 | 20.000 | 467 ms | 17 ms |
+- **Seed.** Ya no siembra leídos: hay que volver a sembrar staging con `--reset` para limpiar los que dejó T10.
 - **Reemplaza a `perf:hydration`**, que medía las consultas de T10.
 
 **Dependencies:** T10
@@ -709,28 +705,27 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 18: Chat: no leídos en vivo e historial paginado
+## Task 18: Chat: historial paginado
 
 **Repo:** API · **RNF:** REN-04
 
-**Description:** Al marcar leído (`POST /request-chats/:id/read`, que desde T40 mueve la última lectura del usuario) y al llegar un mensaje, un evento a la sala `members` actualiza el contador de no leídos del listado. Historial de mensajes de un chat paginado. (El resumen del listado se hace en T40. "Leído por" se quitó el 2026-10-02, SPEC §15.)
+**Description:** Historial de mensajes de un chat paginado: abrir un chat trae los últimos mensajes y los anteriores se piden por páginas. (El resumen del listado se hace en T40. Los leídos y no leídos se quitaron el 2026-10-03, SPEC §15.)
 
 **Acceptance criteria:**
-- [ ] Al marcar leído, el contador de no leídos del listado baja sin recargarlo
-- [ ] Un mensaje nuevo sube el contador de los demás sin recargar
-- [ ] El historial se pide por páginas
+- [ ] Abrir un chat con muchos mensajes trae solo la última página
+- [ ] Las páginas anteriores no repiten ni saltan mensajes
 
 **Verification:**
-- [ ] e2e del evento de no leídos y de paginación del historial
+- [ ] e2e de paginación del historial
 
-**Dependencies:** T16, T40
+**Dependencies:** T16
 
 **Files likely touched:**
 - `src/chat/application/chat.service.ts`
 - `src/chat/infraestructure/repositories/chat-mongo.repository.ts`
 - `src/chat/presentation/chat.gateway.ts`
 
-**Estimated scope:** M
+**Estimated scope:** S
 
 ---
 
@@ -844,10 +839,10 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** PRI-02, REN-04, USA-01
 
-**Description:** Solicitudes en curso con no leídos y etiqueta "Falta tu voto", estadísticas (total, aceptadas, no aprobadas) e historial paginado. Actualización en vivo por la sala `members`.
+**Description:** Solicitudes en curso con su último mensaje y la etiqueta "Falta tu voto", estadísticas (total, aceptadas, no aprobadas) e historial paginado. Actualización en vivo por la sala `members`.
 
 **Acceptance criteria:**
-- [ ] Un mensaje nuevo incrementa el contador sin recargar
+- [ ] Un mensaje nuevo actualiza el último mensaje de la lista sin recargar
 - [ ] No se lista quién falta por votar
 
 **Verification:**

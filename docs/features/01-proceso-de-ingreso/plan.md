@@ -33,7 +33,7 @@ Revisión del código del 2026-09-30, de mayor a menor impacto:
 - **Rol resuelto en vivo contra Telegram** (`getChatMember`) con caché en memoria de TTL 10 min invalidada por eventos (updates `chat_member` y aprobación del ingreso), no desde `group.members` en BD.
 - **Validación de DTOs con `class-validator` + `class-transformer`** y `ValidationPipe` global (`whitelist`, `forbidNonWhitelisted`, `transform`). Joi solo valida la configuración.
 - **Autorización en el backend.** La App solo refleja el rol de `GET /me`.
-- **Mensajes en su propia colección** con inserciones atómicas; votos, avales y la última lectura de cada usuario con operaciones filtradas (`$set`/`$push`/`$pull`/`$max`). Nada reescribe el agregado completo.
+- **Mensajes en su propia colección** con inserciones atómicas; votos y avales con `$set`/`$push`/`$pull` filtrados. Nada reescribe el agregado completo.
 - **Imágenes en Telegram** (canal privado de almacenamiento) servidas por el proxy `GET /media/:id`. Costo $0.
 - **Admisión por `creates_join_request`**: el bot aprueba solo al usuario aprobado y rechaza a cualquier otro.
 - **Persistir → emitir → notificar.** Las llamadas a Telegram van fuera del camino crítico. Ninguna petición del usuario espera la sincronización de fotos, grupo o bot.
@@ -62,7 +62,7 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
         ├─ T41 enviar/votar sin Telegram ───┴─ T42 App: en vivo y optimista (+T06)
         │
         ├─ T13 formulario API ─ T14 imágenes form ─ T15 App: formulario
-        ├─ T16 chat texto/ack ─ T17 imágenes y reply ─ T18 no leídos/historial ─ T19 sistema/solo lectura
+        ├─ T16 chat texto/ack ─ T17 imágenes y reply ─ T18 historial paginado ─ T19 sistema/solo lectura
         │                                                   └─ T20 App: chats
         ├─ T21 votos ─ T22 avales/comentarios ─ T23 App: inicio ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
@@ -114,7 +114,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [ ] T15: App: pantalla Formulario (paso 1 de 3)
 - [ ] T16: Chat: texto con idempotencia y recuperación
 - [ ] T17: Chat: imágenes y respuestas
-- [ ] T18: Chat: no leídos en vivo e historial paginado
+- [ ] T18: Chat: historial paginado
 - [ ] T19: Chat: mensajes de sistema y solo lectura
 - [ ] T20: App: chat del solicitante y chat de miembros
 
@@ -191,7 +191,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-REN-01 | Entrega de un mensaje a los demás clientes conectados: p95 < 1 s (servidor despierto). | Script de medición en staging | T16, T35 |
 | RNF-REN-02 | Carga inicial de la App hasta contenido útil < 2 s (servidor despierto). | Medición con DevTools en staging | T05, T07, T39, T43, T35 |
 | RNF-REN-03 | Arranque en una sola petición (`GET /me`); sincronización con Telegram en paralelo, en segundo plano y cacheada (TTL 10 min). | Unitarias de la caché; conteo de peticiones | T05, T07, T39 |
-| RNF-REN-04 | El listado devuelve resumen (último mensaje, no leídos) sin cargar todos los mensajes; historial paginado. | e2e sobre la forma de la respuesta | T40, T18, T23 |
+| RNF-REN-04 | El listado devuelve resumen (último mensaje, conteos de votos) sin cargar todos los mensajes; historial paginado. | e2e sobre la forma de la respuesta | T40, T18, T23 |
 | RNF-REN-05 | API y MongoDB Atlas en la misma región. | Revisión de configuración | T34 |
 | RNF-REN-06 | El mensaje propio y el voto propio se ven **al instante** (UI optimista) y se confirman con el ack; si fallan, quedan marcados como "no enviado" con opción de reintento. | Manual en staging con red lenta simulada | T41, T42 |
 | RNF-REN-07 | Con el servidor despierto, enviar, votar y abrir un chat responden en **p95 < 500 ms** medido en la API. | Script de T37 antes y después | T38, T40, T41 |
@@ -205,7 +205,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-CON-02 | Idempotencia de envíos por `clientMessageId`; ack con el mensaje persistido. | e2e: reenvío no duplica | T16 |
 | RNF-CON-03 | Recuperación de mensajes posteriores al último recibido al reconectar. | e2e de reconexión | T16 |
 | RNF-CON-04 | Persistir → emitir → notificar. Un fallo de Telegram (DM, republicación) nunca revierte ni oculta un mensaje. | e2e con Telegram simulado que falla | T27, T29 |
-| RNF-CON-05 | Las lecturas no escriben (salvo marcar leído, que es explícito). | Unitarias del servicio | T11 |
+| RNF-CON-05 | Las lecturas no escriben. | Unitarias del servicio | T11 |
 | RNF-CON-06 | La migración es idempotente, se ensaya en staging, se corre con respaldo y conserva conteos. | Unitarias + conteos antes/después | T12 |
 | RNF-CON-07 | El voto que alcanza el umbral cierra la solicitud en el acto, sin carreras que permitan superar el umbral o cerrar dos veces. | Unitarias de dominio + e2e concurrente | T21 |
 

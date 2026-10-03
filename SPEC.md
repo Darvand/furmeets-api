@@ -62,7 +62,7 @@ Por su tamaño, el proyecto se divide en módulos. Cada uno puede tener después
 | `membership` | Resolver el rol (miembro/solicitante) en vivo contra Telegram, con caché corta | `auth` |
 | `media` | Guardar imágenes en Telegram (canal de almacenamiento) y servirlas por proxy autorizado | `auth`, `membership` |
 | `applications` | Formulario, ciclo de vida de la solicitud y reglas de edición y unicidad | `membership`, `media` |
-| `request-chat` | Mensajería en tiempo real, respuestas, imágenes y no leídos | `applications`, `media` |
+| `request-chat` | Mensajería en tiempo real, respuestas e imágenes | `applications`, `media` |
 | `review` | Votos (a favor nominales, en contra anónimos), umbrales, avales y comentarios privados | `applications` |
 | `admission` | Enlace con solicitud de unión, aprobación o rechazo automático de uniones | `review` |
 | `telegram-bridge` | Anuncios, republicación en el grupo, respuestas desde el grupo y DMs | `request-chat`, `review`, `admission` |
@@ -106,11 +106,10 @@ Alcance de la v1:
 - Mensajes de texto.
 - **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram).
 - **Responder a un mensaje** (cita al estilo Telegram).
-- **Contador de no leídos** por solicitud en el inicio de los miembros: los mensajes que llegaron después de la última vez que el miembro abrió el chat, sin contar los suyos. Pasado cierto número se muestra "99+".
 - Mensajes de sistema o del bot: bienvenida, "X entró al chat de revisión" y resultado.
 - Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**.
 
-Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, reacciones, quién leyó cada mensaje ("Leído por"). El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar.
+Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, reacciones, leídos y no leídos (ni "Leído por" ni contador). El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar.
 
 Requisitos técnicos:
 - Cada solicitud tiene su propia sala de socket (`request-chat:<id>`). **Nunca** se hace un broadcast global. Los miembros además se unen a una sala `members` para recibir las actualizaciones del listado.
@@ -207,9 +206,9 @@ Metas con el servidor ya despierto:
 
 Cómo se logra:
 - **Mensajes en su propia colección**, con inserciones atómicas en lugar de reescribir el documento entero de la solicitud.
-- Votos, avales y la última lectura de cada usuario se actualizan con operaciones atómicas (`$set`/`$push`/`$pull` con filtro), nunca con un `updateOne` del agregado completo.
+- Votos y avales se actualizan con operaciones atómicas (`$set`/`$push`/`$pull` con filtro), nunca con un `updateOne` del agregado completo.
 - **Arranque de la app en una sola petición** (`GET /me`). La sincronización con Telegram (miembro, avatar, grupo) se cachea en memoria con TTL de 10 min, y la entrada de un usuario se invalida al instante por eventos (updates `chat_member` del grupo y aprobación de su ingreso), y se ejecuta en paralelo, no en serie.
-- El listado de solicitudes devuelve un resumen (último mensaje y no leídos) sin cargar todos los mensajes; se pagina el historial.
+- El listado de solicitudes devuelve un resumen (último mensaje y conteos de votos) sin cargar todos los mensajes; se pagina el historial.
 - La API y MongoDB Atlas en la **misma región**.
 
 ### 4.3 Almacenamiento de imágenes (costo $0)
@@ -377,7 +376,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 4. Corregir la pérdida de datos: mensajes en su propia colección, operaciones atómicas y `createdAt` persistido, **junto con la migración de los datos existentes** (§9.1).
 5. Bajar la latencia de las interacciones con el servidor despierto: medir una línea base, sacar a Telegram del camino crítico, índices, listado liviano, actualización en vivo sin recargas y UI optimista. El arranque en frío se resuelve en la Fase 2.
 
-**Fase 1: v1 funcional:** formulario nuevo, chat con imágenes, respuestas y no leídos, revisión (votos a favor nominales y en contra anónimos, avales, comentarios), admisión por solicitud de unión, puente con el grupo.
+**Fase 1: v1 funcional:** formulario nuevo, chat con imágenes y respuestas, revisión (votos a favor nominales y en contra anónimos, avales, comentarios), admisión por solicitud de unión, puente con el grupo.
 
 **Fase 2: rendimiento e infraestructura:** webhook, keep-alive condicional, `GET /me`, caché de membresía, ambientes formalizados.
 
@@ -546,6 +545,6 @@ Encontrada en la revisión del 2026-09-29.
 - Las solicitudes existentes se migran al nuevo modelo (§9.1).
 - Keep-alive solo mientras haya solicitudes en curso (§10).
 
-### Resueltas (2026-10-02)
+### Resueltas (2026-10-02 y 2026-10-03)
 
-- Se quita "Leído por" (quién leyó cada mensaje): aporta poco y complica el modelo. Solo queda el contador de no leídos, que sale de la última lectura de cada usuario en cada solicitud (§3.2).
+- Se quitan los leídos: ni "Leído por" (quién vio cada mensaje y cuándo) ni contador de no leídos. Aportan poco y complican el modelo (§3.2).
