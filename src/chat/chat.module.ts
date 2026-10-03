@@ -1,39 +1,57 @@
-import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
-import { ChatGateway } from "./presentation/chat.gateway";
-import { CHAT_PROVIDERS } from "./chat.providers";
-import { ChatMongoRepository } from "./infraestructure/repositories/chat-mongo.repository";
-import { MembersModule } from "src/members/members.module";
-import { MongooseModule } from "@nestjs/mongoose";
-import { RequestChat, RequestChatSchema } from "./infraestructure/schemas/request-chat.schema";
-import { DatabaseModule } from "src/database/database.module";
-import { ChatService } from "./application/chat.service";
-import { RequestChatController } from "./presentation/request-chat.controller";
-import { TelegramBotModule } from "src/telegram-bot/telegram-bot.module";
-import { UserMiddleware } from "src/shared/middlewares/user.middleware";
+import { Logger, Module } from '@nestjs/common';
+import { ChatGateway } from './presentation/chat.gateway';
+import { CHAT_PROVIDERS } from './chat.providers';
+import { ChatMongoRepository } from './infraestructure/repositories/chat-mongo.repository';
+import { MembersModule } from 'src/members/members.module';
+import { MongooseModule } from '@nestjs/mongoose';
+import {
+  RequestChat,
+  RequestChatSchema,
+} from './infraestructure/schemas/request-chat.schema';
+import { DatabaseModule } from 'src/database/database.module';
+import { ChatService } from './application/chat.service';
+import { RequestChatController } from './presentation/request-chat.controller';
+import { TelegramBotModule } from 'src/telegram-bot/telegram-bot.module';
+import { AuthModule } from 'src/auth/auth.module';
+import { MembershipModule } from 'src/membership/membership.module';
+import { RequestChatAccessService } from './application/request-chat-access.service';
+import { RequestChatMessageMongoRepository } from './infraestructure/repositories/request-chat-message-mongo.repository';
+import {
+  RequestChatMessage,
+  RequestChatMessageSchema,
+} from './infraestructure/schemas/request-chat-message.schema';
+import { BackgroundQueue } from 'src/shared/async/background-queue';
 
 @Module({
-    providers: [
-        ChatService,
-        ChatGateway,
-        {
-            provide: CHAT_PROVIDERS.RequestChatRepository,
-            useClass: ChatMongoRepository,
-        }
-    ],
-    controllers: [RequestChatController],
-    imports: [
-        DatabaseModule,
-        MembersModule,
-        TelegramBotModule,
-        MongooseModule.forFeature([
-            { name: RequestChat.name, schema: RequestChatSchema },
-        ])
-    ]
+  providers: [
+    ChatService,
+    ChatGateway,
+    RequestChatAccessService,
+    {
+      provide: BackgroundQueue,
+      useFactory: () => new BackgroundQueue(new Logger(BackgroundQueue.name)),
+    },
+    {
+      provide: CHAT_PROVIDERS.RequestChatRepository,
+      useClass: ChatMongoRepository,
+    },
+    {
+      provide: CHAT_PROVIDERS.RequestChatMessageRepository,
+      useClass: RequestChatMessageMongoRepository,
+    },
+  ],
+  controllers: [RequestChatController],
+  exports: [ChatService],
+  imports: [
+    DatabaseModule,
+    MembersModule,
+    AuthModule,
+    MembershipModule,
+    TelegramBotModule,
+    MongooseModule.forFeature([
+      { name: RequestChat.name, schema: RequestChatSchema },
+      { name: RequestChatMessage.name, schema: RequestChatMessageSchema },
+    ]),
+  ],
 })
-export class ChatModule implements NestModule {
-    configure(consumer: MiddlewareConsumer) {
-        consumer
-            .apply(UserMiddleware)
-            .forRoutes(RequestChatController)
-    }
-}
+export class ChatModule {}

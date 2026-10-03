@@ -33,7 +33,7 @@ Revisión del código del 2026-09-30, de mayor a menor impacto:
 - **Rol resuelto en vivo contra Telegram** (`getChatMember`) con caché en memoria de TTL 10 min invalidada por eventos (updates `chat_member` y aprobación del ingreso), no desde `group.members` en BD.
 - **Validación de DTOs con `class-validator` + `class-transformer`** y `ValidationPipe` global (`whitelist`, `forbidNonWhitelisted`, `transform`). Joi solo valida la configuración.
 - **Autorización en el backend.** La App solo refleja el rol de `GET /me`.
-- **Mensajes en su propia colección** con inserciones atómicas; votos, avales y leídos con `$set`/`$push`/`$pull` filtrados. Nada reescribe el agregado completo.
+- **Mensajes en su propia colección** con inserciones atómicas; votos y avales con `$set`/`$push`/`$pull` filtrados. Nada reescribe el agregado completo.
 - **Imágenes en Telegram** (canal privado de almacenamiento) servidas por el proxy `GET /media/:id`. Costo $0.
 - **Admisión por `creates_join_request`**: el bot aprueba solo al usuario aprobado y rechaza a cualquier otro.
 - **Persistir → emitir → notificar.** Las llamadas a Telegram van fuera del camino crítico. Ninguna petición del usuario espera la sincronización de fotos, grupo o bot.
@@ -41,6 +41,7 @@ Revisión del código del 2026-09-30, de mayor a menor impacto:
 - **Medir antes de optimizar:** línea base de latencia (T37) y comparación al cerrar la Fase 0.
 - **Salas de socket por solicitud** (`request-chat:<id>`) más la sala `members`. Sin broadcast global.
 - **Módulos nuevos** según el mapa de capacidades (SPEC §2): `auth`, `membership`, `media`, `applications`, `request-chat`, `review`, `admission`, `telegram-bridge`, `platform`. Los módulos actuales (`chat`, `members`, `telegram-bot`) se van partiendo en ellos a medida que se tocan, no en un refactor aparte.
+- **DDD pragmático** ([ADR-001](../../decisions/ADR-001-ddd-pragmatico.md)): reglas de negocio en entidades sin E/S, escrituras atómicas y solo si algo cambió, lecturas de pantalla con `lean()` y proyección sin pasar por el dominio, agregados pequeños.
 - **Webhook + keep-alive condicional** en Render free.
 
 ## Grafo de dependencias
@@ -56,12 +57,12 @@ T02 Pruebas + validación                                        │
                     │                 └─ T07 App: auth + rol ───┤
                     └─ T08 media (proxy + almacenamiento)       │
                           └─ T09 App: sin token ◄───────────────┘
-T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración
+T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (después de T13)
         ├─ T40 listado liviano ─────────────┐
         ├─ T41 enviar/votar sin Telegram ───┴─ T42 App: en vivo y optimista (+T06)
         │
         ├─ T13 formulario API ─ T14 imágenes form ─ T15 App: formulario
-        ├─ T16 chat texto/ack ─ T17 imágenes y reply ─ T18 leídos/no leídos ─ T19 sistema/solo lectura
+        ├─ T16 chat texto/ack ─ T17 imágenes y reply ─ T18 historial paginado ─ T19 sistema/solo lectura
         │                                                   └─ T20 App: chats
         ├─ T21 votos ─ T22 avales/comentarios ─ T23 App: inicio ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
@@ -113,7 +114,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [ ] T15: App: pantalla Formulario (paso 1 de 3)
 - [ ] T16: Chat: texto con idempotencia y recuperación
 - [ ] T17: Chat: imágenes y respuestas
-- [ ] T18: Chat: leídos y no leídos
+- [ ] T18: Chat: historial paginado
 - [ ] T19: Chat: mensajes de sistema y solo lectura
 - [ ] T20: App: chat del solicitante y chat de miembros
 
@@ -179,7 +180,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 |---|---|---|---|
 | RNF-PRI-01 | Nadie ve quién votó en contra ni quién escribió un comentario privado: ni API, ni socket, ni bot, ni logs. Solo conteos. | Unitarias sobre mappers/DTOs y eventos; revisión de logs | T21, T22, T29 |
 | RNF-PRI-02 | No se listan por nombre los miembros que faltan por votar. Solo la etiqueta personal "Falta tu voto". | e2e sobre la respuesta del listado | T21, T23 |
-| RNF-PRI-03 | Formulario, votos, avales y comentarios solo visibles para miembros; el solicitante ve su formulario, su chat y los leídos. | e2e por rol | T06, T22 |
+| RNF-PRI-03 | Formulario, votos, avales y comentarios solo visibles para miembros; el solicitante ve su formulario y su chat. | e2e por rol | T06, T22 |
 | RNF-PRI-04 | El formulario advierte que los mensajes se comparten en el grupo y que el envío es definitivo. | Revisión manual de la pantalla | T15 |
 | RNF-PRI-05 | Retención indefinida: no se borran solicitudes, mensajes ni imágenes. La migración conserva la colección original. | Revisión del script de migración | T12 |
 
@@ -190,7 +191,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-REN-01 | Entrega de un mensaje a los demás clientes conectados: p95 < 1 s (servidor despierto). | Script de medición en staging | T16, T35 |
 | RNF-REN-02 | Carga inicial de la App hasta contenido útil < 2 s (servidor despierto). | Medición con DevTools en staging | T05, T07, T39, T43, T35 |
 | RNF-REN-03 | Arranque en una sola petición (`GET /me`); sincronización con Telegram en paralelo, en segundo plano y cacheada (TTL 10 min). | Unitarias de la caché; conteo de peticiones | T05, T07, T39 |
-| RNF-REN-04 | El listado devuelve resumen (último mensaje, no leídos) sin cargar todos los mensajes; historial paginado. | e2e sobre la forma de la respuesta | T40, T18, T23 |
+| RNF-REN-04 | El listado devuelve resumen (último mensaje, conteos de votos) sin cargar todos los mensajes; historial paginado. | e2e sobre la forma de la respuesta | T40, T18, T23 |
 | RNF-REN-05 | API y MongoDB Atlas en la misma región. | Revisión de configuración | T34 |
 | RNF-REN-06 | El mensaje propio y el voto propio se ven **al instante** (UI optimista) y se confirman con el ack; si fallan, quedan marcados como "no enviado" con opción de reintento. | Manual en staging con red lenta simulada | T41, T42 |
 | RNF-REN-07 | Con el servidor despierto, enviar, votar y abrir un chat responden en **p95 < 500 ms** medido en la API. | Script de T37 antes y después | T38, T40, T41 |
@@ -204,7 +205,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-CON-02 | Idempotencia de envíos por `clientMessageId`; ack con el mensaje persistido. | e2e: reenvío no duplica | T16 |
 | RNF-CON-03 | Recuperación de mensajes posteriores al último recibido al reconectar. | e2e de reconexión | T16 |
 | RNF-CON-04 | Persistir → emitir → notificar. Un fallo de Telegram (DM, republicación) nunca revierte ni oculta un mensaje. | e2e con Telegram simulado que falla | T27, T29 |
-| RNF-CON-05 | Las lecturas no escriben (salvo el marcado explícito de leídos). | Unitarias del servicio | T11 |
+| RNF-CON-05 | Las lecturas no escriben. | Unitarias del servicio | T11 |
 | RNF-CON-06 | La migración es idempotente, se ensaya en staging, se corre con respaldo y conserva conteos. | Unitarias + conteos antes/después | T12 |
 | RNF-CON-07 | El voto que alcanza el umbral cierra la solicitud en el acto, sin carreras que permitan superar el umbral o cerrar dos veces. | Unitarias de dominio + e2e concurrente | T21 |
 
@@ -258,17 +259,18 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 ## Paralelización
 
-- **Secuencial:** T03 → T06 (contrato de autenticación), T10 → T12 (esquema y migración).
+- **Secuencial:** T03 → T06 (contrato de autenticación), T10 → T11 → T13 → T12 (esquema, formulario y migración). T12 espera a T13 para migrar el formulario directo a su modelo; no se despliega a producción entre T10 y T12.
 - **En paralelo tras T06:** T08 (media) y T10 (mensajes).
 - **En paralelo tras definir el contrato de la API:** las tareas de App (T15, T20, T23, T24, T26) contra las de API correspondientes.
 - **Independientes:** T32–T34 (`platform`) pueden avanzar en cualquier momento. T37, T38 y T43 (latencia) también, y conviene hacerlas primero porque dan mejoras inmediatas.
 
 ## Preguntas abiertas
 
-1. URL real de las reglas de convivencia (SPEC §15.1). Mientras tanto, `VITE_RULES_URL`.
+No hay preguntas abiertas.
 
 ### Resueltas
 
 - 2026-09-29: se aprueba `mongodb-memory-server` como dependencia de desarrollo para las pruebas e2e (T02).
 - 2026-09-29: los DTOs se validan con `class-validator` + `class-transformer` y un `ValidationPipe` global (T02). Joi queda solo para la configuración (T32).
+- 2026-10-03: el formulario no pide aceptar las reglas de convivencia ni enlaza a ellas; se descarta `VITE_RULES_URL`.
 - 2026-09-29: la caché de membresía tiene TTL de 10 min y se invalida por eventos: updates `chat_member` del grupo (T05) y aprobación del ingreso (T25).

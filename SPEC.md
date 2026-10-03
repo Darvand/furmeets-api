@@ -62,7 +62,7 @@ Por su tamaño, el proyecto se divide en módulos. Cada uno puede tener después
 | `membership` | Resolver el rol (miembro/solicitante) en vivo contra Telegram, con caché corta | `auth` |
 | `media` | Guardar imágenes en Telegram (canal de almacenamiento) y servirlas por proxy autorizado | `auth`, `membership` |
 | `applications` | Formulario, ciclo de vida de la solicitud y reglas de edición y unicidad | `membership`, `media` |
-| `request-chat` | Mensajería en tiempo real, respuestas, imágenes, leídos y no leídos | `applications`, `media` |
+| `request-chat` | Mensajería en tiempo real, respuestas e imágenes | `applications`, `media` |
 | `review` | Votos (a favor nominales, en contra anónimos), umbrales, avales y comentarios privados | `applications` |
 | `admission` | Enlace con solicitud de unión, aprobación o rechazo automático de uniones | `review` |
 | `telegram-bridge` | Anuncios, republicación en el grupo, respuestas desde el grupo y DMs | `request-chat`, `review`, `admission` |
@@ -76,7 +76,7 @@ Por su tamaño, el proyecto se divide en módulos. Cada uno puede tener después
 
 ### 3.1 Formulario de solicitud (`applications`)
 
-Los campos salen del diseño (artboard *Formulario*). **Solo la edad y la ciudad son obligatorias**, además de aceptar las reglas. Todo lo relativo a la fursona es opcional, porque hay personas que entran sin tenerla definida todavía.
+Los campos salen del diseño (artboard *Formulario*). **Solo la edad y la ciudad son obligatorias.** Todo lo relativo a la fursona es opcional, porque hay personas que entran sin tenerla definida todavía.
 
 | Sección | Campo | Tipo | Obligatorio |
 |---|---|---|---|
@@ -90,7 +90,6 @@ Los campos salen del diseño (artboard *Formulario*). **Solo la edad y la ciudad
 | Preguntas | ¿Cómo conociste FurMeets? | texto largo | No |
 | | ¿Conoces a alguien del grupo? | texto (@usuario) | No |
 | | ¿Has ido a algún meet antes? | texto largo | No |
-| — | Acepto las reglas de convivencia | checkbox | **Sí** (bloquea el envío; el enlace a las reglas está pendiente, ver §15) |
 
 Reglas:
 - **Menores de edad pueden aplicar.** Si la edad es menor que 18, la solicitud lleva la etiqueta visible **"Menor de edad"**. No hay otras reglas especiales.
@@ -106,12 +105,10 @@ Alcance de la v1:
 - Mensajes de texto.
 - **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram).
 - **Responder a un mensaje** (cita al estilo Telegram).
-- **Leídos:** por cada mensaje, quién lo leyó y cuándo ("Leído por 5", con la lista). Lo ven tanto el solicitante como los miembros.
-- **Contador de no leídos** por solicitud en el inicio de los miembros.
 - Mensajes de sistema o del bot: bienvenida, "X entró al chat de revisión" y resultado.
 - Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**.
 
-Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, reacciones. El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar.
+Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, reacciones, leídos y no leídos (ni "Leído por" ni contador). El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar.
 
 Requisitos técnicos:
 - Cada solicitud tiene su propia sala de socket (`request-chat:<id>`). **Nunca** se hace un broadcast global. Los miembros además se unen a una sala `members` para recibir las actualizaciones del listado.
@@ -176,7 +173,7 @@ Las pantallas siguen el diseño de referencia:
 
 Las **solicitudes migradas** (sin formulario nuevo) muestran en el *Resumen* la leyenda "Solicitud anterior al formulario actual" y sus campos legados (§9.1).
 
-La autorización se decide **en el backend**. El frontend solo refleja el rol que devuelve la API (`GET /me` → `{ user, role, requestChatId? }`).
+La autorización se decide **en el backend**. El frontend solo refleja el rol que devuelve la API (`GET /me` → `{ user, role, requestChatId?, requestChatState? }`).
 
 ---
 
@@ -208,9 +205,9 @@ Metas con el servidor ya despierto:
 
 Cómo se logra:
 - **Mensajes en su propia colección**, con inserciones atómicas en lugar de reescribir el documento entero de la solicitud.
-- Votos, avales y leídos se actualizan con operaciones atómicas (`$set`/`$push`/`$pull` con filtro), nunca con un `updateOne` del agregado completo.
+- Votos y avales se actualizan con operaciones atómicas (`$set`/`$push`/`$pull` con filtro), nunca con un `updateOne` del agregado completo.
 - **Arranque de la app en una sola petición** (`GET /me`). La sincronización con Telegram (miembro, avatar, grupo) se cachea en memoria con TTL de 10 min, y la entrada de un usuario se invalida al instante por eventos (updates `chat_member` del grupo y aprobación de su ingreso), y se ejecuta en paralelo, no en serie.
-- El listado de solicitudes devuelve un resumen (último mensaje y no leídos) sin cargar todos los mensajes; se pagina el historial.
+- El listado de solicitudes devuelve un resumen (último mensaje y conteos de votos) sin cargar todos los mensajes; se pagina el historial.
 - La API y MongoDB Atlas en la **misma región**.
 
 ### 4.3 Almacenamiento de imágenes (costo $0)
@@ -234,7 +231,7 @@ Alternativas documentadas (precios de referencia, verificar antes de usar):
 ### 4.4 Privacidad
 
 - Los datos del formulario, los votos, los avales y los comentarios solo son visibles para los miembros.
-- El solicitante ve su formulario, su chat y los leídos. Al ingresar se vuelve miembro y ve lo mismo que cualquier miembro, incluida su propia revisión.
+- El solicitante ve su formulario y su chat. Al ingresar se vuelve miembro y ve lo mismo que cualquier miembro, incluida su propia revisión.
 - **Los votos en contra son anónimos para todos**, siempre (§3.3).
 - Los mensajes del solicitante se republican en el grupo, y el formulario lo advierte (§3.1).
 - **Retención: indefinida.** No se borran solicitudes, mensajes ni imágenes. Las imágenes son de fursonas (personajes), no fotos de las personas.
@@ -276,7 +273,6 @@ Alternativas documentadas (precios de referencia, verificar antes de usar):
 | Variable | Uso |
 |---|---|
 | `VITE_API_URL` | URL de la API |
-| `VITE_RULES_URL` | **Nueva.** Enlace a las reglas de convivencia (pendiente de definir) |
 | ~~`VITE_TELEGRAM_BOT_TOKEN`~~ | **Se elimina** |
 
 ---
@@ -378,31 +374,30 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 4. Corregir la pérdida de datos: mensajes en su propia colección, operaciones atómicas y `createdAt` persistido, **junto con la migración de los datos existentes** (§9.1).
 5. Bajar la latencia de las interacciones con el servidor despierto: medir una línea base, sacar a Telegram del camino crítico, índices, listado liviano, actualización en vivo sin recargas y UI optimista. El arranque en frío se resuelve en la Fase 2.
 
-**Fase 1: v1 funcional:** formulario nuevo, chat con imágenes, respuestas y leídos, revisión (votos a favor nominales y en contra anónimos, avales, comentarios), admisión por solicitud de unión, puente con el grupo.
+**Fase 1: v1 funcional:** formulario nuevo, chat con imágenes y respuestas, revisión (votos a favor nominales y en contra anónimos, avales, comentarios), admisión por solicitud de unión, puente con el grupo.
 
 **Fase 2: rendimiento e infraestructura:** webhook, keep-alive condicional, `GET /me`, caché de membresía, ambientes formalizados.
 
 ### 9.1 Migración de datos existentes
 
-Las solicitudes actuales (colección `requestchats`, con mensajes, votos y leídos embebidos) **se migran al nuevo modelo**, acoplándolas lo mejor posible:
+Las solicitudes actuales (colección `requestchats`, con mensajes y votos embebidos) **se migran al nuevo modelo**, acoplándolas lo mejor posible:
 
 | Dato actual | Destino en el nuevo modelo |
 |---|---|
 | `requester`, `state`, `createdAt` | Se conservan tal cual |
-| `whereYouFoundUs` | → "¿Cómo conociste FurMeets?" |
+| `whereYouFoundUs` | → "¿Cómo conociste FurMeets?", en `legacy.howDidYouFindUs` |
 | `interests` | → campo legado `legacy.interests`, que se muestra en el *Resumen* |
-| Campos nuevos del formulario (fursona, edad, etc.) | Vacíos; la solicitud se marca `legacy: true` |
-| `messages[]` embebidos | → colección de mensajes, conservando `_id`, autor y contenido. `createdAt` se toma de lo que haya en BD (puede estar alterado por el bug de la deuda #5; se acepta) |
-| `messages[].viewedBy[]` | → leídos (`readBy`) del mensaje |
+| Campos nuevos del formulario (fursona, edad, etc.) | Vacíos (sin `form`). La solicitud lleva el bloque `legacy`, que equivale a `legacy: true`. Toda solicitud sin `form` se marca así, también las creadas con el formulario anterior hasta T15 |
+| `messages[]` embebidos | → colección de mensajes, conservando solo `_id`, autor, contenido y `createdAt`. `createdAt` se toma de lo que haya en BD (puede estar alterado por el bug de la deuda #5; se acepta) |
 | `votes[]` | → votos. Los votos en contra quedan anónimos automáticamente por la regla de §3.3 |
 | `users.avatarUrl` (`file_path` caducable) | Se descarta; el avatar se resincroniza como `file_id` en la siguiente sincronización del usuario |
-| `users.species` (enum) | → texto libre |
+| `users.species` (enum) | → texto libre (el dato ya es texto; el código dejó de exigir el enum) |
 
 Reglas de la migración:
 - Es un script **idempotente** (se puede correr varias veces sin duplicar), versionado en el repo.
 - Se ensaya primero en staging, con una copia de la BD de producción.
 - En producción se corre con respaldo previo (export de Atlas). Requiere aprobación (§12, *preguntar primero*).
-- La colección original se conserva, renombrada, hasta verificar la migración. No se borra.
+- La colección original se conserva como copia (`requestchats_pre_001`) hasta verificar la migración. No se borra. Se copia en lugar de renombrar para que la colección viva conserve sus índices.
 
 ---
 
@@ -534,11 +529,11 @@ Encontrada en la revisión del 2026-09-29.
 
 ## 15. Preguntas abiertas
 
-1. **Enlace de reglas (pendiente):** confirmar la URL real de las reglas de convivencia (el diseño usa `t.me/furmeets/reglas`). Mientras tanto, la URL se configura por variable de entorno y no se deja fija en el código.
+No hay preguntas abiertas.
 
 ### Resueltas (2026-09-29)
 
-- Campos obligatorios: solo edad y ciudad (más aceptar las reglas). La fursona es opcional.
+- Campos obligatorios: solo edad y ciudad. La fursona es opcional.
 - Los comentarios privados son anónimos. En la fila de avatares solo aparecen quienes aprobaron. Principio: rechazar sin ser juzgado (§3.3).
 - La revisión de la propia solicitud **no se oculta** al ingresar: los votos a favor son nominales y los votos en contra, anónimos para todos (§3.3).
 - Imágenes: máximo 3 en el formulario y sin límite en el chat.
@@ -547,3 +542,8 @@ Encontrada en la revisión del 2026-09-29.
 - El enlace de invitación no caduca.
 - Las solicitudes existentes se migran al nuevo modelo (§9.1).
 - Keep-alive solo mientras haya solicitudes en curso (§10).
+
+### Resueltas (2026-10-02 y 2026-10-03)
+
+- El formulario ya no pide aceptar las reglas de convivencia ni enlaza a ellas: no hay enlace de reglas (2026-10-03).
+- Se quitan los leídos: ni "Leído por" (quién vio cada mensaje y cuándo) ni contador de no leídos. Aportan poco y complican el modelo (§3.2).

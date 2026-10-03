@@ -1,46 +1,192 @@
-import { MessageBody, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
-import { CreateRequestChatMessageDto } from "./dtos/create-request-chat-message.dto";
-import { ChatService } from "../application/chat.service";
-import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
-import { RequestChatMessageMapper } from "../mappers/request-chat-message.mapper";
-import { Server } from "http";
-import { UserService } from "src/members/application/user.service";
-import { RequestChatEntity } from "../domain/entities/request-chat.entity";
-import { UserEntity } from "src/members/domain/entities/user.entity";
-import { RequestChatMapper } from "../mappers/request-chat.mapper";
+import {
+  ConnectedSocket,
+  MessageBody,
+  OnGatewayConnection,
+  OnGatewayInit,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+  WsException,
+} from '@nestjs/websockets';
+import { CreateRequestChatMessageDto } from './dtos/create-request-chat-message.dto';
+import {
+  ChatService,
+  type RequestChatView,
+  type VoteResult,
+} from '../application/chat.service';
+import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
+import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper';
+import type { Server } from 'socket.io';
+import { UserEntity } from 'src/members/domain/entities/user.entity';
+import { RequestChatMapper } from '../mappers/request-chat.mapper';
+import {
+  ForbiddenException,
+  Logger,
+  UseInterceptors,
+  UsePipes,
+} from '@nestjs/common';
+import { createWsValidationPipe } from 'src/shared/validation/validation';
+import { TimingInterceptor } from 'src/shared/interceptors/timing.interceptor';
+import { InitDataAuthService } from 'src/auth/application/init-data-auth.service';
+import {
+  type AuthenticatedSocket,
+  wsAuthMiddleware,
+} from 'src/auth/presentation/ws-auth.middleware';
+import { MembershipService } from 'src/membership/application/membership.service';
+import { Roles } from 'src/membership/domain/role';
+import { isUUID } from 'class-validator';
+import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
+import { GetRequestChatMessageDto } from './dtos/get-request-chat-message.dto';
 
+/** Sala de todos los miembros: reciben los eventos de todas las solicitudes. */
+export const MEMBERS_ROOM = 'members';
+/** Sala de una solicitud: su solicitante (los miembros reciben por `members`). */
+export const requestChatRoom = (requestChatId: string) =>
+  `request-chat:${requestChatId.toLowerCase()}`;
+/** Sala personal: todos los sockets de un usuario, para moverlos de sala de una vez. */
+const userRoom = (telegramId: number) => `user:${telegramId}`;
+
+/**
+ * Chat en tiempo real con salas por rol (RNF-SEG-04, PRI-03): un miembro está en
+ * `members`; un solicitante solo en la sala de su propia solicitud. Ningún evento se
+ * emite a todos los sockets.
+ */
 @WebSocketGateway({
-    cors: {
-        origin: process.env.FRONTEND_URL || '*',
-        credentials: true,
-    }
+  cors: {
+    origin: process.env.FRONTEND_URL || '*',
+    credentials: true,
+  },
 })
-export class ChatGateway {
+@UseInterceptors(TimingInterceptor)
+export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
+  private readonly logger = new Logger(ChatGateway.name);
 
-    @WebSocketServer()
-    server: Server;
+  @WebSocketServer()
+  server: Server;
 
-    constructor(
-        private readonly chatService: ChatService,
-        private readonly userService: UserService,
-    ) { }
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly initDataAuth: InitDataAuthService,
+    private readonly membershipService: MembershipService,
+  ) {}
 
-    @SubscribeMessage('request-chat')
-    async handleChatRequest(@MessageBody() message: CreateRequestChatMessageDto): Promise<void> {
-        const messageEntity = await this.chatService.addMessageToRequestChat(
-            UUID.from(message.requestChatUUID),
-            UUID.from(message.userUUID),
-            message.content
-        )
-        const user = await this.userService.getUserByUUID(UUID.from(message.userUUID));
-        this.server.emit('request-chat', RequestChatMessageMapper.toDto(messageEntity, user));
+  afterInit(server: Server): void {
+    // Toda conexión se autentica con `handshake.auth.initData` antes de aceptarse.
+    server.use(wsAuthMiddleware(this.initDataAuth));
+    // Si Telegram avisa que alguien entró o salió del grupo, se mueven sus sockets.
+    this.membershipService.onInvalidate(
+      (telegramId) => void this.syncMembersRoom(telegramId),
+    );
+  }
+
+  async handleConnection(socket: AuthenticatedSocket): Promise<void> {
+    const user = socket.data.user;
+    try {
+      await socket.join(userRoom(user.telegramId));
+      if ((await this.membershipService.resolveRole(user)) === Roles.Member) {
+        await socket.join(MEMBERS_ROOM);
+        return;
+      }
+      const own = await this.chatService.findRequestChatSummaryOf(user);
+      if (own) {
+        await socket.join(requestChatRoom(own.id.value));
+      }
+    } catch (error) {
+      this.logger.error(
+        'No se pudieron asignar las salas del socket',
+        error as Error,
+      );
+      socket.disconnect(true);
     }
+  }
 
-    async emitRequestChatUpdate(requestChat: RequestChatEntity, user: UserEntity): Promise<void> {
-        this.server.emit('request-chat-update', RequestChatMapper.toDto(requestChat, user));
+  @SubscribeMessage('request-chat')
+  @UsePipes(createWsValidationPipe())
+  async handleChatRequest(
+    @MessageBody() message: CreateRequestChatMessageDto,
+    @ConnectedSocket() socket: AuthenticatedSocket,
+  ): Promise<GetRequestChatMessageDto> {
+    // El autor es siempre el usuario del socket, nunca un campo del payload (RNF-SEG-02).
+    const author = socket.data.user;
+    if (!isUUID(message.requestChatUUID)) {
+      throw this.forbidden();
     }
+    let messageEntity: RequestChatMessageEntity;
+    try {
+      // Guarda y vuelve: el aviso de Telegram queda en segundo plano (RNF-REN-08).
+      messageEntity = await this.chatService.addMessageToRequestChat(
+        UUID.from(message.requestChatUUID),
+        author,
+        message.content,
+      );
+    } catch (error) {
+      throw error instanceof ForbiddenException ? this.forbidden() : error;
+    }
+    const dto: GetRequestChatMessageDto = {
+      ...RequestChatMessageMapper.toDto(messageEntity),
+      clientMessageId: message.clientMessageId,
+    };
+    this.toRequestChat(message.requestChatUUID).emit('request-chat', dto);
+    // Ack al emisor: el mensaje ya quedó guardado.
+    return dto;
+  }
 
-    async emitNewRequestChat(requestChat: RequestChatEntity, viewer: UserEntity): Promise<void> {
-        this.server.emit('new-request-chat', RequestChatMapper.toDto(requestChat, viewer));
+  private forbidden(): WsException {
+    this.logger.warn(
+      'Autorización rechazada: request-chat (ni dueño ni miembro)',
+    );
+    return new WsException('forbidden');
+  }
+
+  /** La solicitud cambió de estado. Sin `userVote`: lo reciben todos. */
+  emitRequestChatUpdate({ requestChat, messages }: RequestChatView): void {
+    this.toRequestChat(requestChat.id.value).emit(
+      'request-chat-update',
+      RequestChatMapper.toDto(requestChat, messages),
+    );
+  }
+
+  /** Conteos tras un voto, solo a los miembros: el solicitante no vota. */
+  emitVotes(result: VoteResult): void {
+    this.server
+      .to(MEMBERS_ROOM)
+      .emit('request-chat-votes', RequestChatMapper.toVotesEvent(result));
+  }
+
+  emitNewRequestChat(
+    { requestChat, messages }: RequestChatView,
+    viewer: UserEntity,
+  ): void {
+    // Los sockets ya abiertos del solicitante pasan a la sala de su nueva solicitud.
+    this.server
+      .in(userRoom(requestChat.props.requester.telegramId))
+      .socketsJoin(requestChatRoom(requestChat.id.value));
+    this.server
+      .to(MEMBERS_ROOM)
+      .emit(
+        'new-request-chat',
+        RequestChatMapper.toDto(requestChat, messages, viewer),
+      );
+  }
+
+  /** El solicitante de la solicitud y todos los miembros. */
+  private toRequestChat(requestChatId: string) {
+    return this.server.to(requestChatRoom(requestChatId)).to(MEMBERS_ROOM);
+  }
+
+  private async syncMembersRoom(telegramId: number): Promise<void> {
+    try {
+      const role = await this.membershipService.getRole(telegramId);
+      const sockets = this.server.in(userRoom(telegramId));
+      if (role === Roles.Member) {
+        sockets.socketsJoin(MEMBERS_ROOM);
+      } else {
+        sockets.socketsLeave(MEMBERS_ROOM);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo actualizar la sala de miembros: ${(error as Error).message}`,
+      );
     }
+  }
 }

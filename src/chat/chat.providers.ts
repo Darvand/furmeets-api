@@ -1,3 +1,4 @@
 export const CHAT_PROVIDERS = {
-    RequestChatRepository: Symbol('RequestChatRepository'),
-}
+  RequestChatRepository: Symbol('RequestChatRepository'),
+  RequestChatMessageRepository: Symbol('RequestChatMessageRepository'),
+};

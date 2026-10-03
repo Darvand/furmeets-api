@@ -1,10 +1,11 @@
-import { GetUserDto } from "./get-user.dto";
+import { GetUserDto } from './get-user.dto';
 
 export class GetGroupDto {
-    uuid: string;
-    telegramId: number;
-    name: string
-    photoUrl: string;
-    description: string;
-    members: GetUserDto[];
+  uuid: string;
+  telegramId: number;
+  name: string;
+  /** Se pide a `GET /media/:id`. */
+  photoMediaId?: string;
+  description: string;
+  members: GetUserDto[];
 }

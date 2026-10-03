@@ -1,111 +1,341 @@
-import { ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { CHAT_PROVIDERS } from "../chat.providers";
-import { RequestChatEntity } from "../domain/entities/request-chat.entity";
-import type { ChatRepository } from "../domain/services/chat.repository";
-import { RequestChatMessageEntity } from "../domain/entities/request-chat-message.entity";
-import { UserService } from "src/members/application/user.service";
-import { UUID } from "src/shared/domain/value-objects/uuid.value-object";
-import { CreateRequestChatDto } from "../presentation/dtos/create-request-chat.dto";
-import { DateTime } from "luxon";
-import { RequestChatState } from "../domain/value-objects/request-chat-state.value-object";
-import { ChatMessageViewedByEntity } from "../domain/entities/chat-message-viewed-by.entity";
-import { ChatDate } from "../domain/value-objects/chat-date.value-object";
-import { UserEntity } from "src/members/domain/entities/user.entity";
-import { TelegramBotService } from "src/telegram-bot/telegram-bot.service";
-import { RequestChatVoteEntity } from "../domain/entities/request-chat-vote.entity";
-import { ChatGateway } from "../presentation/chat.gateway";
+import {
+  ConflictException,
+  ForbiddenException,
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { CHAT_PROVIDERS } from '../chat.providers';
+import {
+  RequestChatEntity,
+  type VoteTally,
+  type VoteType,
+} from '../domain/entities/request-chat.entity';
+import {
+  DuplicateRequestChatError,
+  type ChatRepository,
+  type RequestChatCursor,
+  type RequestChatHeader,
+  type RequestChatPage,
+  type RequestChatSummary,
+} from '../domain/services/chat.repository';
+import type { RequestChatMessageRepository } from '../domain/services/request-chat-message.repository';
+import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
+import { UserService } from 'src/members/application/user.service';
+import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
+import { CreateRequestChatDto } from '../presentation/dtos/create-request-chat.dto';
+import { UserEntity } from 'src/members/domain/entities/user.entity';
+import { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
+import { ChatGateway } from '../presentation/chat.gateway';
+import { MonotonicClock } from 'src/shared/time/monotonic-clock';
+import { BackgroundQueue } from 'src/shared/async/background-queue';
+import {
+  RequestChatState,
+  type RequestChatStateType,
+} from '../domain/value-objects/request-chat-state.value-object';
+import { RequestChatAccessService } from './request-chat-access.service';
 
+/** Una solicitud con sus mensajes, en orden cronológico. */
+export interface RequestChatView {
+  requestChat: RequestChatEntity;
+  messages: RequestChatMessageEntity[];
+}
+
+/** Cómo quedó una solicitud tras el voto de un miembro. */
+export interface VoteResult {
+  requestChatId: UUID;
+  state: RequestChatStateType;
+  votes: VoteTally;
+  /** El voto que le quedó a quien votó; falta si lo retiró. */
+  userVote?: VoteType;
+}
+
+/**
+ * Enviar y votar siguen el mismo orden (RNF-REN-08): guardar con operaciones atómicas,
+ * responder y emitir, y recién después avisar por Telegram desde `BackgroundQueue`.
+ * Ninguna petición espera a Telegram, y si Telegram falla lo guardado no se pierde.
+ */
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+  /** Fecha de cada mensaje: única y creciente, para que el orden sea el de llegada. */
+  private readonly clock = new MonotonicClock();
 
-    private readonly logger = new Logger(ChatService.name);
+  constructor(
+    @Inject(CHAT_PROVIDERS.RequestChatRepository)
+    private readonly requestChatRepository: ChatRepository,
+    @Inject(CHAT_PROVIDERS.RequestChatMessageRepository)
+    private readonly messageRepository: RequestChatMessageRepository,
+    private readonly userService: UserService,
+    private readonly telegramBotService: TelegramBotService,
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway: ChatGateway,
+    private readonly access: RequestChatAccessService,
+    private readonly background: BackgroundQueue,
+  ) {}
 
-    constructor(
-        @Inject(CHAT_PROVIDERS.RequestChatRepository) private readonly requestChatRepository: ChatRepository,
-        private readonly userService: UserService,
-        private readonly telegramBotService: TelegramBotService,
-        @Inject(forwardRef(() => ChatGateway)) private readonly chatGateway: ChatGateway,
-    ) { }
+  async createRequestChat(
+    createRequestChatDto: CreateRequestChatDto,
+  ): Promise<RequestChatView> {
+    this.logger.debug(
+      `Creating request chat for requester UUID: ${createRequestChatDto.requesterUUID}`,
+    );
+    const requester = await this.userService.getUserByUUID(
+      UUID.from(createRequestChatDto.requesterUUID),
+    );
+    return this.openRequestChat(
+      RequestChatEntity.asNew(
+        requester,
+        createRequestChatDto.interests,
+        createRequestChatDto.whereYouFoundUs,
+      ),
+    );
+  }
 
-    async createRequestChat(createRequestChatDto: CreateRequestChatDto): Promise<RequestChatEntity> {
-        this.logger.debug(`Creating request chat for requester UUID: ${createRequestChatDto.requesterUUID}`);
-        const requester = await this.userService.getUserByUUID(UUID.from(createRequestChatDto.requesterUUID));
-        const alreadyExisting = await this.requestChatRepository.chatAlreadyExistsForRequester(requester.id);
-        if (alreadyExisting) {
-            throw new ConflictException(`User with ID ${requester.id} has already created a request chat`);
-        }
-        const requestChat = RequestChatEntity.asNew(requester, createRequestChatDto.interests, createRequestChatDto.whereYouFoundUs);
-        const bot = await this.userService.getBotUser();
-        requestChat.addWelcomeMessage(bot);
-        await this.requestChatRepository.createRequestChat(requestChat);
-        await this.telegramBotService.sendMessageToGroup(requestChat.announceWelcomeMesssage());
-        await this.chatGateway.emitNewRequestChat(requestChat, requester);
-        return requestChat;
+  /**
+   * Abre una solicitud nueva con su mensaje de bienvenida, avisa a los miembros por
+   * socket y anuncia en el grupo en segundo plano. Una por usuario, sin importar su
+   * estado (SPEC §3.1): si ya tiene una → 409, también si dos envíos llegan a la vez.
+   */
+  async openRequestChat(
+    requestChat: RequestChatEntity,
+  ): Promise<RequestChatView> {
+    const requester = requestChat.props.requester;
+    if (
+      await this.requestChatRepository.chatAlreadyExistsForRequester(
+        requester.id,
+      )
+    ) {
+      throw this.alreadyApplied();
     }
-
-    async getRequestChatByUUID(id: UUID, viewer: UserEntity): Promise<RequestChatEntity> {
-        const requestChat = await this.requestChatRepository.getRequestChatByUUID(id);
-        if (!requestChat) {
-            throw new NotFoundException(`RequestChat with ID ${id} not found`);
-        }
-        requestChat.markLastMessageViewedBy(viewer);
-        await this.requestChatRepository.saveRequestChat(requestChat);
-        return requestChat;
+    const bot = await this.userService.getBotUser();
+    const welcome = requestChat.welcomeMessage(bot, this.clock.now());
+    try {
+      await this.requestChatRepository.createRequestChat(requestChat);
+    } catch (error) {
+      // El índice único de `requester` resuelve dos envíos simultáneos.
+      throw error instanceof DuplicateRequestChatError
+        ? this.alreadyApplied()
+        : error;
     }
+    await this.messageRepository.insert(welcome);
+    const view = { requestChat, messages: [welcome] };
+    this.chatGateway.emitNewRequestChat(view, requester);
+    this.notifyGroup(
+      'aviso de solicitud nueva',
+      requestChat.announceWelcomeMesssage(),
+    );
+    return view;
+  }
 
-    async addMessageToRequestChat(requestChatUUID: UUID, userUUID: UUID, content: string): Promise<RequestChatMessageEntity> {
-        this.logger.debug(`Adding message to request chat UUID: ${requestChatUUID} from user UUID: ${userUUID}`);
-        const user = await this.userService.getUserByUUID(userUUID);
-        const requestChat = await this.getRequestChatByUUID(requestChatUUID, user);
-        if (!requestChat.isInProgress()) {
-            throw new ConflictException(`Cannot add messages to a request chat that is not in progress`);
-        }
-        const messageEntity = RequestChatMessageEntity.create({
-            content,
-            user,
-            viewedBy: [ChatMessageViewedByEntity.create({ by: user, at: ChatDate.now() })],
-            createdAt: ChatDate.now(),
+  /** Una solicitud con sus mensajes. Solo lee. */
+  async getRequestChatByUUID(id: UUID): Promise<RequestChatView> {
+    const [requestChat, messages] = await Promise.all([
+      this.findRequestChat(id),
+      this.messageRepository.findByRequestChat(id),
+    ]);
+    return { requestChat, messages };
+  }
+
+  /**
+   * Agrega un mensaje de `author`, que debe ser miembro o el solicitante. Son dos
+   * operaciones de Mongo: leer solicitante y estado, e insertar; los envíos concurrentes
+   * no se pisan ni reescriben la solicitud (RNF-CON-01). El aviso de Telegram queda en
+   * segundo plano.
+   */
+  async addMessageToRequestChat(
+    requestChatUUID: UUID,
+    author: UserEntity,
+    content: string,
+  ): Promise<RequestChatMessageEntity> {
+    this.logger.debug(
+      `Adding message to request chat UUID: ${requestChatUUID.value} from user UUID: ${author.id.value}`,
+    );
+    const header = await this.requestChatRepository.findHeader(requestChatUUID);
+    // Primero el acceso: a quien no es miembro no se le revela si la solicitud existe.
+    if (!(await this.access.canAccessLoaded(author, header))) {
+      throw new ForbiddenException();
+    }
+    if (!header) {
+      throw this.notFound(requestChatUUID);
+    }
+    if (header.state !== RequestChatState.InProgress().props.value) {
+      throw new ConflictException(
+        `Cannot add messages to a request chat that is not in progress`,
+      );
+    }
+    const message = RequestChatMessageEntity.send(
+      header.id,
+      author,
+      content,
+      this.clock.now(),
+    );
+    await this.messageRepository.insert(message);
+    this.notifyNewMessage(header, message);
+    return message;
+  }
+
+  async findRequestChatSummaryOf(
+    user: UserEntity,
+  ): Promise<RequestChatSummary | null> {
+    return this.requestChatRepository.findSummaryByRequester(user.id);
+  }
+
+  /** Una página del listado, con el resumen de cada solicitud para `viewer`. */
+  async listRequestChats(
+    viewer: UserEntity,
+    page: { limit: number; after?: RequestChatCursor },
+  ): Promise<RequestChatPage> {
+    return this.requestChatRepository.listSummaries(viewer.id, page);
+  }
+
+  /**
+   * Guarda el voto con una operación atómica y, si cruza un umbral, cierra la solicitud
+   * con otra. El mensaje de cierre, el aviso por socket y los avisos de Telegram quedan
+   * en segundo plano: la respuesta solo lleva estado y conteos.
+   */
+  async voteOnRequestChat(
+    requestChatUUID: UUID,
+    user: UserEntity,
+    type: VoteType,
+  ): Promise<VoteResult> {
+    this.logger.debug(
+      `User UUID: ${user.id.value} voting on request chat UUID: ${requestChatUUID.value} with type: ${type}`,
+    );
+    const applied = await this.requestChatRepository.toggleVote(
+      requestChatUUID,
+      user.id,
+      type,
+      new Date(),
+    );
+    if (!applied) {
+      // Fuera del camino feliz: distingue "no existe" (404) de "ya cerrada" (409).
+      await this.findRequestChat(requestChatUUID);
+      throw this.notInProgress();
+    }
+    let state = RequestChatState.InProgress().props.value;
+    // Si varios votos cruzan el umbral a la vez, solo uno cierra la solicitud: ese agrega
+    // el mensaje de cierre y avisa, una sola vez.
+    const outcome = RequestChatEntity.outcomeFor(applied.votes);
+    if (outcome) {
+      if (await this.requestChatRepository.close(requestChatUUID, outcome)) {
+        state = outcome.props.value;
+        this.afterClose(requestChatUUID);
+      } else {
+        // Otro voto la cerró entre medio (poco común): se informa su estado real.
+        state = (await this.findRequestChat(requestChatUUID)).state;
+      }
+    }
+    const result: VoteResult = {
+      requestChatId: requestChatUUID,
+      state,
+      votes: applied.votes,
+      userVote: applied.voterVote,
+    };
+    // Los demás miembros ven los conteos en vivo, sin recargar (T42).
+    this.chatGateway.emitVotes(result);
+    return result;
+  }
+
+  /**
+   * Tras cerrar: mensaje de cierre, aviso por socket y avisos de Telegram. El mensaje no
+   * se reintenta, para no duplicarlo si la inserción llegó a guardarse.
+   */
+  private afterClose(id: UUID): void {
+    this.background.enqueue(
+      'cierre de solicitud',
+      async () => {
+        const [bot, requestChat] = await Promise.all([
+          this.userService.getBotUser(),
+          this.findRequestChat(id),
+        ]);
+        const at = this.clock.now();
+        await this.messageRepository.insert(
+          requestChat.isApproved()
+            ? requestChat.approvedMessage(bot, at)
+            : requestChat.rejectedMessage(bot, at),
+        );
+        this.chatGateway.emitRequestChatUpdate({
+          requestChat,
+          messages: await this.messageRepository.findByRequestChat(id),
         });
-        requestChat.addMessage(messageEntity);
-        await this.requestChatRepository.saveRequestChat(requestChat);
-        if (messageEntity.fromUser(requestChat.props.requester)) {
-            await this.telegramBotService.sendMessageToGroup(`Nuevo mensaje de *${requestChat.props.requester.name}* en el chat de solicitud`);
-        } else {
-            await this.telegramBotService.sendMessageToUser(requestChat.props.requester.telegramId, requestChat.getNewMessageNotificationText());
-        }
-        return messageEntity;
-    }
+        this.notifyClosed(requestChat);
+      },
+      { attempts: 1 },
+    );
+  }
 
-    async getAllRequestChats(): Promise<RequestChatEntity[]> {
-        this.logger.debug(`Fetching all request chats`);
-        return this.requestChatRepository.getAllRequestChats();
+  private notifyClosed(requestChat: RequestChatEntity): void {
+    const requester = requestChat.props.requester;
+    if (requestChat.isApproved()) {
+      this.notifyGroup('aviso de aprobación', requestChat.announceApproval());
+      this.background.enqueue('enlace de invitación', () =>
+        this.telegramBotService.sendInviteLinkToUser(requester.telegramId),
+      );
+    } else {
+      this.notifyGroup('aviso de rechazo', requestChat.announceRejection());
     }
+  }
 
-    async voteOnRequestChat(requestChatUUID: UUID, userUUID: UUID, type: 'approve' | 'reject'): Promise<RequestChatEntity> {
-        this.logger.debug(`User UUID: ${userUUID} voting on request chat UUID: ${requestChatUUID} with type: ${type}`);
-        const user = await this.userService.getUserByUUID(userUUID);
-        const requestChat = await this.getRequestChatByUUID(requestChatUUID, user);
-        if (!requestChat.isInProgress()) {
-            throw new ConflictException(`Cannot vote on a request chat that is not in progress`);
-        }
-        const voteEntity = RequestChatVoteEntity.create({
-            createdAt: DateTime.now(),
-            user,
-            type,
-        });
-        requestChat.addVote(voteEntity);
-        if (requestChat.isApproved()) {
-            await this.chatGateway.emitRequestChatUpdate(requestChat, user);
-            requestChat.addApprovedMessage(await this.userService.getBotUser());
-            await this.telegramBotService.sendMessageToGroup(requestChat.announceApproval());
-            await this.telegramBotService.sendInviteLinkToUser(requestChat.props.requester.telegramId);
-        }
-        if (requestChat.isRejected()) {
-            await this.telegramBotService.sendMessageToGroup(requestChat.announceRejection());
-            await this.chatGateway.emitRequestChatUpdate(requestChat, user);
-            requestChat.addRejectedMessage(await this.userService.getBotUser());
-        }
-        await this.requestChatRepository.saveRequestChat(requestChat);
-        return requestChat;
+  /**
+   * Si escribe el solicitante, su mensaje llega al grupo con el enlace a la solicitud;
+   * si escribe un miembro, se avisa al solicitante.
+   */
+  private notifyNewMessage(
+    header: RequestChatHeader,
+    message: RequestChatMessageEntity,
+  ): void {
+    const author = message.author;
+    if (header.requesterId.value === author.id.value) {
+      this.notifyGroup(
+        'aviso de mensaje al grupo',
+        RequestChatEntity.requesterMessageNotice(
+          header.id,
+          author,
+          message.content,
+        ),
+      );
+      return;
     }
+    this.background.enqueue('aviso de mensaje al solicitante', async () => {
+      const requester = await this.userService.getUserByUUID(
+        header.requesterId,
+      );
+      await this.telegramBotService.sendMessageToUser(
+        requester.telegramId,
+        RequestChatEntity.newMessageNotificationText(requester),
+      );
+    });
+  }
+
+  private notifyGroup(name: string, text: string): void {
+    this.background.enqueue(name, () =>
+      this.telegramBotService.sendMessageToGroup(text),
+    );
+  }
+
+  private alreadyApplied(): ConflictException {
+    return new ConflictException('The user already has a request chat');
+  }
+
+  private notInProgress(): ConflictException {
+    return new ConflictException(
+      `Cannot vote on a request chat that is not in progress`,
+    );
+  }
+
+  private notFound(id: UUID): NotFoundException {
+    return new NotFoundException(`RequestChat with ID ${id.value} not found`);
+  }
+
+  private async findRequestChat(id: UUID): Promise<RequestChatEntity> {
+    const requestChat =
+      await this.requestChatRepository.getRequestChatByUUID(id);
+    if (!requestChat) {
+      throw this.notFound(id);
+    }
+    return requestChat;
+  }
 }
