@@ -569,7 +569,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Acceptance criteria:**
 - [x] La respuesta no contiene arreglos de mensajes ni de leídos
 - [x] El tiempo de respuesta no crece con la cantidad total de mensajes (medido con datos de prueba de 50 solicitudes × 200 mensajes)
-- [x] Solo expone conteos de votos en contra, nunca identidades (RNF-PRI-01)
+- [x] Solo expone conteos de votos en contra, nunca identidades (regla vigente hasta el 2026-10-03; los nombres se agregan en T21)
 
 **Verification:**
 - [x] e2e sobre la forma de la respuesta (`test/request-chat-list.e2e-spec.ts`)
@@ -628,7 +628,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - **Qué cuenta como camino crítico.** Las 2 operaciones son las de enviar y votar. Una petición HTTP suma además la lectura del usuario autenticado (`find`), común a todos los endpoints; el socket la hace al conectar, no por mensaje.
 - **Crear solicitud** también dejó de esperar el anuncio al grupo (RNF-REN-08).
 - **Aviso al grupo de un mensaje del solicitante** (decidido el 2026-10-03). Lleva el nombre, el contenido (escapado para Markdown y recortado a 3.500 caracteres) y un enlace `TELEGRAM_BOT_LINK?startapp=<id de la solicitud>`. La App todavía no lee `startapp`: por ahora el enlace abre la App en el inicio. Que abra la solicitud queda para la App, junto al puente de T27.
-- **Hallazgo aparte:** `ValueObject.equals` devuelve `true` para cualquier par de objetos (no compara `props`). Aquí se compara por `.value`; falta corregirlo en una tarea aparte.
+- **Hallazgo aparte:** `ValueObject.equals` devuelve `true` para cualquier par de objetos (no compara `props`). Aquí se compara por `.value`; se corrige en T45.
 
 **Dependencies:** T11
 
@@ -752,11 +752,12 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** SEG-05
 
-**Description:** El formulario acepta 0–3 imágenes JPEG/PNG/WebP de ≤ 10 MB, subidas por `media`.
+**Description:** El formulario acepta 0–3 imágenes JPEG/PNG/WebP de ≤ 10 MB, subidas por `media`. Además se quita `pronouns`, que T13 dejó en el formulario (decidido el 2026-10-03).
 
 **Acceptance criteria:**
 - [ ] 4 imágenes → 400; MIME no permitido → 400; > 10 MB → 413
 - [ ] Las imágenes se ven en el resumen vía `/media/:id`
+- [ ] `pronouns` en el body → 400; desaparece de la entidad, el schema, el mapper y los DTOs (los datos ya guardados se ignoran)
 
 **Verification:**
 - [ ] Unitarias de la regla de máximo 3; e2e de subida (criterio de éxito 11)
@@ -776,22 +777,26 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** PRI-04, USA-01, USA-02 · **Deuda:** #13
 
-**Description:** Reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios, hasta 3 imágenes, aviso de envío definitivo y de que los mensajes se comparten en el grupo. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
+**Description:** Pantalla *Bienvenida* (presenta FurMeets y los 3 pasos; "Quiero unirme" abre el formulario) y reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios sin pronombres, hasta 3 imágenes (contador "2 de 3"), aviso de envío definitivo y de que los mensajes se comparten en el grupo. Sin reglas de convivencia. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
 
 **Acceptance criteria:**
-- [ ] El botón de enviar se bloquea sin edad o ciudad
+- [ ] Un usuario sin solicitud ve primero la Bienvenida
+- [ ] El botón de enviar se bloquea sin edad o ciudad; con 3 imágenes ya no se puede subir otra
 - [ ] No aparece el texto "puedes editarlo hasta que empiecen a revisarte"
-- [ ] Tras enviar, navega al chat del solicitante
+- [ ] Tras enviar (`POST /applications`), navega al chat del solicitante
+- [ ] Ya sin uso desde la App, se elimina `POST /request-chats` de la API (T13). API y App se despliegan juntas
 
 **Verification:**
+- [ ] `npm run lint` y `npm run build` en la App; `npm test` y `npm run test:e2e` en la API
 - [ ] Manual en staging (móvil y escritorio, tema claro y oscuro)
 
 **Dependencies:** T07, T14
 
 **Files likely touched:**
+- `src/pages/WelcomePage.tsx` (nuevo)
 - `src/pages/RegisterPage/RegisterPage.tsx`
 - `src/services/request-chat.service.ts`
-- `src/models/request-chat.model.ts`
+- API: `src/chat/presentation/request-chat.controller.ts` (quitar `POST /request-chats`)
 
 **Estimated scope:** M
 
@@ -905,6 +910,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [ ] Un mensaje enviado aparece en otro cliente conectado sin recargar
 - [ ] Al cortar y restablecer la red, no se pierden ni duplican mensajes
 - [ ] Chat cerrado: sin caja de texto
+- [ ] El solicitante ve "Paso 2 de 3 · conversación con el grupo" y ninguna votación
 
 **Verification:**
 - [ ] Manual en staging con dos cuentas
@@ -925,22 +931,46 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
+## Task 45: Corregir `ValueObject.equals`
+
+**Repo:** API · **RNF:** CAL-03 · **Deuda:** #19
+
+**Description:** `ValueObject.equals` devuelve `true` para cualquier par de objetos con `props`: no compara valores (hallazgo de T41). T21 y T22 comparan votantes y autores, así que se corrige antes. Comparar `props` por valor (superficial, con recursión en value objects anidados) y revisar quién lo usa hoy.
+
+**Acceptance criteria:**
+- [ ] Dos value objects con las mismas `props` son iguales; con `props` distintas, no
+- [ ] Los usos actuales siguen funcionando (o se cambian si dependían del bug)
+
+**Verification:**
+- [ ] Unitarias de `value-object.spec.ts`; `npm test` y `npm run test:e2e` completos
+
+**Dependencies:** Ninguna
+
+**Files likely touched:**
+- `src/shared/domain/value-objects/value-object.ts` (+ `.spec.ts`)
+
+**Estimated scope:** XS
+
+---
+
 ## Task 21: Revisión: votos y umbrales
 
-**Repo:** API · **RNF:** SEG-04, PRI-01, PRI-02, CON-07 · **Deuda:** #11
+**Repo:** API · **RNF:** SEG-04, PRI-01, PRI-02, PRI-03, CON-07 · **Deuda:** #11
 
-**Description:** Votar (`approve | reject`), cambiar y retirar mientras está en curso. Umbrales `APPROVE_THRESHOLD`/`REJECT_THRESHOLD`; el voto que alcanza uno cierra en el acto (actualización condicional para evitar doble cierre). Las respuestas incluyen nombres solo de votos a favor, conteos y el voto propio. Nunca la identidad de quien rechaza.
+**Description:** Votar (`approve | reject`), cambiar y retirar mientras está en curso. Umbrales `APPROVE_THRESHOLD`/`REJECT_THRESHOLD`, los dos en 5; el voto que alcanza uno cierra en el acto (actualización condicional para evitar doble cierre). Para los miembros, las respuestas incluyen quién votó a favor y quién en contra, los conteos, los umbrales y el voto propio. Para el solicitante no incluyen votos (decidido el 2026-10-03: nada es anónimo dentro del grupo).
 
 **Acceptance criteria:**
 - [ ] Solicitante votando → 403; `vote` inválido → 400
 - [ ] Al alcanzar el umbral, la solicitud pasa a *Approved*/*Rejected* una sola vez
-- [ ] Ningún DTO, evento ni log contiene el id de quien votó en contra
+- [ ] Un miembro recibe los nombres de los votos a favor y en contra, en `GET /request-chats/:id`, en la respuesta del voto y en el evento `request-chat-votes` (que hoy solo lleva conteos, T42)
+- [ ] Mientras no sea miembro, el solicitante no recibe votos ni en `GET` ni en `request-chat-update`
+- [ ] El valor por defecto de `REJECT_THRESHOLD` en el código pasa de 3 a 5 (`request-chat.entity.ts`); revisar el valor en Render de staging y producción (cambiarlo requiere aprobación, SPEC §12)
 
 **Verification:**
 - [ ] Unitarias de dominio (umbrales, cambio, retiro, no votar la propia)
-- [ ] Prueba que serializa todas las salidas y busca el id del votante en contra (criterio de éxito 10)
+- [ ] Prueba que serializa las salidas dirigidas al solicitante y no encuentra votos (criterio de éxito 10)
 
-**Dependencies:** T11, T06
+**Dependencies:** T11, T06, T45
 
 **Files likely touched:**
 - `src/review/domain/vote.ts` (+ `.spec.ts`)
@@ -952,24 +982,24 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 22: Revisión: avales y comentarios privados
+## Task 22: Revisión: avales y comentarios
 
 **Repo:** API · **RNF:** PRI-01, PRI-03
 
-**Description:** "Lo conozco" (aval informativo, cualquier miembro) y comentarios privados anónimos entre miembros. El autor del comentario se guarda pero solo se expone como `isMine` al propio autor. El solicitante no ve ninguno de los dos mientras no sea miembro.
+**Description:** "Lo conozco, lo avalo" (aval informativo, cualquier miembro, con opción de retirarlo) y comentarios entre miembros. Avales y comentarios llevan el nombre de su autor y la fecha, y los ven todos los miembros. El solicitante no ve ninguno de los dos mientras no sea miembro.
 
 **Acceptance criteria:**
 - [ ] Solicitante pidiendo avales o comentarios → 403
-- [ ] Los comentarios no traen autor, solo `isMine`
-- [ ] Avalar dos veces no duplica
+- [ ] Avales y comentarios traen autor y fecha
+- [ ] Avalar dos veces no duplica; retirar el aval lo quita
 
 **Verification:**
-- [ ] Unitarias; e2e por rol (criterio de éxito 9)
+- [ ] Unitarias; e2e por rol (criterios de éxito 9 y 10)
 
 **Dependencies:** T21
 
 **Files likely touched:**
-- `src/review/domain/endorsement.ts`, `private-comment.ts`
+- `src/review/domain/endorsement.ts`, `comment.ts`
 - `src/review/presentation/review.controller.ts`
 - `src/review/infraestructure/schemas/*.ts`
 
@@ -979,23 +1009,26 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ## Task 23: App: inicio de miembros
 
-**Repo:** App · **RNF:** PRI-02, REN-04, USA-01
+**Repo:** API + App · **RNF:** PRI-02, REN-04, USA-01
 
-**Description:** Solicitudes en curso con su último mensaje y la etiqueta "Falta tu voto", estadísticas (total, aceptadas, no aprobadas) e historial paginado. Actualización en vivo por la sala `members`.
+**Description:** Inicio según el artboard *Inicio*: todas las solicitudes en curso con su estado, conteos contra los umbrales ("4/5 a favor · 1/5 en contra") y la etiqueta "Falta tu voto"; estadísticas (total, aceptadas, no aprobadas); historial paginado. Actualización en vivo por la sala `members`. Además, abrir la App con `startapp=<id>` (el enlace del aviso al grupo, T41) lleva directo a esa solicitud.
+
+**API:** hoy `GET /request-chats` está paginado por cursor (T40) y no trae totales, así que la App no puede calcular las estadísticas ni separar "en curso" del historial. Agregar los totales por estado y un filtro por estado (o la lista de en curso aparte), con agregaciones sobre índices.
 
 **Acceptance criteria:**
-- [ ] Un mensaje nuevo actualiza el último mensaje de la lista sin recargar
-- [ ] No se lista quién falta por votar
+- [ ] Las estadísticas coinciden con los conteos por estado en la BD, aunque el historial esté paginado
+- [ ] Un mensaje o voto nuevo actualiza la lista sin recargar; no se lista quién falta por votar
+- [ ] `startapp=<id>` abre esa solicitud (si el usuario puede verla; si no, el inicio)
 
 **Verification:**
-- [ ] Manual en staging
+- [ ] e2e de la forma de la respuesta y de los totales (API)
+- [ ] `npm run lint` y `npm run build` en la App; manual en staging
 
 **Dependencies:** T18, T21
 
 **Files likely touched:**
-- `src/pages/IndexPage/IndexPage.tsx`
-- `src/components/RequestChatList/RequestChatList.tsx`
-- `src/services/request-chat.service.ts`
+- API: `src/chat/presentation/request-chat.controller.ts`, `src/chat/infraestructure/repositories/chat-mongo.repository.ts`, `dtos/list-request-chat.dto.ts`
+- App: `src/pages/IndexPage/IndexPage.tsx`, `src/components/RequestChatList/RequestChatList.tsx`, `src/components/App.tsx` (`startapp`)
 
 **Estimated scope:** M
 
@@ -1005,10 +1038,13 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** PRI-01, USA-01
 
-**Description:** Votación plegada con barra de quórum hacia los umbrales fijos (sin estado *Vencida*), avatares solo de quienes aprobaron, texto "Tu voto a favor es visible para el grupo; en contra es anónimo". Resumen con fursona, datos, respuestas, avales, comentarios y leyenda de solicitud migrada.
+**Description:** Votación plegada con dos barras, una por opción, hacia los umbrales fijos (sin estado *Vencida*). Abierta muestra quién votó aceptar y quién rechazar, y el texto "tu voto lo ve todo el grupo". Resumen con fursona, datos, respuestas, avales, comentarios con su autor y leyenda de solicitud migrada. Sin pronombres ni *Reportar solicitud*.
+
+En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad · ciudad · avales) abre el Resumen. El Resumen muestra la etiqueta "Menor de edad" cuando corresponde y las imágenes del formulario por `/media/:id`.
 
 **Acceptance criteria:**
 - [ ] El solicitante no ve el panel de votación
+- [ ] Los nombres de quienes votaron aparecen agrupados por opción
 - [ ] Cambiar y retirar el voto funciona desde la UI
 - [ ] Solicitudes `legacy` muestran "Solicitud anterior al formulario actual"
 
@@ -1026,7 +1062,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ### Checkpoint D: revisión
 - [ ] Criterios de éxito 9 y 10
-- [ ] Revisión humana de privacidad
+- [ ] Revisión humana: el solicitante no recibe votos, avales ni comentarios mientras no sea miembro
 
 ---
 
@@ -1059,10 +1095,11 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** USA-01
 
-**Description:** *Aprobado* (paso 3 de 3) con el enlace; *No aprobado* sin prometer reintento.
+**Description:** *Aprobado* (paso 3 de 3) con el enlace y sin reglas de convivencia; *No aprobado* sin prometer reintento.
 
 **Acceptance criteria:**
 - [ ] El enlace abre la solicitud de unión en Telegram
+- [ ] Aprobado no enlaza a reglas de convivencia
 - [ ] El texto de No aprobado no menciona reintentar con un aval
 
 **Verification:**
@@ -1128,13 +1165,13 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ## Task 29: Puente: DMs, resultados y `/faq`
 
-**Repo:** API · **RNF:** CON-04, PRI-01, OBS-01 · **Deuda:** #7
+**Repo:** API · **RNF:** CON-04, PRI-03, OBS-01 · **Deuda:** #7
 
-**Description:** DM al solicitante cuando escribe un miembro (si hay permiso). Anuncio en el grupo y DM al cerrar una solicitud. `/faq` responde un placeholder. Ningún mensaje del bot menciona a quien votó en contra.
+**Description:** DM al solicitante cuando escribe un miembro (si hay permiso). Anuncio en el grupo y DM al cerrar una solicitud. `/faq` responde un placeholder. El DM al solicitante no incluye votos, avales ni comentarios.
 
 **Acceptance criteria:**
 - [ ] Sin permiso de DM, el mensaje se entrega por socket igual (criterio de éxito 8)
-- [ ] El anuncio de resultado solo muestra conteos de rechazos
+- [ ] El DM de resultado al solicitante no nombra a quienes votaron
 
 **Verification:**
 - [ ] e2e con Telegram simulado que falla
@@ -1314,6 +1351,31 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Files likely touched:**
 - `src/services/user.service.ts`
 - `src/pages/RegisterPage/RegisterPage.tsx`
+
+**Estimated scope:** S
+
+---
+
+## Task 44: App: pantalla de carga durante el arranque en frío
+
+**Repo:** App · **RNF:** USA-01, USA-02
+
+**Description:** Reemplazar el spinner de `LoadingPage` por el artboard *Carga*: mientras `GET /me` no responde, una barra cuenta hasta 60 s y rotan mensajes cada 6 s (ninguno menciona reglas de convivencia). Pasados 60 s, cambia a "Esto está tardando más de lo normal" con *Reintentar* y "Contactar a un admin" (`https://t.me/DarvandFrovonwill`). En cuanto la API responde, salta a su pantalla sin esperar a la barra. Respeta `prefers-reduced-motion`.
+
+**Acceptance criteria:**
+- [ ] Con la API despierta, la pantalla de carga apenas se ve (no hay espera artificial)
+- [ ] A los 60 s sin respuesta aparece el estado demorado; *Reintentar* vuelve a pedir `GET /me`
+- [ ] Con movimiento reducido no hay animaciones
+
+**Verification:**
+- [ ] Manual en staging con la API dormida
+
+**Dependencies:** T07
+
+**Files likely touched:**
+- `src/pages/LoadingPage.tsx`
+- `src/pages/StartupErrorPage.tsx`
+- `src/components/App.tsx`
 
 **Estimated scope:** S
 
