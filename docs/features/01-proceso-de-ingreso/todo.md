@@ -708,7 +708,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** PRI-04, USA-01, USA-02 · **Deuda:** #13
 
-**Description:** Reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios, hasta 3 imágenes, enlace a reglas desde `VITE_RULES_URL`, aviso de envío definitivo y de que los mensajes se comparten en el grupo. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
+**Description:** Reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios, hasta 3 imágenes, aviso de envío definitivo y de que los mensajes se comparten en el grupo. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
 
 **Acceptance criteria:**
 - [ ] El botón de enviar se bloquea sin edad o ciudad

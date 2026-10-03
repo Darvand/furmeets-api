@@ -273,7 +273,6 @@ Alternativas documentadas (precios de referencia, verificar antes de usar):
 | Variable | Uso |
 |---|---|
 | `VITE_API_URL` | URL de la API |
-| `VITE_RULES_URL` | **Nueva.** Enlace a las reglas de convivencia (pendiente de definir) |
 | ~~`VITE_TELEGRAM_BOT_TOKEN`~~ | **Se elimina** |
 
 ---
@@ -530,7 +529,7 @@ Encontrada en la revisión del 2026-09-29.
 
 ## 15. Preguntas abiertas
 
-1. **Enlace de reglas (pendiente):** confirmar la URL real de las reglas de convivencia (el diseño usa `t.me/furmeets/reglas`). Mientras tanto, la URL se configura por variable de entorno y no se deja fija en el código.
+No hay preguntas abiertas.
 
 ### Resueltas (2026-09-29)
 
@@ -546,5 +545,5 @@ Encontrada en la revisión del 2026-09-29.
 
 ### Resueltas (2026-10-02 y 2026-10-03)
 
-- El formulario ya no pide aceptar las reglas de convivencia (2026-10-03).
+- El formulario ya no pide aceptar las reglas de convivencia ni enlaza a ellas: no hay enlace de reglas (2026-10-03).
 - Se quitan los leídos: ni "Leído por" (quién vio cada mensaje y cuándo) ni contador de no leídos. Aportan poco y complican el modelo (§3.2).

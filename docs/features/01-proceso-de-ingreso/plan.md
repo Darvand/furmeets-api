@@ -266,10 +266,11 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 ## Preguntas abiertas
 
-1. URL real de las reglas de convivencia (SPEC §15.1). Mientras tanto, `VITE_RULES_URL`.
+No hay preguntas abiertas.
 
 ### Resueltas
 
 - 2026-09-29: se aprueba `mongodb-memory-server` como dependencia de desarrollo para las pruebas e2e (T02).
 - 2026-09-29: los DTOs se validan con `class-validator` + `class-transformer` y un `ValidationPipe` global (T02). Joi queda solo para la configuración (T32).
+- 2026-10-03: el formulario no pide aceptar las reglas de convivencia ni enlaza a ellas; se descarta `VITE_RULES_URL`.
 - 2026-09-29: la caché de membresía tiene TTL de 10 min y se invalida por eventos: updates `chat_member` del grupo (T05) y aprobación del ingreso (T25).
