@@ -76,7 +76,7 @@ Por su tamaño, el proyecto se divide en módulos. Cada uno puede tener después
 
 ### 3.1 Formulario de solicitud (`applications`)
 
-Los campos salen del diseño (artboard *Formulario*). **Solo la edad y la ciudad son obligatorias**, además de aceptar las reglas. Todo lo relativo a la fursona es opcional, porque hay personas que entran sin tenerla definida todavía.
+Los campos salen del diseño (artboard *Formulario*). **Solo la edad y la ciudad son obligatorias.** Todo lo relativo a la fursona es opcional, porque hay personas que entran sin tenerla definida todavía.
 
 | Sección | Campo | Tipo | Obligatorio |
 |---|---|---|---|
@@ -90,7 +90,6 @@ Los campos salen del diseño (artboard *Formulario*). **Solo la edad y la ciudad
 | Preguntas | ¿Cómo conociste FurMeets? | texto largo | No |
 | | ¿Conoces a alguien del grupo? | texto (@usuario) | No |
 | | ¿Has ido a algún meet antes? | texto largo | No |
-| — | Acepto las reglas de convivencia | checkbox | **Sí** (bloquea el envío; el enlace a las reglas está pendiente, ver §15) |
 
 Reglas:
 - **Menores de edad pueden aplicar.** Si la edad es menor que 18, la solicitud lleva la etiqueta visible **"Menor de edad"**. No hay otras reglas especiales.
@@ -535,7 +534,7 @@ Encontrada en la revisión del 2026-09-29.
 
 ### Resueltas (2026-09-29)
 
-- Campos obligatorios: solo edad y ciudad (más aceptar las reglas). La fursona es opcional.
+- Campos obligatorios: solo edad y ciudad. La fursona es opcional.
 - Los comentarios privados son anónimos. En la fila de avatares solo aparecen quienes aprobaron. Principio: rechazar sin ser juzgado (§3.3).
 - La revisión de la propia solicitud **no se oculta** al ingresar: los votos a favor son nominales y los votos en contra, anónimos para todos (§3.3).
 - Imágenes: máximo 3 en el formulario y sin límite en el chat.
@@ -547,4 +546,5 @@ Encontrada en la revisión del 2026-09-29.
 
 ### Resueltas (2026-10-02 y 2026-10-03)
 
+- El formulario ya no pide aceptar las reglas de convivencia (2026-10-03).
 - Se quitan los leídos: ni "Leído por" (quién vio cada mensaje y cuándo) ni contador de no leídos. Aportan poco y complican el modelo (§3.2).
