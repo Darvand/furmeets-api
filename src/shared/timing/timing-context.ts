@@ -26,6 +26,14 @@ export function runWithTiming<T>(store: TimingStore, fn: () => T): T {
   return storage.run(store, fn);
 }
 
+/**
+ * Ejecuta `fn` fuera de cualquier contexto de medición: lo que se programe dentro
+ * (p. ej. tareas en segundo plano) no suma a la petición que lo originó.
+ */
+export function runWithoutTiming<T>(fn: () => T): T {
+  return storage.exit(fn);
+}
+
 /** Contexto de la petición en curso, o `undefined` si no hay ninguna (p. ej. el polling del bot). */
 export function currentTiming(): TimingStore | undefined {
   return storage.getStore();
