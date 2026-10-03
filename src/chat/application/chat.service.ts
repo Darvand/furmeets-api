@@ -203,25 +203,28 @@ export class ChatService {
     if (outcome) {
       if (await this.requestChatRepository.close(requestChatUUID, outcome)) {
         state = outcome.props.value;
-        this.afterClose(requestChatUUID, user);
+        this.afterClose(requestChatUUID);
       } else {
         // Otro voto la cerró entre medio (poco común): se informa su estado real.
         state = (await this.findRequestChat(requestChatUUID)).state;
       }
     }
-    return {
+    const result: VoteResult = {
       requestChatId: requestChatUUID,
       state,
       votes: applied.votes,
       userVote: applied.voterVote,
     };
+    // Los demás miembros ven los conteos en vivo, sin recargar (T42).
+    this.chatGateway.emitVotes(result);
+    return result;
   }
 
   /**
    * Tras cerrar: mensaje de cierre, aviso por socket y avisos de Telegram. El mensaje no
    * se reintenta, para no duplicarlo si la inserción llegó a guardarse.
    */
-  private afterClose(id: UUID, voter: UserEntity): void {
+  private afterClose(id: UUID): void {
     this.background.enqueue(
       'cierre de solicitud',
       async () => {
@@ -235,13 +238,10 @@ export class ChatService {
             ? requestChat.approvedMessage(bot, at)
             : requestChat.rejectedMessage(bot, at),
         );
-        this.chatGateway.emitRequestChatUpdate(
-          {
-            requestChat,
-            messages: await this.messageRepository.findByRequestChat(id),
-          },
-          voter,
-        );
+        this.chatGateway.emitRequestChatUpdate({
+          requestChat,
+          messages: await this.messageRepository.findByRequestChat(id),
+        });
         this.notifyClosed(requestChat);
       },
       { attempts: 1 },

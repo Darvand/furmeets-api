@@ -85,7 +85,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     sendMessageToUser: jest.fn(() => Promise.resolve()),
     sendInviteLinkToUser: jest.fn(() => Promise.resolve()),
   };
-  const gateway = { emitRequestChatUpdate: jest.fn() };
+  const gateway = { emitRequestChatUpdate: jest.fn(), emitVotes: jest.fn() };
   const access = {
     canAccessLoaded: jest.fn(() => Promise.resolve(true)),
   };
@@ -242,6 +242,8 @@ describe('ChatService', () => {
         votes: { approved: 1, rejected: 0 },
         userVote: 'approve',
       });
+      // Los conteos salen en vivo a los miembros, en cuanto se guarda el voto.
+      expect(ctx.gateway.emitVotes).toHaveBeenCalledWith(result);
       await ctx.queue.drain();
       expect(ctx.messages.insert).not.toHaveBeenCalled();
       expect(ctx.telegram.sendMessageToGroup).not.toHaveBeenCalled();

@@ -22,6 +22,7 @@ export class RequestChatMessageMapper {
   static toDto(message: RequestChatMessageEntity): GetRequestChatMessageDto {
     return {
       uuid: message.id.value,
+      requestChatUUID: message.requestChatId.value,
       content: message.content,
       user: UserMapper.toDto(message.author),
       sentAt: message.createdAt.toISOString(),

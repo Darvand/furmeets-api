@@ -15,7 +15,10 @@ import { uuidRef } from 'src/shared/infraestructure/mongo-uuid';
 import type { RequestChatPage } from '../domain/services/chat.repository';
 import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
 import type { VoteResult } from '../application/chat.service';
-import { VoteRequestChatDto } from '../presentation/dtos/vote-request-chat.dto';
+import {
+  RequestChatVotesEventDto,
+  VoteRequestChatDto,
+} from '../presentation/dtos/vote-request-chat.dto';
 
 export class RequestChatMapper {
   static toDb(requestChat: RequestChatEntity): RequestChat {
@@ -56,7 +59,8 @@ export class RequestChatMapper {
   static toDto(
     requestChat: RequestChatEntity,
     messages: RequestChatMessageEntity[],
-    viewer: UserEntity,
+    /** Sin `viewer` (eventos que reciben todos) no se incluye `userVote`. */
+    viewer?: UserEntity,
   ): GetRequestChatDto {
     return {
       uuid: requestChat.id.value,
@@ -71,16 +75,23 @@ export class RequestChatMapper {
         rejected: requestChat.countRejects(),
       },
       state: requestChat.state,
-      userVote: requestChat.getUserVoteType(viewer),
+      userVote: viewer && requestChat.getUserVoteType(viewer),
     };
   }
 
   static toVoteDto(result: VoteResult): VoteRequestChatDto {
     return {
+      ...RequestChatMapper.toVotesEvent(result),
+      userVote: result.userVote,
+    };
+  }
+
+  /** Evento `request-chat-votes`: estado y conteos, sin el voto de nadie (RNF-PRI-01). */
+  static toVotesEvent(result: VoteResult): RequestChatVotesEventDto {
+    return {
       uuid: result.requestChatId.value,
       state: result.state,
       votes: { ...result.votes },
-      userVote: result.userVote,
     };
   }
 
