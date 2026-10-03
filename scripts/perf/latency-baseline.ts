@@ -4,8 +4,11 @@
  * Mide contra un servidor ya desplegado (staging) los cuatro escenarios de la App y
  * reporta p50 y p95 de cada uno:
  *
- *   - arranque:   lo que hace la App al abrirse (`App.tsx` + `IndexPage.tsx`): 4 peticiones
- *                 en serie, luego 2 peticiones y la conexión del socket en paralelo.
+ *   - arranque:   lo que hace la App actual al abrirse como miembro (T07, T42): `GET /me` y
+ *                 `GET /groups` en paralelo; luego `GET /request-chats` y la conexión del
+ *                 socket compartido, también en paralelo.
+ *   - arranque (flujo anterior): lo que hacía la App antes de T07, para comparar con la
+ *                 línea base: 4 peticiones en serie, luego 2 peticiones y el socket en paralelo.
  *   - abrir chat: `RequestChatPage.tsx`: `GET /request-chats/:id` + conexión del socket.
  *   - enviar:     emitir `request-chat` por el socket hasta recibir el mensaje de vuelta.
  *   - votar:      `PUT /request-chats/:id/vote/:type`.
@@ -21,8 +24,9 @@
  *                     miembro del grupo. Se envía como `x-telegram-id`, que solo leen los
  *                     servidores anteriores a T03 (para medir la línea base).
  *   PERF_INIT_DATA    initData firmado del mismo usuario; se envía como
- *                     `Authorization: tma <initData>`. Obligatorio contra servidores con T03
- *                     (sin él todo responde 401). Vence a las 24 h.
+ *                     `Authorization: tma <initData>` y en el handshake del socket
+ *                     (`auth.initData`). Obligatorio contra servidores con T03/T04 (sin él
+ *                     todo responde 401 y el socket se rechaza). Vence a las 24 h.
  *   PERF_CHAT_ID      (opcional) UUID del chat de solicitud a usar. Si falta, abrir chat usa
  *                     el primero de la lista y enviar/votar se omiten.
  *   PERF_WRITES=1     (opcional) habilita enviar y votar, que escriben en la BD y mandan
@@ -105,6 +109,8 @@ function connectSocket(): Promise<{ ms: number; socket: Socket }> {
     forceNew: true,
     reconnection: false,
     timeout: TIMEOUT_MS,
+    // Desde T04 la API rechaza el socket sin initData.
+    auth: INIT_DATA ? { initData: INIT_DATA } : undefined,
   });
   return new Promise((resolve, reject) => {
     socket.once('connect', () => resolve({ ms: now() - startedAt, socket }));
@@ -115,7 +121,8 @@ function connectSocket(): Promise<{ ms: number; socket: Socket }> {
   });
 }
 
-const BOOTSTRAP = 'arranque (6 HTTP + 1 socket)';
+const BOOTSTRAP = 'arranque (App actual: 3 HTTP + 1 socket)';
+const LEGACY_BOOTSTRAP = 'arranque (flujo anterior: 6 HTTP + 1 socket)';
 const OPEN_CHAT = 'abrir chat';
 const SEND = 'enviar mensaje';
 
@@ -138,8 +145,34 @@ async function tryConnectSocket(
   }
 }
 
-/** App.tsx: sync → lista → grupo → usuario, en serie; luego IndexPage: lista, usuario y socket en paralelo. */
+/**
+ * App actual: `App.tsx` pide `GET /me` y `GET /groups` en paralelo; con el rol ya
+ * conocido, `IndexPage` pide el listado y `App` conecta el socket compartido.
+ */
 async function bootstrap(steps: Sample[]): Promise<number> {
+  const startedAt = now();
+  const [me, group] = await Promise.all([
+    http('GET', '/me'),
+    http('GET', '/groups'),
+  ]);
+  const [list, connection] = await Promise.all([
+    http('GET', '/request-chats'),
+    tryConnectSocket(BOOTSTRAP),
+  ]);
+  const total = now() - startedAt;
+  connection?.socket.close();
+  steps.push({ name: 'GET /me', ms: me.ms });
+  steps.push({ name: 'GET /groups', ms: group.ms });
+  steps.push({ name: 'GET /request-chats', ms: list.ms });
+  if (connection) steps.push({ name: 'socket connect', ms: connection.ms });
+  return total;
+}
+
+/**
+ * Flujo anterior a T07, para comparar con la línea base: sync → lista → grupo → usuario,
+ * en serie; luego IndexPage: lista, usuario y socket en paralelo.
+ */
+async function legacyBootstrap(steps: Sample[]): Promise<number> {
   const startedAt = now();
   for (const [method, path, name] of [
     ['POST', '/groups/sync', 'POST /groups/sync'],
@@ -153,7 +186,7 @@ async function bootstrap(steps: Sample[]): Promise<number> {
   const [list, user, connection] = await Promise.all([
     http('GET', '/request-chats'),
     http('GET', `/users/${TELEGRAM_ID}`),
-    tryConnectSocket(BOOTSTRAP),
+    tryConnectSocket(LEGACY_BOOTSTRAP),
   ]);
   const total = now() - startedAt;
   connection?.socket.close();
@@ -274,6 +307,11 @@ async function main(): Promise<void> {
   for (let i = 0; i < ITERATIONS; i++) {
     bootstrapTimes.push(await bootstrap(bootstrapSteps));
   }
+  const legacyBootstrapTimes: number[] = [];
+  const legacyBootstrapSteps: Sample[] = [];
+  for (let i = 0; i < ITERATIONS; i++) {
+    legacyBootstrapTimes.push(await legacyBootstrap(legacyBootstrapSteps));
+  }
 
   const openTimes: number[] = [];
   if (chatId) {
@@ -340,19 +378,31 @@ async function main(): Promise<void> {
 
   const summary = printTable('Resultados (servidor despierto)', [
     [BOOTSTRAP, bootstrapTimes],
+    [LEGACY_BOOTSTRAP, legacyBootstrapTimes],
     [OPEN_CHAT, openTimes],
     [SEND, sendTimes],
     ['votar', voteTimes],
   ]);
 
-  const byStep = new Map<string, number[]>();
-  for (const { name, ms } of bootstrapSteps) {
-    byStep.set(name, [...(byStep.get(name) ?? []), ms]);
-  }
-  printTable('Detalle del arranque, por petición', [...byStep.entries()]);
+  const byStep = (steps: Sample[]) => {
+    const grouped = new Map<string, number[]>();
+    for (const { name, ms } of steps) {
+      grouped.set(name, [...(grouped.get(name) ?? []), ms]);
+    }
+    return [...grouped.entries()];
+  };
+  printTable(
+    'Detalle del arranque (App actual), por petición',
+    byStep(bootstrapSteps),
+  );
+  printTable(
+    'Detalle del arranque (flujo anterior), por petición',
+    byStep(legacyBootstrapSteps),
+  );
 
   const attempts = new Map([
     [BOOTSTRAP, bootstrapTimes.length],
+    [LEGACY_BOOTSTRAP, legacyBootstrapTimes.length],
     [OPEN_CHAT, openTimes.length],
     [SEND, 1],
   ]);
@@ -380,7 +430,8 @@ async function main(): Promise<void> {
   const date = new Date().toISOString().slice(0, 10);
   console.log('\nLínea para todo.md (p50 / p95):');
   console.log(
-    `**Línea base (${date}, n=${ITERATIONS}, p50 / p95):** arranque ${cell(BOOTSTRAP)} · ` +
+    `**Medición (${date}, n=${ITERATIONS}, p50 / p95):** arranque ${cell(BOOTSTRAP)} · ` +
+      `arranque (flujo anterior) ${cell(LEGACY_BOOTSTRAP)} · ` +
       `abrir chat ${cell(OPEN_CHAT)} · enviar ${cell(SEND)} · votar ${cell('votar')}`,
   );
 }
