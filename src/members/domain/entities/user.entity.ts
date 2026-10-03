@@ -2,19 +2,6 @@ import { Entity } from 'src/shared/domain/entities/entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { TelegramIdentity } from '../value-objects/telegram-identity.value-object';
 
-export const Species = Object.freeze({
-  Bird: 'Bird',
-  Feline: 'Feline',
-  Canine: 'Canine',
-  Dragon: 'Dragon',
-  Deer: 'Deer',
-  Bunny: 'Bunny',
-  Wolf: 'Wolf',
-  Other: 'Other',
-});
-
-type SpeciesType = (typeof Species)[keyof typeof Species];
-
 export interface UserProps {
   username?: string;
   avatarMediaId?: string;
@@ -22,16 +9,14 @@ export interface UserProps {
   telegramId: number;
   isMember: boolean;
   createdAt?: Date;
-  species?: SpeciesType;
+  /** Texto libre (SPEC §9.1): antes era un enum. */
+  species?: string;
   birthdate?: Date;
 }
 
 export class UserEntity extends Entity<UserProps> {
   private constructor(props: UserProps, id?: UUID) {
     super(props, id);
-    if (props.species && !Object.values(Species).includes(props.species)) {
-      throw new Error(`Invalid species type: ${props.species}`);
-    }
   }
   static create(props: UserProps, id?: UUID): UserEntity {
     return new UserEntity(props, id);
@@ -133,15 +118,12 @@ export class UserEntity extends Entity<UserProps> {
     return this.props.isMember;
   }
 
-  get species(): SpeciesType | undefined {
+  get species(): string | undefined {
     return this.props.species;
   }
 
   set species(species: string | undefined) {
-    if (species && !Object.values(Species).includes(species as SpeciesType)) {
-      throw new Error(`Invalid species type: ${species}`);
-    }
-    this.props.species = species as SpeciesType;
+    this.props.species = species;
   }
 
   get birthdate(): Date | undefined {
