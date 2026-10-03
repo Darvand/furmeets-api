@@ -14,6 +14,8 @@ import { User } from 'src/members/infraestructure/schemas/user.schema';
 import { uuidRef } from 'src/shared/infraestructure/mongo-uuid';
 import type { RequestChatPage } from '../domain/services/chat.repository';
 import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
+import type { VoteResult } from '../application/chat.service';
+import { VoteRequestChatDto } from '../presentation/dtos/vote-request-chat.dto';
 
 export class RequestChatMapper {
   static toDb(requestChat: RequestChatEntity): RequestChat {
@@ -70,6 +72,15 @@ export class RequestChatMapper {
       },
       state: requestChat.state,
       userVote: requestChat.getUserVoteType(viewer),
+    };
+  }
+
+  static toVoteDto(result: VoteResult): VoteRequestChatDto {
+    return {
+      uuid: result.requestChatId.value,
+      state: result.state,
+      votes: { ...result.votes },
+      userVote: result.userVote,
     };
   }
 

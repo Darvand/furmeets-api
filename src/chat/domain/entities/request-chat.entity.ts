@@ -20,10 +20,13 @@ const REJECTED_MESSAGE_CONTENT =
 const APPROVED_MESSAGE_CONTENT =
   '¡Felicidades! Tu solicitud ha sido aprobada. Te damos la bienvenida al grupo.';
 
-/** Lo que cambia el voto de un miembro: lo retira o lo fija (nuevo o reemplazado). */
-export type VoteChange =
-  | { kind: 'removed'; userId: string }
-  | { kind: 'set'; vote: RequestChatVoteEntity };
+export type VoteType = 'approve' | 'reject';
+
+/** Conteos de votos de una solicitud. */
+export interface VoteTally {
+  approved: number;
+  rejected: number;
+}
 
 /**
  * Solicitud de ingreso: solicitante, formulario, votos y estado. Los mensajes viven en su
@@ -118,45 +121,23 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
   }
 
   /**
-   * Aplica el voto de un miembro sobre los votos actuales: repetir el mismo voto lo
-   * retira y uno distinto reemplaza al anterior. No cambia el estado (ver `outcome`).
-   * Devuelve el cambio, que el repositorio guarda con una operación atómica.
-   */
-  addVote(vote: RequestChatVoteEntity): VoteChange {
-    const removed = this.isSameVote(vote);
-    this.props.votes = this.props.votes.filter((v) => !v.equals(vote));
-    if (removed) {
-      return { kind: 'removed', userId: vote.props.user.id.value };
-    }
-    this.props.votes.push(vote);
-    return { kind: 'set', vote };
-  }
-
-  /**
-   * Estado al que pasa la solicitud con sus votos actuales, si alcanzó un umbral.
+   * Estado al que pasa una solicitud en curso con estos conteos, si alcanzó un umbral.
    * Se evalúa con los votos ya guardados, que incluyen los de otros miembros que votaron
    * al mismo tiempo.
    */
-  outcome(): RequestChatState | undefined {
-    if (!this.isInProgress()) {
-      return undefined;
-    }
-    if (this.countApproves() >= +APPROVE_THRESHOLD) {
+  static outcomeFor(votes: VoteTally): RequestChatState | undefined {
+    if (votes.approved >= +APPROVE_THRESHOLD) {
       return RequestChatState.Approved();
     }
-    if (this.countRejects() >= +REJECT_THRESHOLD) {
+    if (votes.rejected >= +REJECT_THRESHOLD) {
       return RequestChatState.Rejected();
     }
     return undefined;
   }
 
-  close(state: RequestChatState): void {
-    this.props.state = state;
-  }
-
-  private isSameVote(vote: RequestChatVoteEntity): boolean {
-    const existingVote = this.props.votes.find((v) => v.equals(vote));
-    return existingVote ? existingVote.props.type === vote.props.type : false;
+  /** Aviso al solicitante de que tiene un mensaje nuevo. */
+  static newMessageNotificationText(requester: UserEntity): string {
+    return `${requester.name}, tienes un mensaje nuevo en el [chat](${TELEGRAM_BOT_LINK}).`;
   }
 
   isApproved(): boolean {
@@ -192,9 +173,5 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
   get id(): UUID {
     return this._id;
-  }
-
-  getNewMessageNotificationText(): string {
-    return `${this.props.requester.name}, tienes un mensaje nuevo en el [chat](${TELEGRAM_BOT_LINK}).`;
   }
 }

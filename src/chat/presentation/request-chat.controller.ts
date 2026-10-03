@@ -21,6 +21,7 @@ import {
 } from './dtos/list-request-chat.dto';
 import { RequestChatCursorCodec } from './request-chat-cursor';
 import { VoteRequestChatParamsDto } from './dtos/vote-request-chat-params.dto';
+import { VoteRequestChatDto } from './dtos/vote-request-chat.dto';
 import { UserService } from 'src/members/application/user.service';
 import type { CustomRequest } from 'src/shared/types/custom-request.interface';
 import { ApplicantsOnly, MembersOnly } from 'src/auth/presentation/roles.guard';
@@ -77,12 +78,12 @@ export class RequestChatController {
   async voteOnRequestChat(
     @Param() { id, type }: VoteRequestChatParamsDto,
     @Req() req: CustomRequest,
-  ): Promise<GetRequestChatDto> {
-    const { requestChat, messages } = await this.chatService.voteOnRequestChat(
+  ): Promise<VoteRequestChatDto> {
+    const result = await this.chatService.voteOnRequestChat(
       UUID.from(id),
       req.user,
       type,
     );
-    return RequestChatMapper.toDto(requestChat, messages, req.user);
+    return RequestChatMapper.toVoteDto(result);
   }
 }

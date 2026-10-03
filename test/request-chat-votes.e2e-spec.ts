@@ -3,6 +3,7 @@ import { mongo, type Connection } from 'mongoose';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { InitDataAuthService } from '../src/auth/application/init-data-auth.service';
+import { BackgroundQueue } from '../src/shared/async/background-queue';
 import {
   createTestApp,
   TEST_BOT_TOKEN,
@@ -138,6 +139,8 @@ describe('Votos atómicos y lecturas sin efectos (e2e)', () => {
     expect(responses.every((r) => r.status === 200 || r.status === 409)).toBe(
       true,
     );
+    // El mensaje de cierre y los avisos van en segundo plano.
+    await testApp.app.get(BackgroundQueue).drain();
     const chat = (
       await request(server)
         .get(`/request-chats/${requestChat.uuid}`)

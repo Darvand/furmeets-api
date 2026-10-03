@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ChatGateway } from './presentation/chat.gateway';
 import { CHAT_PROVIDERS } from './chat.providers';
 import { ChatMongoRepository } from './infraestructure/repositories/chat-mongo.repository';
@@ -20,12 +20,17 @@ import {
   RequestChatMessage,
   RequestChatMessageSchema,
 } from './infraestructure/schemas/request-chat-message.schema';
+import { BackgroundQueue } from 'src/shared/async/background-queue';
 
 @Module({
   providers: [
     ChatService,
     ChatGateway,
     RequestChatAccessService,
+    {
+      provide: BackgroundQueue,
+      useFactory: () => new BackgroundQueue(new Logger(BackgroundQueue.name)),
+    },
     {
       provide: CHAT_PROVIDERS.RequestChatRepository,
       useClass: ChatMongoRepository,
