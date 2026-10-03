@@ -523,20 +523,32 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Hoy enviar un mensaje espera ~5 operaciones de Mongo y un `sendMessage` de Telegram antes de emitir, y votar espera ~5 llamadas a Telegram en serie. Nuevo orden: persistir (una operación atómica) → ack al emisor y emit a la sala → notificaciones de Telegram en segundo plano, con log de error. El emit ocurre después de guardar. Crear un helper de cola reutilizable (en memoria, con reintento simple), que después usan T16, T27 y T29.
 
 **Acceptance criteria:**
-- [ ] El ack y el emit no esperan ninguna llamada a Telegram (verificado con Telegram simulado que tarda 2 s)
-- [ ] Si Telegram falla, el mensaje o voto queda guardado y emitido, y el error se registra
-- [ ] Enviar y votar hacen como máximo 2 operaciones de Mongo en el camino crítico
+- [x] El ack y el emit no esperan ninguna llamada a Telegram (verificado con Telegram simulado que tarda 2 s)
+- [x] Si Telegram falla, el mensaje o voto queda guardado y emitido, y el error se registra
+- [x] Enviar y votar hacen como máximo 2 operaciones de Mongo en el camino crítico
 
 **Verification:**
-- [ ] Unitarias del servicio con Telegram simulado lento y con error
-- [ ] Script de T37: p95 de enviar y votar < 500 ms en staging
+- [x] Unitarias del servicio con Telegram simulado lento y con error (`chat.service.spec.ts`, `background-queue.spec.ts`)
+- [x] e2e con Telegram simulado de 2 s y con error, contando los comandos de Mongo (`test/send-vote-background.e2e-spec.ts`)
+- [ ] Script de T37: p95 de enviar y votar < 500 ms en staging. Queda para cuando se tome la línea base, como en T40.
+
+**Notas de implementación:**
+- **Cola.** `BackgroundQueue` (`src/shared/async/background-queue.ts`): en memoria, de a una tarea y en orden de llegada, hasta 3 intentos con espera creciente, máximo 1.000 pendientes, y al apagar espera hasta 5 s. Corre fuera del contexto de medición de la petición, así sus llamadas no suman al log de tiempos. Lo encolado se pierde si el proceso se reinicia: sirve para avisos, no para datos. Queda en `shared` y no en `telegram-bridge` porque ese módulo aún no existe y la cola no depende de Telegram; T16, T27 y T29 la reutilizan.
+- **Enviar** (socket `request-chat`). Una lectura liviana de solicitante y estado (`findHeader`, sin `populate`) que sirve para autorizar y validar, y la inserción: 2 operaciones. El gateway emite a la sala y devuelve el mensaje como ack. El aviso de Telegram va a la cola; si escribe un miembro, el solicitante se lee ahí, fuera del camino crítico. La autorización pasó del gateway al servicio (`canAccessLoaded`) para no leer la solicitud dos veces.
+- **Votar.** Alternar el voto (repetir lo retira, otro lo reemplaza) es ahora un único `findOneAndUpdate` con pipeline de actualización: decide y escribe en la misma operación atómica, sin leer antes. Si cruza un umbral, un `updateOne` filtrado cierra la solicitud: 2 operaciones. Solo si otro voto la cerró entre medio se lee su estado real (una tercera, poco común). La regla de alternar salió de la entidad (`addVote`) y quedó en el repositorio; el umbral sigue en el dominio (`RequestChatEntity.outcomeFor`).
+- **Cierre en segundo plano.** El mensaje de cierre, el `request-chat-update` y los avisos de Telegram van a la cola. El mensaje de cierre no se reintenta, para no duplicarlo si la inserción llegó a guardarse.
+- **Cambio de contrato.** `PUT /request-chats/:id/vote/:type` responde solo `{ uuid, state, votes, userVote? }`, sin mensajes ni solicitante: devolver la solicitud completa costaba 3 lecturas más. Si el voto cerró la solicitud, la solicitud con el mensaje de cierre llega por `request-chat-update`. La App se ajustó en la rama `feat/t41-light-vote-response`; **API y App se despliegan juntas.**
+- **Qué cuenta como camino crítico.** Las 2 operaciones son las de enviar y votar. Una petición HTTP suma además la lectura del usuario autenticado (`find`), común a todos los endpoints; el socket la hace al conectar, no por mensaje.
+- **Crear solicitud** también dejó de esperar el anuncio al grupo (RNF-REN-08).
+- **Aviso al grupo de un mensaje del solicitante** (decidido el 2026-10-03). Lleva el nombre, el contenido (escapado para Markdown y recortado a 3.500 caracteres) y un enlace `TELEGRAM_BOT_LINK?startapp=<id de la solicitud>`. La App todavía no lee `startapp`: por ahora el enlace abre la App en el inicio. Que abra la solicitud queda para la App, junto al puente de T27.
+- **Hallazgo aparte:** `ValueObject.equals` devuelve `true` para cualquier par de objetos (no compara `props`). Aquí se compara por `.value`; falta corregirlo en una tarea aparte.
 
 **Dependencies:** T11
 
 **Files likely touched:**
 - `src/chat/application/chat.service.ts`
 - `src/chat/presentation/chat.gateway.ts`
-- `src/telegram-bridge/application/telegram-queue.ts` (+ `.spec.ts`)
+- `src/shared/async/background-queue.ts` (+ `.spec.ts`)
 
 **Estimated scope:** M
 
@@ -954,7 +966,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Files likely touched:**
 - `src/telegram-bridge/application/bridge.service.ts` (+ `.spec.ts`)
-- `src/telegram-bridge/application/telegram-queue.ts`
+- `src/shared/async/background-queue.ts` (cola de T41)
 - `src/chat/application/chat.service.ts`
 
 **Estimated scope:** M

@@ -15,7 +15,7 @@ import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper
 import type { Server } from 'socket.io';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
-import { Logger, UseInterceptors } from '@nestjs/common';
+import { ForbiddenException, Logger, UseInterceptors } from '@nestjs/common';
 import { TimingInterceptor } from 'src/shared/interceptors/timing.interceptor';
 import { InitDataAuthService } from 'src/auth/application/init-data-auth.service';
 import {
@@ -24,7 +24,9 @@ import {
 } from 'src/auth/presentation/ws-auth.middleware';
 import { MembershipService } from 'src/membership/application/membership.service';
 import { Roles } from 'src/membership/domain/role';
-import { RequestChatAccessService } from '../application/request-chat-access.service';
+import { isUUID } from 'class-validator';
+import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
+import { GetRequestChatMessageDto } from './dtos/get-request-chat-message.dto';
 
 /** Sala de todos los miembros: reciben los eventos de todas las solicitudes. */
 export const MEMBERS_ROOM = 'members';
@@ -56,7 +58,6 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     private readonly chatService: ChatService,
     private readonly initDataAuth: InitDataAuthService,
     private readonly membershipService: MembershipService,
-    private readonly access: RequestChatAccessService,
   ) {}
 
   afterInit(server: Server): void {
@@ -93,24 +94,34 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
   async handleChatRequest(
     @MessageBody() message: CreateRequestChatMessageDto,
     @ConnectedSocket() socket: AuthenticatedSocket,
-  ): Promise<void> {
+  ): Promise<GetRequestChatMessageDto> {
     // El autor es siempre el usuario del socket, nunca un campo del payload (RNF-SEG-02).
     const author = socket.data.user;
-    if (!(await this.access.canAccess(author, message.requestChatUUID))) {
-      this.logger.warn(
-        'Autorización rechazada: request-chat (ni dueño ni miembro)',
-      );
-      throw new WsException('forbidden');
+    if (!isUUID(message.requestChatUUID)) {
+      throw this.forbidden();
     }
-    const messageEntity = await this.chatService.addMessageToRequestChat(
-      UUID.from(message.requestChatUUID),
-      author,
-      message.content,
+    let messageEntity: RequestChatMessageEntity;
+    try {
+      // Guarda y vuelve: el aviso de Telegram queda en segundo plano (RNF-REN-08).
+      messageEntity = await this.chatService.addMessageToRequestChat(
+        UUID.from(message.requestChatUUID),
+        author,
+        message.content,
+      );
+    } catch (error) {
+      throw error instanceof ForbiddenException ? this.forbidden() : error;
+    }
+    const dto = RequestChatMessageMapper.toDto(messageEntity);
+    this.toRequestChat(message.requestChatUUID).emit('request-chat', dto);
+    // Ack al emisor: el mensaje ya quedó guardado.
+    return dto;
+  }
+
+  private forbidden(): WsException {
+    this.logger.warn(
+      'Autorización rechazada: request-chat (ni dueño ni miembro)',
     );
-    this.toRequestChat(message.requestChatUUID).emit(
-      'request-chat',
-      RequestChatMessageMapper.toDto(messageEntity),
-    );
+    return new WsException('forbidden');
   }
 
   emitRequestChatUpdate(

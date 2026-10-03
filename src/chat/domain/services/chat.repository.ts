@@ -2,7 +2,8 @@ import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import {
   RequestChatEntity,
-  type VoteChange,
+  type VoteTally,
+  type VoteType,
 } from '../entities/request-chat.entity';
 import {
   RequestChatState,
@@ -13,6 +14,20 @@ import {
 export interface RequestChatSummary {
   id: UUID;
   state: RequestChatStateType;
+}
+
+/** Lo mínimo de una solicitud para autorizar y validar un mensaje. */
+export interface RequestChatHeader {
+  id: UUID;
+  requesterId: UUID;
+  state: RequestChatStateType;
+}
+
+/** Cómo quedan los votos tras el voto de un miembro. */
+export interface VoteApplied {
+  votes: VoteTally;
+  /** El voto que le quedó al miembro; falta si lo retiró. */
+  voterVote?: VoteType;
 }
 
 /** Posición en el listado: la última solicitud de la página anterior. */
@@ -50,15 +65,17 @@ export interface RequestChatPage {
 export interface ChatRepository {
   createRequestChat(requestChat: RequestChatEntity): Promise<void>;
   /**
-   * Guarda el voto de un miembro si la solicitud sigue en curso. Devuelve la solicitud
-   * con los votos guardados (incluidos los de otros miembros), o `null` si ya no está
-   * en curso.
+   * Aplica el voto de un miembro con una sola operación atómica, si la solicitud sigue
+   * en curso: repetir el mismo voto lo retira y uno distinto reemplaza al anterior.
+   * Devuelve los conteos con los votos guardados (incluidos los de otros miembros que
+   * votaron al mismo tiempo), o `null` si la solicitud no existe o ya no está en curso.
    */
-  applyVote(
+  toggleVote(
     id: UUID,
-    change: VoteChange,
+    voter: UUID,
+    type: VoteType,
     at: Date,
-  ): Promise<RequestChatEntity | null>;
+  ): Promise<VoteApplied | null>;
   /** Cierra la solicitud si sigue en curso. Devuelve si esta llamada la cerró. */
   close(id: UUID, state: RequestChatState): Promise<boolean>;
   getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null>;
@@ -67,8 +84,8 @@ export interface ChatRepository {
   findSummaryByRequester(
     requesterUUID: UUID,
   ): Promise<RequestChatSummary | null>;
-  /** Solo el solicitante de una solicitud (para autorizar), sin cargar el resto. */
-  findRequesterId(id: UUID): Promise<UUID | null>;
+  /** Solicitante y estado, sin cargar votos ni usuarios (una sola lectura). */
+  findHeader(id: UUID): Promise<RequestChatHeader | null>;
   /**
    * Una página del listado con el resumen de cada solicitud, armado en la BD: no carga
    * mensajes, así el costo no depende de cuántos mensajes hay en total (RNF-REN-04).

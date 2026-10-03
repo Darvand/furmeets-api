@@ -173,20 +173,27 @@ describe('Mensajes en su propia colección (e2e)', () => {
     const updated = new Promise<RequestChatDto>((resolve) =>
       ana.once('request-chat-update', resolve),
     );
-    let closing: RequestChatDto | undefined;
+    let closing: { state: string } | undefined;
     for (const member of [MEMBER, MEMBER_2, MEMBER_3]) {
       closing = (
         await request(server)
           .put(`/request-chats/${requestChat.uuid}/vote/reject`)
           .set('Authorization', tmaAuth(member))
           .expect(200)
-      ).body as RequestChatDto;
+      ).body as { state: string };
     }
 
+    // La respuesta del voto trae solo el estado; el mensaje de cierre llega por socket.
     expect(closing!.state).toBe('Rejected');
-    const last = closing!.messages.at(-1)!;
+    const last = (await updated).messages.at(-1)!;
     expect(last.content).toContain('rechazada');
-    expect((await updated).messages.at(-1)!.uuid).toBe(last.uuid);
+    const stored = (
+      await request(server)
+        .get(`/request-chats/${requestChat.uuid}`)
+        .set('Authorization', tmaAuth(MEMBER))
+        .expect(200)
+    ).body as RequestChatDto;
+    expect(stored.messages.at(-1)!.uuid).toBe(last.uuid);
     const doc = await db.collection('requestchats').findOne({});
     expect(doc).not.toHaveProperty('messages');
     expect(doc).toMatchObject({ state: 'Rejected' });

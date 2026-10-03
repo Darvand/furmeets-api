@@ -3,14 +3,16 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, mongo } from 'mongoose';
 import {
   RequestChatEntity,
-  type VoteChange,
+  type VoteType,
 } from 'src/chat/domain/entities/request-chat.entity';
 import {
   ChatRepository,
   RequestChatCursor,
+  RequestChatHeader,
   RequestChatListItem,
   RequestChatPage,
   RequestChatSummary,
+  VoteApplied,
 } from 'src/chat/domain/services/chat.repository';
 import { RequestChatState } from 'src/chat/domain/value-objects/request-chat-state.value-object';
 import { toUUIDString } from 'src/shared/infraestructure/mongo-uuid';
@@ -77,39 +79,97 @@ export class ChatMongoRepository implements ChatRepository {
     await this.requestChatModel.insertOne(dbRequestChat);
   }
 
-  async applyVote(
+  async toggleVote(
     id: UUID,
-    change: VoteChange,
+    voter: UUID,
+    type: VoteType,
     at: Date,
-  ): Promise<RequestChatEntity | null> {
-    const inProgress = {
-      _id: id.value,
-      state: RequestChatState.InProgress().props.value,
-    };
-    if (change.kind === 'removed') {
-      return this.updateAndRead(inProgress, {
-        $pull: { votes: { from: change.userId } },
-      });
+  ): Promise<VoteApplied | null> {
+    // Los pipelines no pasan por los casts de Mongoose: el UUID va como `Binary`.
+    const from = new mongo.UUID(voter.value);
+    const votes = { $ifNull: ['$votes', []] };
+    const isVoter = { $eq: ['$$this.from', from] };
+    // Un pipeline de actualización decide y escribe en la misma operación atómica, así
+    // dos votos a la vez (del mismo o de distintos miembros) no se pisan.
+    const doc = await this.requestChatModel
+      .findOneAndUpdate(
+        { _id: id.value, state: RequestChatState.InProgress().props.value },
+        [
+          {
+            $set: {
+              votes: {
+                $let: {
+                  vars: { mine: { $filter: { input: votes, cond: isVoter } } },
+                  in: {
+                    $switch: {
+                      branches: [
+                        // El mismo voto otra vez: se retira.
+                        {
+                          case: { $in: [type, '$$mine.type'] },
+                          then: {
+                            $filter: {
+                              input: votes,
+                              cond: { $not: [isVoter] },
+                            },
+                          },
+                        },
+                        // Primer voto del miembro: se agrega.
+                        {
+                          case: { $eq: [{ $size: '$$mine' }, 0] },
+                          then: {
+                            $concatArrays: [
+                              votes,
+                              [
+                                {
+                                  _id: new mongo.ObjectId(),
+                                  from,
+                                  type,
+                                  createdAt: at,
+                                  updatedAt: at,
+                                },
+                              ],
+                            ],
+                          },
+                        },
+                      ],
+                      // Un voto distinto: reemplaza al anterior en su lugar.
+                      default: {
+                        $map: {
+                          input: votes,
+                          in: {
+                            $cond: [
+                              isVoter,
+                              {
+                                $mergeObjects: [
+                                  '$$this',
+                                  { type, updatedAt: at },
+                                ],
+                              },
+                              '$$this',
+                            ],
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+        { new: true, projection: { votes: 1 } },
+      )
+      .lean<{ votes: { from: UUIDValue; type: string }[] }>()
+      .exec();
+    if (!doc) {
+      return null;
     }
-    const from = change.vote.props.user.id.value;
-    const type = change.vote.props.type;
-    // Cambia el voto que ya tenía…
-    const replace = () =>
-      this.updateAndRead(
-        { ...inProgress, 'votes.from': from },
-        { $set: { 'votes.$.type': type, 'votes.$.updatedAt': at } },
-      );
-    // …o agrega uno nuevo; `$ne` evita un segundo voto del mismo miembro.
-    const add = () =>
-      this.updateAndRead(
-        { ...inProgress, 'votes.from': { $ne: from } },
-        {
-          $push: { votes: { from, type, createdAt: at, updatedAt: at } },
-        },
-      );
-    // Si ninguna aplica, otra petición del mismo miembro agregó su voto en medio: se
-    // reemplaza ese. Si tampoco, la solicitud ya no está en curso.
-    return (await replace()) ?? (await add()) ?? (await replace());
+    const count = (t: VoteType) => doc.votes.filter((v) => v.type === t).length;
+    const own = doc.votes.find((v) => toUUIDString(v.from) === voter.value);
+    return {
+      votes: { approved: count('approve'), rejected: count('reject') },
+      voterVote: own?.type as VoteType | undefined,
+    };
   }
 
   async close(id: UUID, state: RequestChatState): Promise<boolean> {
@@ -118,19 +178,6 @@ export class ChatMongoRepository implements ChatRepository {
       { $set: { state: state.props.value, updatedAt: new Date() } },
     );
     return result.modifiedCount === 1;
-  }
-
-  /** Aplica `update` si el filtro coincide y devuelve la solicitud ya actualizada. */
-  private async updateAndRead(
-    filter: Record<string, unknown>,
-    update: Record<string, unknown>,
-  ): Promise<RequestChatEntity | null> {
-    const doc = await this.requestChatModel
-      .findOneAndUpdate(filter, update, { new: true })
-      .populate('requester')
-      .populate('votes.from')
-      .exec();
-    return doc ? RequestChatMapper.fromDb(doc) : null;
   }
 
   async getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null> {
@@ -264,11 +311,18 @@ export class ChatMongoRepository implements ChatRepository {
     };
   }
 
-  async findRequesterId(id: UUID): Promise<UUID | null> {
+  async findHeader(id: UUID): Promise<RequestChatHeader | null> {
     const doc = await this.requestChatModel
-      .findOne({ _id: id.value }, { requester: 1 })
-      .lean<{ requester: Parameters<typeof toUUIDString>[0] }>()
+      .findOne({ _id: id.value }, { requester: 1, state: 1 })
+      .lean<{ _id: UUIDValue; requester: UUIDValue; state: string }>()
       .exec();
-    return doc ? UUID.from(toUUIDString(doc.requester)) : null;
+    if (!doc) {
+      return null;
+    }
+    return {
+      id: UUID.from(toUUIDString(doc._id)),
+      requesterId: UUID.from(toUUIDString(doc.requester)),
+      state: RequestChatState.create(doc.state).props.value,
+    };
   }
 }

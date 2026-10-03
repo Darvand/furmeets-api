@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   forwardRef,
   Inject,
   Injectable,
@@ -7,10 +8,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CHAT_PROVIDERS } from '../chat.providers';
-import { RequestChatEntity } from '../domain/entities/request-chat.entity';
+import {
+  RequestChatEntity,
+  type VoteTally,
+  type VoteType,
+} from '../domain/entities/request-chat.entity';
 import type {
   ChatRepository,
   RequestChatCursor,
+  RequestChatHeader,
   RequestChatPage,
   RequestChatSummary,
 } from '../domain/services/chat.repository';
@@ -19,12 +25,16 @@ import { RequestChatMessageEntity } from '../domain/entities/request-chat-messag
 import { UserService } from 'src/members/application/user.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { CreateRequestChatDto } from '../presentation/dtos/create-request-chat.dto';
-import { DateTime } from 'luxon';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
-import { RequestChatVoteEntity } from '../domain/entities/request-chat-vote.entity';
 import { ChatGateway } from '../presentation/chat.gateway';
 import { MonotonicClock } from 'src/shared/time/monotonic-clock';
+import { BackgroundQueue } from 'src/shared/async/background-queue';
+import {
+  RequestChatState,
+  type RequestChatStateType,
+} from '../domain/value-objects/request-chat-state.value-object';
+import { RequestChatAccessService } from './request-chat-access.service';
 
 /** Una solicitud con sus mensajes, en orden cronológico. */
 export interface RequestChatView {
@@ -32,6 +42,20 @@ export interface RequestChatView {
   messages: RequestChatMessageEntity[];
 }
 
+/** Cómo quedó una solicitud tras el voto de un miembro. */
+export interface VoteResult {
+  requestChatId: UUID;
+  state: RequestChatStateType;
+  votes: VoteTally;
+  /** El voto que le quedó a quien votó; falta si lo retiró. */
+  userVote?: VoteType;
+}
+
+/**
+ * Enviar y votar siguen el mismo orden (RNF-REN-08): guardar con operaciones atómicas,
+ * responder y emitir, y recién después avisar por Telegram desde `BackgroundQueue`.
+ * Ninguna petición espera a Telegram, y si Telegram falla lo guardado no se pierde.
+ */
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -47,6 +71,8 @@ export class ChatService {
     private readonly telegramBotService: TelegramBotService,
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
+    private readonly access: RequestChatAccessService,
+    private readonly background: BackgroundQueue,
   ) {}
 
   async createRequestChat(
@@ -78,7 +104,8 @@ export class ChatService {
     await this.messageRepository.insert(welcome);
     const view = { requestChat, messages: [welcome] };
     this.chatGateway.emitNewRequestChat(view, requester);
-    await this.telegramBotService.sendMessageToGroup(
+    this.notifyGroup(
+      'aviso de solicitud nueva',
       requestChat.announceWelcomeMesssage(),
     );
     return view;
@@ -94,40 +121,40 @@ export class ChatService {
   }
 
   /**
-   * Agrega un mensaje con una sola inserción: los envíos concurrentes no se pisan ni
-   * reescriben la solicitud (RNF-CON-01).
+   * Agrega un mensaje de `author`, que debe ser miembro o el solicitante. Son dos
+   * operaciones de Mongo: leer solicitante y estado, e insertar; los envíos concurrentes
+   * no se pisan ni reescriben la solicitud (RNF-CON-01). El aviso de Telegram queda en
+   * segundo plano.
    */
   async addMessageToRequestChat(
     requestChatUUID: UUID,
-    user: UserEntity,
+    author: UserEntity,
     content: string,
   ): Promise<RequestChatMessageEntity> {
     this.logger.debug(
-      `Adding message to request chat UUID: ${requestChatUUID.value} from user UUID: ${user.id.value}`,
+      `Adding message to request chat UUID: ${requestChatUUID.value} from user UUID: ${author.id.value}`,
     );
-    const requestChat = await this.findRequestChat(requestChatUUID);
-    if (!requestChat.isInProgress()) {
+    const header = await this.requestChatRepository.findHeader(requestChatUUID);
+    // Primero el acceso: a quien no es miembro no se le revela si la solicitud existe.
+    if (!(await this.access.canAccessLoaded(author, header))) {
+      throw new ForbiddenException();
+    }
+    if (!header) {
+      throw this.notFound(requestChatUUID);
+    }
+    if (header.state !== RequestChatState.InProgress().props.value) {
       throw new ConflictException(
         `Cannot add messages to a request chat that is not in progress`,
       );
     }
     const message = RequestChatMessageEntity.send(
-      requestChat.id,
-      user,
+      header.id,
+      author,
       content,
       this.clock.now(),
     );
     await this.messageRepository.insert(message);
-    if (message.fromUser(requestChat.props.requester)) {
-      await this.telegramBotService.sendMessageToGroup(
-        `Nuevo mensaje de *${requestChat.props.requester.name}* en el chat de solicitud`,
-      );
-    } else {
-      await this.telegramBotService.sendMessageToUser(
-        requestChat.props.requester.telegramId,
-        requestChat.getNewMessageNotificationText(),
-      );
-    }
+    this.notifyNewMessage(header, message);
     return message;
   }
 
@@ -145,77 +172,129 @@ export class ChatService {
     return this.requestChatRepository.listSummaries(viewer.id, page);
   }
 
+  /**
+   * Guarda el voto con una operación atómica y, si cruza un umbral, cierra la solicitud
+   * con otra. El mensaje de cierre, el aviso por socket y los avisos de Telegram quedan
+   * en segundo plano: la respuesta solo lleva estado y conteos.
+   */
   async voteOnRequestChat(
     requestChatUUID: UUID,
     user: UserEntity,
-    type: 'approve' | 'reject',
-  ): Promise<RequestChatView> {
+    type: VoteType,
+  ): Promise<VoteResult> {
     this.logger.debug(
       `User UUID: ${user.id.value} voting on request chat UUID: ${requestChatUUID.value} with type: ${type}`,
     );
-    const current = await this.findRequestChat(requestChatUUID);
-    if (!current.isInProgress()) {
+    const applied = await this.requestChatRepository.toggleVote(
+      requestChatUUID,
+      user.id,
+      type,
+      new Date(),
+    );
+    if (!applied) {
+      // Fuera del camino feliz: distingue "no existe" (404) de "ya cerrada" (409).
+      await this.findRequestChat(requestChatUUID);
       throw this.notInProgress();
     }
-    const at = new Date();
-    const change = current.addVote(
-      RequestChatVoteEntity.create({
-        createdAt: DateTime.fromJSDate(at),
-        user,
-        type,
-      }),
-    );
-    // Atómico: guarda solo este voto y devuelve los votos de todos, incluidos los de
-    // otros miembros que votaron al mismo tiempo.
-    let requestChat = await this.requestChatRepository.applyVote(
-      current.id,
-      change,
-      at,
-    );
-    if (!requestChat) {
-      throw this.notInProgress();
-    }
+    let state = RequestChatState.InProgress().props.value;
     // Si varios votos cruzan el umbral a la vez, solo uno cierra la solicitud: ese agrega
     // el mensaje de cierre y avisa, una sola vez.
-    const outcome = requestChat.outcome();
-    let closed = false;
+    const outcome = RequestChatEntity.outcomeFor(applied.votes);
     if (outcome) {
-      closed = await this.requestChatRepository.close(requestChat.id, outcome);
-      if (closed) {
-        requestChat.close(outcome);
+      if (await this.requestChatRepository.close(requestChatUUID, outcome)) {
+        state = outcome.props.value;
+        this.afterClose(requestChatUUID, user);
       } else {
-        requestChat = await this.findRequestChat(requestChat.id);
+        // Otro voto la cerró entre medio (poco común): se informa su estado real.
+        state = (await this.findRequestChat(requestChatUUID)).state;
       }
     }
-    if (closed) {
-      const bot = await this.userService.getBotUser();
-      await this.messageRepository.insert(
-        requestChat.isApproved()
-          ? requestChat.approvedMessage(bot, this.clock.now())
-          : requestChat.rejectedMessage(bot, this.clock.now()),
-      );
-    }
-    const view = {
-      requestChat,
-      messages: await this.messageRepository.findByRequestChat(requestChat.id),
+    return {
+      requestChatId: requestChatUUID,
+      state,
+      votes: applied.votes,
+      userVote: applied.voterVote,
     };
-    if (!closed) {
-      return view;
-    }
-    this.chatGateway.emitRequestChatUpdate(view, user);
+  }
+
+  /**
+   * Tras cerrar: mensaje de cierre, aviso por socket y avisos de Telegram. El mensaje no
+   * se reintenta, para no duplicarlo si la inserción llegó a guardarse.
+   */
+  private afterClose(id: UUID, voter: UserEntity): void {
+    this.background.enqueue(
+      'cierre de solicitud',
+      async () => {
+        const [bot, requestChat] = await Promise.all([
+          this.userService.getBotUser(),
+          this.findRequestChat(id),
+        ]);
+        const at = this.clock.now();
+        await this.messageRepository.insert(
+          requestChat.isApproved()
+            ? requestChat.approvedMessage(bot, at)
+            : requestChat.rejectedMessage(bot, at),
+        );
+        this.chatGateway.emitRequestChatUpdate(
+          {
+            requestChat,
+            messages: await this.messageRepository.findByRequestChat(id),
+          },
+          voter,
+        );
+        this.notifyClosed(requestChat);
+      },
+      { attempts: 1 },
+    );
+  }
+
+  private notifyClosed(requestChat: RequestChatEntity): void {
+    const requester = requestChat.props.requester;
     if (requestChat.isApproved()) {
-      await this.telegramBotService.sendMessageToGroup(
-        requestChat.announceApproval(),
-      );
-      await this.telegramBotService.sendInviteLinkToUser(
-        requestChat.props.requester.telegramId,
+      this.notifyGroup('aviso de aprobación', requestChat.announceApproval());
+      this.background.enqueue('enlace de invitación', () =>
+        this.telegramBotService.sendInviteLinkToUser(requester.telegramId),
       );
     } else {
-      await this.telegramBotService.sendMessageToGroup(
-        requestChat.announceRejection(),
-      );
+      this.notifyGroup('aviso de rechazo', requestChat.announceRejection());
     }
-    return view;
+  }
+
+  /**
+   * Si escribe el solicitante, su mensaje llega al grupo con el enlace a la solicitud;
+   * si escribe un miembro, se avisa al solicitante.
+   */
+  private notifyNewMessage(
+    header: RequestChatHeader,
+    message: RequestChatMessageEntity,
+  ): void {
+    const author = message.author;
+    if (header.requesterId.value === author.id.value) {
+      this.notifyGroup(
+        'aviso de mensaje al grupo',
+        RequestChatEntity.requesterMessageNotice(
+          header.id,
+          author,
+          message.content,
+        ),
+      );
+      return;
+    }
+    this.background.enqueue('aviso de mensaje al solicitante', async () => {
+      const requester = await this.userService.getUserByUUID(
+        header.requesterId,
+      );
+      await this.telegramBotService.sendMessageToUser(
+        requester.telegramId,
+        RequestChatEntity.newMessageNotificationText(requester),
+      );
+    });
+  }
+
+  private notifyGroup(name: string, text: string): void {
+    this.background.enqueue(name, () =>
+      this.telegramBotService.sendMessageToGroup(text),
+    );
   }
 
   private notInProgress(): ConflictException {
@@ -224,11 +303,15 @@ export class ChatService {
     );
   }
 
+  private notFound(id: UUID): NotFoundException {
+    return new NotFoundException(`RequestChat with ID ${id.value} not found`);
+  }
+
   private async findRequestChat(id: UUID): Promise<RequestChatEntity> {
     const requestChat =
       await this.requestChatRepository.getRequestChatByUUID(id);
     if (!requestChat) {
-      throw new NotFoundException(`RequestChat with ID ${id.value} not found`);
+      throw this.notFound(id);
     }
     return requestChat;
   }
