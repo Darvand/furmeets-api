@@ -70,6 +70,24 @@
 
 Casi todo el arranque son las dos `GET /request-chats` (24–28 s cada una, con 41 chats); `POST /groups/sync` ~2.3 s; el resto < 0.6 s. En corridas anteriores con el límite de 30 s, el socket del arranque falló (`xhr post error`) mientras el servidor armaba la lista, y lo mismo pasó en producción; en estas dos corridas conectó las 6 veces. Producción no se midió completa: el arranque no termina con el límite de 30 s y no se quiso cargarla más.
 
+**Medición tras T38–T42 (2026-10-03, staging con `development`, servidor despierto, 2 corridas de n=10, p50 / p95):**
+
+| Escenario | Línea base (corrida 1) | Corrida 1 | Corrida 2 |
+|---|---|---|---|
+| arranque, App actual (`GET /me` ‖ `GET /groups`, luego listado ‖ socket) | — | 787 / 1176 ms | 768 / 803 ms |
+| arranque, flujo anterior (6 HTTP + 1 socket) | 54683 / 57999 ms | 1544 / 1925 ms | 1520 / 1794 ms |
+| abrir chat | 433 / 452 ms | 427 / 703 ms | 460 / 727 ms |
+| enviar | 948 / 1029 ms | 290 / 624 ms | 309 / 409 ms |
+| votar | 620 / 673 ms | 266 / 293 ms | 258 / 320 ms |
+
+- **Cómo se midió.** Con el script actualizado: agrega el escenario del arranque actual, conserva el anterior para comparar y envía `initData` también en el socket, porque desde T04 la API rechaza el socket sin él. Se usó una solicitud sembrada en curso, con umbrales de staging de 5 y 5. Los votos son en número par, así que la solicitud quedó como estaba.
+- **Lo que se ve.**
+  - El arranque bajó de ~55 s a menos de 1 s, sobre todo por el listado liviano (T40): `GET /request-chats` pasó de 24–28 s a ~300 ms.
+  - Enviar bajó a un tercio y votar a menos de la mitad.
+  - Abrir chat no cambió.
+- **Qué incluyen los números.** Se miden desde el cliente, así que incluyen la red hasta Render: cada petición tarda ~200–300 ms aunque el servidor responda rápido. Con n=10, el p95 es el máximo; el 624 ms de enviar en la corrida 1 es un solo valor alto. El p95 < 500 ms de RNF-REN-07 se mide en la API, con las líneas `Timing` de los logs de staging.
+- **Incidente.** Una corrida anterior, con umbrales de 3 y 1 en staging, cerró como rechazada una solicitud sembrada (Wendy Ruiz) y anunció el rechazo en el grupo de staging. El seed se había generado con los umbrales por defecto (5 y 3), así que había solicitudes "en curso" que ya alcanzaban el umbral. Si se vuelve a sembrar, hay que pasar `APPROVE_THRESHOLD` y `REJECT_THRESHOLD` iguales a los de la API.
+
 **Cómo medirla:** con el servidor de staging desplegado, correr dos veces
 `PERF_BASE_URL=<url-staging> PERF_TELEGRAM_ID=<id-de-prueba> PERF_CHAT_ID=<uuid-chat-de-prueba> PERF_WRITES=1 npm run perf:baseline`
 y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo mide arranque y abrir chat; enviar y votar escriben en la BD y notifican por Telegram, así que van contra un chat de prueba en curso al que le falten al menos 2 votos para el umbral. Las variables y precauciones están al inicio de `scripts/perf/latency-baseline.ts`. Contra el código anterior a T40, `GET /request-chats` tarda ~28 s: usar `PERF_TIMEOUT_MS=60000 PERF_ITERATIONS=3`. Un socket que no conecta no detiene la corrida; se reporta como fallo junto al escenario. El desglose Mongo / Telegram de cada petición sale en las líneas `Timing` de los logs del servidor, p. ej. `HTTP GET /request-chats/:id 200 132ms (mongo 95ms/3 · telegram 0ms/0)`.
