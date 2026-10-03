@@ -157,7 +157,10 @@ describe('ChatService', () => {
       // Telegram sigue sin responder y el mensaje ya está guardado.
       slow.release();
       await ctx.queue.drain();
-      expect(slow.call).toHaveBeenCalledWith(expect.stringContaining('User 1'));
+      const notice = (slow.call.mock.calls[0] as unknown as [string])[0];
+      expect(notice).toContain('User 1');
+      expect(notice).toContain('hola');
+      expect(notice).toContain(`startapp=${ctx.requestChat.id.value}`);
     });
 
     it('si escribe un miembro, avisa al solicitante en segundo plano', async () => {

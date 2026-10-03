@@ -63,7 +63,7 @@
 
 **Cómo medirla:** con el servidor de staging desplegado, correr dos veces
 `PERF_BASE_URL=<url-staging> PERF_TELEGRAM_ID=<id-de-prueba> PERF_CHAT_ID=<uuid-chat-de-prueba> PERF_WRITES=1 npm run perf:baseline`
-y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo mide arranque y abrir chat; enviar y votar escriben en la BD y notifican por Telegram, así que van contra un chat de prueba en curso al que le falten al menos 2 votos para el umbral. Las variables y precauciones están al inicio de `scripts/perf/latency-baseline.ts`. El desglose Mongo / Telegram de cada petición sale en las líneas `Timing` de los logs del servidor, p. ej. `HTTP GET /request-chats/:id 200 132ms (mongo 95ms/3 · telegram 0ms/0)`.
+y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo mide arranque y abrir chat; enviar y votar escriben en la BD y notifican por Telegram, así que van contra un chat de prueba en curso al que le falten al menos 2 votos para el umbral. Las variables y precauciones están al inicio de `scripts/perf/latency-baseline.ts`. Contra el código anterior a T40, `GET /request-chats` tarda ~28 s: usar `PERF_TIMEOUT_MS=60000 PERF_ITERATIONS=3`. Un socket que no conecta no detiene la corrida; se reporta como fallo junto al escenario. El desglose Mongo / Telegram de cada petición sale en las líneas `Timing` de los logs del servidor, p. ej. `HTTP GET /request-chats/:id 200 132ms (mongo 95ms/3 · telegram 0ms/0)`.
 
 ---
 
@@ -540,6 +540,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - **Cambio de contrato.** `PUT /request-chats/:id/vote/:type` responde solo `{ uuid, state, votes, userVote? }`, sin mensajes ni solicitante: devolver la solicitud completa costaba 3 lecturas más. Si el voto cerró la solicitud, la solicitud con el mensaje de cierre llega por `request-chat-update`. La App se ajustó en la rama `feat/t41-light-vote-response`; **API y App se despliegan juntas.**
 - **Qué cuenta como camino crítico.** Las 2 operaciones son las de enviar y votar. Una petición HTTP suma además la lectura del usuario autenticado (`find`), común a todos los endpoints; el socket la hace al conectar, no por mensaje.
 - **Crear solicitud** también dejó de esperar el anuncio al grupo (RNF-REN-08).
+- **Aviso al grupo de un mensaje del solicitante** (decidido el 2026-10-03). Lleva el nombre, el contenido (escapado para Markdown y recortado a 3.500 caracteres) y un enlace `TELEGRAM_BOT_LINK?startapp=<id de la solicitud>`. La App todavía no lee `startapp`: por ahora el enlace abre la App en el inicio. Que abra la solicitud queda para la App, junto al puente de T27.
 - **Hallazgo aparte:** `ValueObject.equals` devuelve `true` para cualquier par de objetos (no compara `props`). Aquí se compara por `.value`; falta corregirlo en una tarea aparte.
 
 **Dependencies:** T11

@@ -154,7 +154,7 @@ export class ChatService {
       this.clock.now(),
     );
     await this.messageRepository.insert(message);
-    this.notifyNewMessage(header, author);
+    this.notifyNewMessage(header, message);
     return message;
   }
 
@@ -260,15 +260,23 @@ export class ChatService {
     }
   }
 
-  /** Avisa al grupo si escribe el solicitante, o al solicitante si escribe un miembro. */
+  /**
+   * Si escribe el solicitante, su mensaje llega al grupo con el enlace a la solicitud;
+   * si escribe un miembro, se avisa al solicitante.
+   */
   private notifyNewMessage(
     header: RequestChatHeader,
-    author: UserEntity,
+    message: RequestChatMessageEntity,
   ): void {
+    const author = message.author;
     if (header.requesterId.value === author.id.value) {
       this.notifyGroup(
         'aviso de mensaje al grupo',
-        `Nuevo mensaje de *${author.name}* en el chat de solicitud`,
+        RequestChatEntity.requesterMessageNotice(
+          header.id,
+          author,
+          message.content,
+        ),
       );
       return;
     }

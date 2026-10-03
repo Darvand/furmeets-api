@@ -200,9 +200,13 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
     // Enviar: leer solicitante y estado, e insertar.
     expect(mongoOpsOf('WS request-chat ok')).toBeLessThanOrEqual(2);
     await drain();
-    expect(testApp.telegramBot.sendMessageToGroup).toHaveBeenCalledWith(
-      expect.stringContaining('Ana'),
-    );
+    // Al grupo llega el mensaje de Ana con el enlace a su solicitud.
+    const notice = (
+      testApp.telegramBot.sendMessageToGroup.mock.calls as [string][]
+    ).at(-1)![0];
+    expect(notice).toContain('*Ana*');
+    expect(notice).toContain('hola, soy Ana');
+    expect(notice).toContain(`startapp=${id}`);
   });
 
   it('si Telegram falla, el mensaje queda guardado y emitido, y el error se registra', async () => {

@@ -56,6 +56,41 @@ describe('RequestChatEntity', () => {
     });
   });
 
+  describe('requesterMessageNotice', () => {
+    it('lleva al solicitante, el contenido y el enlace a la solicitud', () => {
+      const text = RequestChatEntity.requesterMessageNotice(
+        requestChat.id,
+        requester,
+        'hola, soy nuevo',
+      );
+
+      expect(text).toContain('*User 1*');
+      expect(text).toContain('hola, soy nuevo');
+      expect(text).toContain(`?startapp=${requestChat.id.value})`);
+    });
+
+    it('escapa el Markdown del usuario para que Telegram no rechace el aviso', () => {
+      const text = RequestChatEntity.requesterMessageNotice(
+        requestChat.id,
+        user(3),
+        'me_gusta *mucho* [esto] `ya`',
+      );
+
+      expect(text).toContain('me\\_gusta \\*mucho\\* \\[esto] \\`ya\\`');
+    });
+
+    it('recorta un contenido muy largo', () => {
+      const text = RequestChatEntity.requesterMessageNotice(
+        requestChat.id,
+        requester,
+        'a'.repeat(5_000),
+      );
+
+      expect(text.length).toBeLessThan(4_096);
+      expect(text).toContain('a…');
+    });
+  });
+
   it('el aviso de mensaje nuevo nombra al solicitante', () => {
     expect(RequestChatEntity.newMessageNotificationText(requester)).toContain(
       'User 1, tienes un mensaje nuevo',

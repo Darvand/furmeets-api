@@ -20,6 +20,20 @@ const REJECTED_MESSAGE_CONTENT =
 const APPROVED_MESSAGE_CONTENT =
   '¡Felicidades! Tu solicitud ha sido aprobada. Te damos la bienvenida al grupo.';
 
+/**
+ * Contenido máximo de un mensaje reenviado al grupo. Telegram acepta hasta 4096
+ * caracteres y el aviso suma encabezado y enlace.
+ */
+const GROUP_NOTICE_MAX_CONTENT = 3_500;
+
+/**
+ * Escapa texto de usuario para `parse_mode: 'Markdown'`: un `*`, `_`, `` ` `` o `[`
+ * suelto hace que Telegram rechace el mensaje entero.
+ */
+function escapeMarkdown(text: string): string {
+  return text.replace(/[_*`[]/g, '\\$&');
+}
+
 export type VoteType = 'approve' | 'reject';
 
 /** Conteos de votos de una solicitud. */
@@ -133,6 +147,26 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
       return RequestChatState.Rejected();
     }
     return undefined;
+  }
+
+  /**
+   * Mensaje del solicitante reenviado al grupo: quién escribe, el contenido y el enlace
+   * a su solicitud en la MiniApp (`startapp` lleva el id de la solicitud).
+   */
+  static requesterMessageNotice(
+    requestChatId: UUID,
+    requester: UserEntity,
+    content: string,
+  ): string {
+    const excerpt =
+      content.length > GROUP_NOTICE_MAX_CONTENT
+        ? `${content.slice(0, GROUP_NOTICE_MAX_CONTENT)}…`
+        : content;
+    return (
+      `💬 Nuevo mensaje de *${escapeMarkdown(requester.name)}* en su solicitud:\n` +
+      `${escapeMarkdown(excerpt)}\n` +
+      `[Ver solicitud](${TELEGRAM_BOT_LINK}?startapp=${requestChatId.value})`
+    );
   }
 
   /** Aviso al solicitante de que tiene un mensaje nuevo. */
