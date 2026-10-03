@@ -14,6 +14,7 @@ import { User } from 'src/members/infraestructure/schemas/user.schema';
 import { uuidRef } from 'src/shared/infraestructure/mongo-uuid';
 import type { RequestChatPage } from '../domain/services/chat.repository';
 import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
+import { ApplicationFormMapper } from 'src/applications/mappers/application-form.mapper';
 import type { VoteResult } from '../application/chat.service';
 import {
   RequestChatVotesEventDto,
@@ -30,6 +31,9 @@ export class RequestChatMapper {
         type: vote.props.type,
       })),
       state: requestChat.state,
+      form:
+        requestChat.props.form &&
+        ApplicationFormMapper.toDb(requestChat.props.form),
       interests: requestChat.props.interests,
       whereYouFoundUs: requestChat.props.whereYouFoundUs,
     };
@@ -48,6 +52,9 @@ export class RequestChatMapper {
             createdAt: DateTime.fromJSDate(vote.createdAt!),
           }),
         ),
+        form:
+          dbRequestChat.form &&
+          ApplicationFormMapper.fromDb(dbRequestChat.form),
         interests: dbRequestChat.interests,
         whereYouFoundUs: dbRequestChat.whereYouFoundUs,
       },
@@ -68,6 +75,9 @@ export class RequestChatMapper {
       messages: messages.map((message) =>
         RequestChatMessageMapper.toDto(message),
       ),
+      form:
+        requestChat.props.form &&
+        ApplicationFormMapper.toDto(requestChat.props.form),
       interests: requestChat.props.interests,
       whereYouFoundUs: requestChat.props.whereYouFoundUs,
       votes: {

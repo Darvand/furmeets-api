@@ -7,6 +7,7 @@ import {
 } from 'src/chat/domain/entities/request-chat.entity';
 import {
   ChatRepository,
+  DuplicateRequestChatError,
   RequestChatCursor,
   RequestChatHeader,
   RequestChatListItem,
@@ -27,6 +28,9 @@ import {
 import { UserMapper } from 'src/members/mappers/user.mapper';
 
 type UUIDValue = Parameters<typeof toUUIDString>[0];
+
+/** Código de Mongo para una clave única repetida. */
+const DUPLICATE_KEY = 11000;
 
 /** Lo que devuelve la agregación de `listSummaries` por cada solicitud. */
 interface RequestChatSummaryDoc {
@@ -76,7 +80,14 @@ export class ChatMongoRepository implements ChatRepository {
 
   async createRequestChat(requestChat: RequestChatEntity): Promise<void> {
     const dbRequestChat = RequestChatMapper.toDb(requestChat);
-    await this.requestChatModel.insertOne(dbRequestChat);
+    try {
+      await this.requestChatModel.insertOne(dbRequestChat);
+    } catch (error) {
+      if ((error as { code?: number }).code === DUPLICATE_KEY) {
+        throw new DuplicateRequestChatError();
+      }
+      throw error;
+    }
   }
 
   async toggleVote(

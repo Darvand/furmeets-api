@@ -640,16 +640,32 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** SEG-02, SEG-05
 
-**Description:** Entidad `ApplicationForm` y `POST /applications` con los campos de SPEC §3.1. Solo edad (entero > 0), ciudad y aceptar reglas son obligatorios. Etiqueta "Menor de edad" si edad < 18. Una solicitud por usuario, sin importar su estado. No editable. El solicitante es el usuario autenticado.
+**Description:** Entidad `ApplicationForm` y `POST /applications` con los campos de SPEC §3.1. Solo edad (entero > 0) y ciudad son obligatorias (aceptar las reglas se quitó el 2026-10-03). Etiqueta "Menor de edad" si edad < 18. Una solicitud por usuario, sin importar su estado. No editable. El solicitante es el usuario autenticado.
 
 **Acceptance criteria:**
-- [ ] Segunda solicitud del mismo usuario → 409
-- [ ] Payload sin edad, ciudad o sin aceptar reglas → 400; `requesterUUID` en el body se ignora
-- [ ] No existe endpoint de edición; un miembro no puede crear solicitud (403)
+- [x] Segunda solicitud del mismo usuario → 409
+- [x] Payload sin edad o ciudad → 400; `requesterUUID` en el body se ignora
+- [x] No existe endpoint de edición; un miembro no puede crear solicitud (403)
 
 **Verification:**
-- [ ] Unitarias de la entidad (menor, unicidad, no editable)
-- [ ] e2e de creación
+- [x] Unitarias de la entidad (menor, unicidad, no editable): `application-form.spec.ts`, `applications.service.spec.ts` y `openRequestChat` en `chat.service.spec.ts`
+- [x] e2e de creación (`test/applications.e2e-spec.ts`), incluido un envío triple simultáneo, que deja una sola solicitud
+
+**Notas de implementación:**
+- **Modelo.**
+  - `ApplicationForm` es un value object en `src/applications/domain`. `submit` valida y normaliza: recorta los textos y descarta los vacíos. No tiene métodos que lo cambien y sus datos quedan congelados.
+  - Se guarda embebido en la solicitud (`requestchats.form`), porque hay una solicitud por usuario.
+  - Las solicitudes anteriores no tienen `form`: T12 las migra y las marca `legacy`.
+- **Endpoint.**
+  - `POST /applications`, solo para solicitantes (`@ApplicantsOnly`). Devuelve la solicitud completa (como `GET /request-chats/:id`), así la App navega al chat sin pedirla de nuevo.
+  - `requesterUUID` se acepta y se ignora; cualquier otro campo desconocido da 400.
+  - Límites: textos cortos de 100 caracteres y largos de 2.000; edad entera de 1 a 120 (el tope solo descarta errores de tipeo).
+- **Apertura.** `ChatService.openRequestChat` es el flujo común del endpoint nuevo y del viejo: unicidad, bienvenida, `new-request-chat` y anuncio en el grupo en segundo plano. El anuncio usa el formulario y solo lleva las líneas con valor; escapa el texto del usuario y enlaza a la solicitud con `startapp`. La etiqueta "Menor de edad" no va en el anuncio: se muestra en señales y comentarios de la App.
+- **Lectura.** `GET /request-chats/:id` incluye `form` con `isMinor`.
+- **Una por usuario.**
+  - Además de la lectura previa, `requestchats.requester` pasa a ser índice único: un doble toque en "Enviar" no crea dos solicitudes. El `E11000` se traduce a 409.
+  - **Paso manual:** T38 creó `requester_1` no único, y Mongoose no cambia un índice que ya existe. En staging y en producción hay que correr `scripts/requester-unique-index-t13.mjs`. Sin `--apply` solo detecta duplicados; con `--apply` y `CONFIRM=<base>` deja el índice único.
+- **`POST /request-chats`** (formulario anterior) sigue hasta que la App use este endpoint (T15), y después se elimina.
 
 **Dependencies:** T06, T10
 
@@ -658,6 +674,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - `src/applications/presentation/dtos/create-application.dto.ts`
 - `src/applications/presentation/applications.controller.ts`
 - `src/chat/domain/entities/request-chat.entity.ts`
+- `scripts/requester-unique-index-t13.mjs`
 
 **Estimated scope:** M
 
@@ -691,10 +708,10 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** PRI-04, USA-01, USA-02 · **Deuda:** #13
 
-**Description:** Reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios, hasta 3 imágenes, enlace a reglas desde `VITE_RULES_URL`, aviso de envío definitivo y de que los mensajes se comparten en el grupo. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
+**Description:** Reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios, hasta 3 imágenes, aviso de envío definitivo y de que los mensajes se comparten en el grupo. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
 
 **Acceptance criteria:**
-- [ ] El botón de enviar se bloquea sin edad, ciudad o sin aceptar reglas
+- [ ] El botón de enviar se bloquea sin edad o ciudad
 - [ ] No aparece el texto "puedes editarlo hasta que empiecen a revisarte"
 - [ ] Tras enviar, navega al chat del solicitante
 

@@ -16,6 +16,14 @@ export interface RequestChatSummary {
   state: RequestChatStateType;
 }
 
+/** El usuario ya tiene una solicitud (índice único de `requester`). */
+export class DuplicateRequestChatError extends Error {
+  constructor() {
+    super('The requester already has a request chat');
+    this.name = DuplicateRequestChatError.name;
+  }
+}
+
 /** Lo mínimo de una solicitud para autorizar y validar un mensaje. */
 export interface RequestChatHeader {
   id: UUID;
@@ -63,6 +71,7 @@ export interface RequestChatPage {
  * y filtrada (ADR-001, regla 2), así los cambios concurrentes no se pisan.
  */
 export interface ChatRepository {
+  /** Lanza `DuplicateRequestChatError` si el solicitante ya tiene una. */
   createRequestChat(requestChat: RequestChatEntity): Promise<void>;
   /**
    * Aplica el voto de un miembro con una sola operación atómica, si la solicitud sigue

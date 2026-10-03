@@ -13,12 +13,13 @@ import {
   type VoteTally,
   type VoteType,
 } from '../domain/entities/request-chat.entity';
-import type {
-  ChatRepository,
-  RequestChatCursor,
-  RequestChatHeader,
-  RequestChatPage,
-  RequestChatSummary,
+import {
+  DuplicateRequestChatError,
+  type ChatRepository,
+  type RequestChatCursor,
+  type RequestChatHeader,
+  type RequestChatPage,
+  type RequestChatSummary,
 } from '../domain/services/chat.repository';
 import type { RequestChatMessageRepository } from '../domain/services/request-chat-message.repository';
 import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
@@ -84,23 +85,41 @@ export class ChatService {
     const requester = await this.userService.getUserByUUID(
       UUID.from(createRequestChatDto.requesterUUID),
     );
-    const alreadyExisting =
+    return this.openRequestChat(
+      RequestChatEntity.asNew(
+        requester,
+        createRequestChatDto.interests,
+        createRequestChatDto.whereYouFoundUs,
+      ),
+    );
+  }
+
+  /**
+   * Abre una solicitud nueva con su mensaje de bienvenida, avisa a los miembros por
+   * socket y anuncia en el grupo en segundo plano. Una por usuario, sin importar su
+   * estado (SPEC §3.1): si ya tiene una → 409, también si dos envíos llegan a la vez.
+   */
+  async openRequestChat(
+    requestChat: RequestChatEntity,
+  ): Promise<RequestChatView> {
+    const requester = requestChat.props.requester;
+    if (
       await this.requestChatRepository.chatAlreadyExistsForRequester(
         requester.id,
-      );
-    if (alreadyExisting) {
-      throw new ConflictException(
-        `User with ID ${requester.id.value} has already created a request chat`,
-      );
+      )
+    ) {
+      throw this.alreadyApplied();
     }
-    const requestChat = RequestChatEntity.asNew(
-      requester,
-      createRequestChatDto.interests,
-      createRequestChatDto.whereYouFoundUs,
-    );
     const bot = await this.userService.getBotUser();
     const welcome = requestChat.welcomeMessage(bot, this.clock.now());
-    await this.requestChatRepository.createRequestChat(requestChat);
+    try {
+      await this.requestChatRepository.createRequestChat(requestChat);
+    } catch (error) {
+      // El índice único de `requester` resuelve dos envíos simultáneos.
+      throw error instanceof DuplicateRequestChatError
+        ? this.alreadyApplied()
+        : error;
+    }
     await this.messageRepository.insert(welcome);
     const view = { requestChat, messages: [welcome] };
     this.chatGateway.emitNewRequestChat(view, requester);
@@ -295,6 +314,10 @@ export class ChatService {
     this.background.enqueue(name, () =>
       this.telegramBotService.sendMessageToGroup(text),
     );
+  }
+
+  private alreadyApplied(): ConflictException {
+    return new ConflictException('The user already has a request chat');
   }
 
   private notInProgress(): ConflictException {
