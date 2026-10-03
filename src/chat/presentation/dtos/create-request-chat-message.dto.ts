@@ -15,4 +15,9 @@ export class CreateRequestChatMessageDto {
 
   @IsUUID()
   requestChatUUID: string;
+
+  /** Id que genera el cliente para su mensaje optimista; vuelve en el ack y el evento. */
+  @IsOptional()
+  @IsUUID()
+  clientMessageId?: string;
 }

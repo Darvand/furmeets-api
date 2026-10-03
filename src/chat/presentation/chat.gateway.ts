@@ -9,13 +9,23 @@ import {
   WsException,
 } from '@nestjs/websockets';
 import { CreateRequestChatMessageDto } from './dtos/create-request-chat-message.dto';
-import { ChatService, type RequestChatView } from '../application/chat.service';
+import {
+  ChatService,
+  type RequestChatView,
+  type VoteResult,
+} from '../application/chat.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper';
 import type { Server } from 'socket.io';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
-import { ForbiddenException, Logger, UseInterceptors } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Logger,
+  UseInterceptors,
+  UsePipes,
+} from '@nestjs/common';
+import { createWsValidationPipe } from 'src/shared/validation/validation';
 import { TimingInterceptor } from 'src/shared/interceptors/timing.interceptor';
 import { InitDataAuthService } from 'src/auth/application/init-data-auth.service';
 import {
@@ -91,6 +101,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   @SubscribeMessage('request-chat')
+  @UsePipes(createWsValidationPipe())
   async handleChatRequest(
     @MessageBody() message: CreateRequestChatMessageDto,
     @ConnectedSocket() socket: AuthenticatedSocket,
@@ -111,7 +122,10 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     } catch (error) {
       throw error instanceof ForbiddenException ? this.forbidden() : error;
     }
-    const dto = RequestChatMessageMapper.toDto(messageEntity);
+    const dto: GetRequestChatMessageDto = {
+      ...RequestChatMessageMapper.toDto(messageEntity),
+      clientMessageId: message.clientMessageId,
+    };
     this.toRequestChat(message.requestChatUUID).emit('request-chat', dto);
     // Ack al emisor: el mensaje ya quedó guardado.
     return dto;
@@ -124,14 +138,19 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     return new WsException('forbidden');
   }
 
-  emitRequestChatUpdate(
-    { requestChat, messages }: RequestChatView,
-    user: UserEntity,
-  ): void {
+  /** La solicitud cambió de estado. Sin `userVote`: lo reciben todos. */
+  emitRequestChatUpdate({ requestChat, messages }: RequestChatView): void {
     this.toRequestChat(requestChat.id.value).emit(
       'request-chat-update',
-      RequestChatMapper.toDto(requestChat, messages, user),
+      RequestChatMapper.toDto(requestChat, messages),
     );
+  }
+
+  /** Conteos tras un voto, solo a los miembros: el solicitante no vota. */
+  emitVotes(result: VoteResult): void {
+    this.server
+      .to(MEMBERS_ROOM)
+      .emit('request-chat-votes', RequestChatMapper.toVotesEvent(result));
   }
 
   emitNewRequestChat(

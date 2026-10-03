@@ -12,3 +12,9 @@ export class VoteRequestChatDto {
   };
   userVote?: string;
 }
+
+/**
+ * Evento `request-chat-votes`, a la sala de miembros tras cada voto: estado y conteos.
+ * No lleva `userVote`: cada miembro conoce solo el suyo (RNF-PRI-01).
+ */
+export type RequestChatVotesEventDto = Omit<VoteRequestChatDto, 'userVote'>;
