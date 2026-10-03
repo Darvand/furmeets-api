@@ -383,7 +383,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
 ### 9.1 Migración de datos existentes
 
-Las solicitudes actuales (colección `requestchats`, con mensajes, votos y leídos embebidos) **se migran al nuevo modelo**, acoplándolas lo mejor posible:
+Las solicitudes actuales (colección `requestchats`, con mensajes y votos embebidos) **se migran al nuevo modelo**, acoplándolas lo mejor posible:
 
 | Dato actual | Destino en el nuevo modelo |
 |---|---|
@@ -391,8 +391,7 @@ Las solicitudes actuales (colección `requestchats`, con mensajes, votos y leíd
 | `whereYouFoundUs` | → "¿Cómo conociste FurMeets?" |
 | `interests` | → campo legado `legacy.interests`, que se muestra en el *Resumen* |
 | Campos nuevos del formulario (fursona, edad, etc.) | Vacíos; la solicitud se marca `legacy: true` |
-| `messages[]` embebidos | → colección de mensajes, conservando `_id`, autor y contenido. `createdAt` se toma de lo que haya en BD (puede estar alterado por el bug de la deuda #5; se acepta) |
-| `messages[].viewedBy[]` | → última lectura de cada usuario en la solicitud: la fecha del mensaje más reciente que vio. No se conserva quién leyó cada mensaje |
+| `messages[]` embebidos | → colección de mensajes, conservando solo `_id`, autor, contenido y `createdAt`. `createdAt` se toma de lo que haya en BD (puede estar alterado por el bug de la deuda #5; se acepta) |
 | `votes[]` | → votos. Los votos en contra quedan anónimos automáticamente por la regla de §3.3 |
 | `users.avatarUrl` (`file_path` caducable) | Se descarta; el avatar se resincroniza como `file_id` en la siguiente sincronización del usuario |
 | `users.species` (enum) | → texto libre |

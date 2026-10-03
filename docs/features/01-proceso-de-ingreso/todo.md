@@ -394,7 +394,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [x] e2e de concurrencia (criterio de éxito 5)
 
 **Notas de implementación:**
-- **Forma del documento.** `{ _id, requestChatId, authorId, content, readBy: [{ userId, at }], createdAt }`, con índice `{ requestChatId: 1, createdAt: 1 }`. Los leídos ya se llaman `readBy`, el destino que fija SPEC §9.1, así que T12 migra directo a esta forma.
+- **Forma del documento.** `{ _id, requestChatId, authorId, content, createdAt }`, con índice `{ requestChatId: 1, createdAt: 1 }`. T12 migra directo a esta forma. (T40 quitó los leídos por mensaje.)
 - **`createdAt`.** Lo pone un reloj monótono del servidor (`MonotonicClock`): dos mensajes nunca comparten fecha, y ordenar por `createdAt` da el orden de llegada. Vale para una sola instancia de la API.
 - **Mensajes del bot.** Bienvenida, aprobado y rechazado los crea `RequestChatEntity` y se insertan aparte.
 - **Votos y leídos.** Al votar, la solicitud todavía se guarda completa (lo cambia T11), pero ya sin mensajes. El `GET` sigue marcando leídos, ahora con un solo `updateMany` (T11 lo pasa a una operación explícita).
@@ -449,7 +449,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** CON-06, PRI-05
 
-**Description:** Script versionado e idempotente según SPEC §9.1: mueve mensajes embebidos a la colección nueva conservando `_id`, `viewedBy` → última lectura de cada usuario en `requestchatreads` (la fecha del mensaje más reciente que vio), `whereYouFoundUs` → "¿Cómo conociste FurMeets?", `interests` → `legacy.interests`, marca `legacy: true`, `species` a texto libre, descarta `avatarUrl`. Renombra la colección original sin borrarla.
+**Description:** Script versionado e idempotente según SPEC §9.1: mueve mensajes embebidos a la colección nueva conservando solo `_id`, autor, contenido y `createdAt`, `whereYouFoundUs` → "¿Cómo conociste FurMeets?", `interests` → `legacy.interests`, marca `legacy: true`, `species` a texto libre, descarta `avatarUrl`. Renombra la colección original sin borrarla.
 
 **Acceptance criteria:**
 - [ ] Correrlo dos veces no duplica nada
@@ -492,7 +492,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - **Una agregación.** Ordena por `createdAt` y `_id` descendentes (índice nuevo `{ createdAt: -1, _id: -1 }`). Trae el solicitante y el último mensaje con su autor con `$lookup`, y cuenta votos con `$filter`. No hay `populate` ni documentos de Mongoose.
 - **Respuesta.** Cada solicitud trae `uuid`, `requester`, `lastMessage?`, `unreadMessagesCount`, `state`, `votes: { approved, rejected }`, `userVote?` (solo el de quien pide) y `createdAt`. La lista trae `nextCursor` si hay otra página.
 - **Paginación.** `GET /request-chats?limit=&cursor=`. `limit` va de 1 a 100 y por defecto es 50, holgado mientras la App pide solo la primera página (pagina en T23). `cursor` es opaco (base64url de fecha + id), y uno ajeno da 400.
-- **Sin "Leído por" (decidido el 2026-10-02).** Se quitó `readBy` de los mensajes y `viewedByRequester` de la respuesta; la App no lo mostraba. Contar no leídos revisando `readBy` mensaje por mensaje crecía con el total de mensajes. Ahora `requestchatreads` guarda, por usuario y solicitud, hasta dónde leyó (`lastReadAt`). `POST /request-chats/:id/read` la avanza con `$max` en una operación.
+- **Sin "Leído por" (decidido el 2026-10-02).** No interesa saber quién vio cada mensaje ni cuándo: se quitaron los leídos por mensaje de la colección y de la respuesta (la App no los mostraba). Además, contarlos mensaje por mensaje crecía con el total de mensajes. Ahora `requestchatreads` guarda, por usuario y solicitud, hasta dónde leyó (`lastReadAt`). `POST /request-chats/:id/read` la avanza con `$max` en una operación.
 - **No leídos.** Son los mensajes posteriores a `lastReadAt` que no escribió quien mira, contados por el índice `requestChatId + createdAt` hasta un tope de 100 ("100 o más"; la App muestra "99+" en T23). Las lecturas de quien mira se traen una vez por página, con un `$lookup` sin correlación.
 - **Medición** (`npm run perf:list`, 50 solicitudes, p50; antes son las consultas de T10):
 
@@ -505,7 +505,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   | 400 | 20.000 | 497 ms | 47 ms |
 
   Hasta 100 mensajes por solicitud sube un poco porque se cuentan los no leídos uno a uno; desde el tope queda plano.
-- **Datos existentes.** Mientras no corra T12, nadie tiene `lastReadAt`, así que todo cuenta como no leído hasta abrir cada chat. T12 deriva `lastReadAt` de `viewedBy`. El seed de staging ya siembra lecturas: hay que volver a sembrar con `--reset`.
+- **Datos existentes.** Las solicitudes anteriores no traen lecturas y T12 no las migra: hasta que cada miembro abra un chat, sus mensajes cuentan como no leídos (con el tope de 100). El seed de staging ya siembra lecturas: hay que volver a sembrar con `--reset`.
 - **Reemplaza a `perf:hydration`**, que medía las consultas de T10.
 
 **Dependencies:** T10
