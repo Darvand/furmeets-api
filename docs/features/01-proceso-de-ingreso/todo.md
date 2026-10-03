@@ -20,12 +20,12 @@
 **Description:** El token actual está publicado en el bundle de la App. Revocarlo con @BotFather (`/revoke`) para prod y staging, cargar el nuevo solo en Render y quitar `VITE_TELEGRAM_BOT_TOKEN` de los secretos de Vercel y GitHub.
 
 **Acceptance criteria:**
-- [ ] El token anterior ya no responde (`getMe` → 401)
-- [ ] El token nuevo solo existe en las variables de Render (API) y en `.env` local
-- [ ] No hay `VITE_TELEGRAM_BOT_TOKEN` en Vercel ni en GitHub
+- [x] El token anterior ya no responde (`getMe` → 401)
+- [x] El token nuevo solo existe en las variables de Render (API) y en `.env` local
+- [x] No hay `VITE_TELEGRAM_BOT_TOKEN` en Vercel ni en GitHub
 
 **Verification:**
-- [ ] Manual: `curl https://api.telegram.org/bot<viejo>/getMe` falla; el bot sigue respondiendo con el nuevo
+- [x] Manual: `curl https://api.telegram.org/bot<viejo>/getMe` falla; el bot sigue respondiendo con el nuevo. Token revocado y rotado en staging y en producción (confirmado el 2026-10-03).
 
 **Dependencies:** None
 
@@ -86,6 +86,23 @@ Casi todo el arranque son las dos `GET /request-chats` (24–28 s cada una, con 
   - Enviar bajó a un tercio y votar a menos de la mitad.
   - Abrir chat no cambió.
 - **Qué incluyen los números.** Se miden desde el cliente, así que incluyen la red hasta Render: cada petición tarda ~200–300 ms aunque el servidor responda rápido. Con n=10, el p95 es el máximo; el 624 ms de enviar en la corrida 1 es un solo valor alto. El p95 < 500 ms de RNF-REN-07 se mide en la API, con las líneas `Timing` de los logs de staging.
+**Medición tras el release (2026-10-03, staging, n=20, p50 / p95, medida desde el cliente):**
+
+| Escenario | Desde el cliente | Estimado en la API (restando la red) |
+|---|---|---|
+| arranque, App actual | 783 / 1175 ms | — |
+| arranque, flujo anterior | 1551 / 1724 ms | — |
+| abrir chat (solo `GET /request-chats/:id`, como la App actual) | 490 / 663 ms | ~355 / ~500 ms |
+| enviar | 297 / 323 ms | ~150 / ~175 ms |
+| votar | 275 / 600 ms | ~140 / ~450 ms |
+| red (`GET /`, sin Mongo ni Telegram) | 133–148 / 165–174 ms | — |
+
+- **Cómo se estima.** El tiempo en la API se estimó restando la ida y vuelta de la red, medida con `GET /`. El dato exacto de RNF-REN-07 son las líneas `Timing` de los logs de Render.
+- **Enviar y votar cumplen** p95 < 500 ms. El p95 de votar sale de dos valores altos (máximo 701 ms); el p50 es ~140 ms.
+- **Abrir chat queda justo en el límite.** `GET /request-chats/:id` trae todos los mensajes de la solicitud con sus autores: la de prueba tiene unos 100 con los de las mediciones. Se resuelve con el historial paginado (T18).
+- **Escenario "abrir chat" del script.** Todavía conecta un socket nuevo, como la App antes de T42. Hoy la App reutiliza su socket, así que abrir un chat es solo la petición HTTP, y se midió aparte.
+- **RNF-REN-08** (ninguna petición espera a Telegram) lo cubren las pruebas de T41, con Telegram simulado de 2 s. Los tiempos de enviar y votar, ~150 ms en la API, son coherentes con eso.
+
 - **Incidente.** Una corrida anterior, con umbrales de 3 y 1 en staging, cerró como rechazada una solicitud sembrada (Wendy Ruiz) y anunció el rechazo en el grupo de staging. El seed se había generado con los umbrales por defecto (5 y 3), así que había solicitudes "en curso" que ya alcanzaban el umbral. Si se vuelve a sembrar, hay que pasar `APPROVE_THRESHOLD` y `REJECT_THRESHOLD` iguales a los de la API.
 
 **Cómo medirla:** con el servidor de staging desplegado, correr dos veces
@@ -287,10 +304,10 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - **1. Sin `initData` válido → 401 o rechazo:** `test/auth.e2e-spec.ts` (HTTP: sin header, otro esquema, firma inválida, usuario alterado, `auth_date` vencido, solo `x-telegram-id`) y `test/chat-socket.e2e-spec.ts` (socket: sin `initData`, firma inválida, vencido, `initData` que no es texto).
   - **2. Solicitante que pide la solicitud de otro → 403; solicitante que vota → 403:** `test/authorization.e2e-spec.ts`, incluido el miembro recién expulsado (RNF-SEG-10).
   - **4. Un solicitante no recibe eventos de otras solicitudes:** `test/authorization.e2e-spec.ts`, en la sección `socket`.
-- [ ] Revisión humana antes de seguir. Falta además completar lo manual:
-  - **T01:** revocar el token y comprobar los secretos.
-  - **T37:** anotar la línea base.
-  - **T38 y T39:** logs de T37 antes y después.
+- [x] Revisión humana antes de seguir: los PRs se revisaron y mergearon. Lo manual quedó así:
+  - **T01:** token revocado y rotado en staging y en producción (2026-10-03).
+  - **T37:** línea base anotada (2026-10-03) y medida de nuevo tras T38–T42.
+  - **T38 y T39:** el script de T37 se corrió antes y después; los índices se verificaron en staging y en producción (`EXPRESS_IXSCAN`). Faltan las líneas `Timing` de los logs.
 
 ---
 
@@ -388,11 +405,11 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Quitar `VITE_TELEGRAM_BOT_TOKEN` y toda URL `api.telegram.org/file/bot…`. Avatares, foto del grupo e imágenes se piden a `/media/:id` con auth (fetch → blob URL). Sustituir el avatar por defecto de GitHub.
 
 **Acceptance criteria:**
-- [ ] `grep -r "api.telegram.org" dist/` y `grep -r "VITE_TELEGRAM_BOT_TOKEN"` vacíos
+- [x] `grep -r "api.telegram.org" dist/` y `grep -r "VITE_TELEGRAM_BOT_TOKEN"` vacíos (build de `main`, 2026-10-03)
 - [ ] Avatares e imágenes se ven igual que antes
 
 **Verification:**
-- [ ] `npm run build` + grep sobre `dist/` (criterio de éxito 3)
+- [x] `npm run build` + grep sobre `dist/` (criterio de éxito 3)
 
 **Dependencies:** T01, T08
 
@@ -482,7 +499,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [x] Correrlo dos veces no duplica nada
 - [x] Mismo conteo de mensajes y votos antes y después: el script lo verifica al final y termina con código 1 si no cuadra
 - [x] Ensayado en staging (2026-10-03), con los datos sembrados de staging y no con una copia de producción: producción tiene los `telegramId` reales de los miembros y no se copia (decisión del 2026-10-03)
-- [ ] Ejecución en producción solo con respaldo y aprobación humana
+- [x] Ejecución en producción solo con respaldo y aprobación humana: 2026-10-03, tras el respaldo y el despliegue del release. 83 solicitudes; 1647 mensajes migrados; 431 votos; 121 `avatarUrl` quitados. Verificación OK y copia `requestchats_pre_001` conservada.
 
 **Verification:**
 - [x] Unitarias de las transformaciones y de la idempotencia (`scripts/migrations/001-request-chat-split.spec.ts`, contra un Mongo en memoria). Cubren solo lectura, migración completa, segunda corrida, corte a mitad de camino y mensaje sin autor.
@@ -671,9 +688,17 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Estimated scope:** M
 
 ### Checkpoint B: Fase 0 completa
-- [ ] Criterios de éxito 1–5 y 14
-- [ ] Script de T37 corrido de nuevo y comparado con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos
-- [ ] Revisión humana; despliegue de API y App juntas a staging y luego a producción
+- [x] Criterios de éxito 1–5 y 14:
+  - **1, 2 y 4:** e2e del Checkpoint A.
+  - **3:** build de producción de la App (`main`, 2026-10-03) sin `api.telegram.org`, `VITE_TELEGRAM_BOT_TOKEN` ni tokens de bot.
+  - **5:** `test/request-chat-messages.e2e-spec.ts` (20 mensajes concurrentes, en orden y con su `createdAt`).
+  - **14:** migración en producción con mensajes 1647/1647 y votos 431/431, y la Mini App de producción abre las solicitudes con sus mensajes.
+- [ ] Script de T37 corrido de nuevo y comparado con la línea base (hecho, ver T37); RNF-REN-06, REN-07 y REN-08 cumplidos.
+  - **Enviar y votar** cumplen p95 < 500 ms estimado en la API.
+  - **Abrir chat** queda en ~500 ms porque trae todo el historial: se resuelve con T18.
+  - **REN-08** lo cubren las pruebas de T41.
+  - **Falta** la prueba manual con red lenta (REN-06).
+- [x] Revisión humana; despliegue de API y App juntas a staging y luego a producción (2026-10-03: API PR #23, App PR #11)
 
 ---
 

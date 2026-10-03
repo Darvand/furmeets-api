@@ -2,7 +2,7 @@
 
 > Fuente: [SPEC.md](../../../SPEC.md) (§1–§15). Tareas detalladas: [todo.md](todo.md).
 > Repos: **API** = `furmeets-api` · **App** = `furmeets-mini-app`.
-> Estado: **borrador pendiente de aprobación** · 2026-09-29
+> Estado: **Fase 0 en producción** desde el 2026-10-03, junto con T13 y T12 · Fase 1 en curso · Plan creado el 2026-09-29
 
 ## Resumen
 
@@ -70,46 +70,64 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
 T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambientes · T35 rendimiento · T36 limpieza App
 ```
 
+## Estado del release (2026-10-03)
+
+La Fase 0 está en producción, junto con el formulario de la API (T13) y la migración de datos (T12). API: PR #23 (`development` → `main`); App: PR #11.
+
+- **Migración 001 en producción.**
+  - 83 solicitudes; 1647 mensajes pasados a `requestchatmessages`; 431 votos; 121 `avatarUrl` quitados.
+  - Verificación: mensajes 1647/1647 y votos 431/431, OK.
+  - Índices creados al arrancar (`users.telegramId` y `requestchats.requester` únicos); las búsquedas de T38 usan `EXPRESS_IXSCAN`.
+  - En la Mini App de producción, las solicitudes se abren con sus mensajes y la App va rápida.
+- **Bundle de producción de la App:** sin `api.telegram.org`, `VITE_TELEGRAM_BOT_TOKEN` ni tokens de bot (build de `main`, criterio de éxito 3).
+- **Latencia en staging** (script de T37, n=20, p50 desde el cliente): el arranque bajó de ~55 s a 783 ms, enviar de 948 a 297 ms y votar de 620 a 275 ms. Estimado en la API: enviar ~150 ms y votar ~140 ms.
+- **T01:** token del bot revocado y rotado en staging y en producción (confirmado el 2026-10-03).
+
+**Pendiente del release:**
+- [ ] **REN-07:** enviar y votar cumplen p95 < 500 ms (medición del 2026-10-03, ver T37 en todo.md). Abrir chat queda en ~500 ms porque trae todo el historial: se resuelve con T18. Para el dato exacto, revisar las líneas `Timing` en los logs de Render.
+- [ ] **REN-06 / T42:** prueba manual con dos cuentas y la red en "Slow 3G".
+- [ ] **Copia de la migración:** borrar `requestchats_pre_001` en producción y en staging cuando ya no haga falta (se conserva por ahora, decisión del 2026-10-03).
+
 ## Lista de tareas
 
 ### Fase 0 — Seguridad, datos y latencia (bloquea todo lo demás)
 
 Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas en el orden de ejecución. T37, T38 y T43 no dependen de nada y pueden hacerse de inmediato.
 
-- [ ] T01: Revocar el token del bot y rotar secretos
-- [ ] T37: Línea base de latencia
-- [ ] T38: Índices y lecturas livianas
-- [ ] T02: Infraestructura de pruebas y validación
-- [ ] T03: Autenticación HTTP por `initData`
-- [ ] T04: Autenticación del socket por `initData`
-- [ ] T39: Telegram fuera del camino crítico al arrancar
-- [ ] T05: Rol en vivo (`membership`) y `GET /me`
-- [ ] T06: Autorización por rol y salas por solicitud
+- [x] T01: Revocar el token del bot y rotar secretos
+- [x] T37: Línea base de latencia
+- [x] T38: Índices y lecturas livianas
+- [x] T02: Infraestructura de pruebas y validación
+- [x] T03: Autenticación HTTP por `initData`
+- [x] T04: Autenticación del socket por `initData`
+- [x] T39: Telegram fuera del camino crítico al arrancar
+- [x] T05: Rol en vivo (`membership`) y `GET /me`
+- [x] T06: Autorización por rol y salas por solicitud
 
 #### Checkpoint A: Autenticación
-- [ ] Criterios de éxito 1, 2 y 4 (SPEC §13) cubiertos por pruebas e2e
-- [ ] Revisión humana antes de seguir
+- [x] Criterios de éxito 1, 2 y 4 (SPEC §13) cubiertos por pruebas e2e
+- [x] Revisión humana antes de seguir (PRs revisados y mergeados; T01 hecho)
 
-- [ ] T07: App autenticada y enrutada por rol
-- [ ] T43: App: bundle más liviano
-- [ ] T08: Módulo `media`: canal de almacenamiento y proxy `/media/:id`
-- [ ] T09: App sin token del bot
-- [ ] T10: Mensajes en su propia colección
-- [ ] T11: Operaciones atómicas y lecturas sin efectos
-- [ ] T12: Migración de datos existentes
-- [ ] T40: Listado liviano de solicitudes
-- [ ] T41: Enviar y votar sin esperar a Telegram
-- [ ] T42: App en vivo sin recargas y con UI optimista
+- [x] T07: App autenticada y enrutada por rol
+- [x] T43: App: bundle más liviano
+- [x] T08: Módulo `media`: canal de almacenamiento y proxy `/media/:id`
+- [x] T09: App sin token del bot
+- [x] T10: Mensajes en su propia colección
+- [x] T11: Operaciones atómicas y lecturas sin efectos
+- [x] T12: Migración de datos existentes
+- [x] T40: Listado liviano de solicitudes
+- [x] T41: Enviar y votar sin esperar a Telegram
+- [x] T42: App en vivo sin recargas y con UI optimista
 
 #### Checkpoint B: Fase 0 completa
-- [ ] Criterios de éxito 1–5 y 14
-- [ ] Bundle de la App sin token (criterio 3)
-- [ ] Migración ensayada en staging
-- [ ] Latencia medida de nuevo con el script de T37 y comparada con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos
-- [ ] Revisión humana; despliegue a producción de la Fase 0
+- [x] Criterios de éxito 1–5 y 14
+- [x] Bundle de la App sin token (criterio 3)
+- [x] Migración ensayada en staging
+- [ ] Latencia medida de nuevo con el script de T37 y comparada con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos. Enviar y votar cumplen; abrir chat queda en el límite (T18). Falta la prueba manual con red lenta (REN-06).
+- [x] Revisión humana; despliegue a producción de la Fase 0 (2026-10-03)
 
 ### Fase 1 — v1 funcional
-- [ ] T13: Formulario de solicitud (API)
+- [x] T13: Formulario de solicitud (API)
 - [ ] T14: Imágenes del formulario
 - [ ] T15: App: pantalla Formulario (paso 1 de 3)
 - [ ] T16: Chat: texto con idempotencia y recuperación
