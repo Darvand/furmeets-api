@@ -1,16 +1,5 @@
-import {
-  Body,
-  Controller,
-  ForbiddenException,
-  Get,
-  Param,
-  Post,
-  Put,
-  Query,
-  Req,
-} from '@nestjs/common';
+import { Controller, Get, Param, Put, Query, Req } from '@nestjs/common';
 import { ChatService } from '../application/chat.service';
-import { CreateRequestChatDto } from './dtos/create-request-chat.dto';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { GetRequestChatDto } from './dtos/get-request-chat.dto';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
@@ -24,7 +13,7 @@ import { VoteRequestChatParamsDto } from './dtos/vote-request-chat-params.dto';
 import { VoteRequestChatDto } from './dtos/vote-request-chat.dto';
 import { UserService } from 'src/members/application/user.service';
 import type { CustomRequest } from 'src/shared/types/custom-request.interface';
-import { ApplicantsOnly, MembersOnly } from 'src/auth/presentation/roles.guard';
+import { MembersOnly } from 'src/auth/presentation/roles.guard';
 import { OwnerOrMember } from './owner-or-member.guard';
 
 @Controller('request-chats')
@@ -33,21 +22,6 @@ export class RequestChatController {
     private readonly chatService: ChatService,
     private readonly userService: UserService,
   ) {}
-
-  @Post()
-  @ApplicantsOnly()
-  async createRequestChat(
-    @Body() createRequestChatDto: CreateRequestChatDto,
-    @Req() req: CustomRequest,
-  ): Promise<GetRequestChatDto> {
-    // Hasta que T13 saque `requesterUUID` del body, solo se acepta el propio.
-    if (createRequestChatDto.requesterUUID !== req.user.id.value) {
-      throw new ForbiddenException('Can only create your own request chat');
-    }
-    const { requestChat, messages } =
-      await this.chatService.createRequestChat(createRequestChatDto);
-    return RequestChatMapper.toDto(requestChat, messages, req.user);
-  }
 
   @Get(':id')
   @OwnerOrMember()

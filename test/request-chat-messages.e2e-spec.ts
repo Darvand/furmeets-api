@@ -88,14 +88,14 @@ describe('Mensajes en su propia colección (e2e)', () => {
     url = `http://127.0.0.1:${port}`;
     db = testApp.app.get<Connection>(getConnectionToken());
 
-    const ana = await testApp.app
+    await testApp.app
       .get(InitDataAuthService)
       .authenticate(signInitData(APPLICANT, TEST_BOT_TOKEN));
     requestChat = (
       await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', tmaAuth(APPLICANT))
-        .send({ requesterUUID: ana.id.value, interests: 'furros' })
+        .send({ age: 25, city: 'Bogotá' })
         .expect(201)
     ).body as RequestChatDto;
   });

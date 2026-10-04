@@ -42,12 +42,12 @@ describe('Votos atómicos y lecturas sin efectos (e2e)', () => {
       .authenticate(signInitData(user, TEST_BOT_TOKEN));
 
   const createRequestChat = async (applicant: TelegramInitDataUser) => {
-    const entity = await authenticate(applicant);
+    await authenticate(applicant);
     return (
       await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', tmaAuth(applicant))
-        .send({ requesterUUID: entity.id.value })
+        .send({ age: 25, city: 'Bogotá' })
         .expect(201)
     ).body as RequestChatDto;
   };

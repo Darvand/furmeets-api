@@ -7,6 +7,7 @@ import { io, Socket } from 'socket.io-client';
 import { InitDataAuthService } from '../src/auth/application/init-data-auth.service';
 import { CHAT_PROVIDERS } from '../src/chat/chat.providers';
 import { RequestChatEntity } from '../src/chat/domain/entities/request-chat.entity';
+import { ApplicationForm } from '../src/applications/domain/application-form';
 import type { ChatRepository } from '../src/chat/domain/services/chat.repository';
 import type { RequestChatMessageRepository } from '../src/chat/domain/services/request-chat-message.repository';
 import { UserService } from '../src/members/application/user.service';
@@ -52,7 +53,6 @@ describe('Autorización por rol (e2e)', () => {
   const sockets: Socket[] = [];
 
   const auth = (user: TelegramInitDataUser) => tmaAuth(user);
-  const userId = (user: TelegramInitDataUser) => users.get(user.id)!.id.value;
 
   const authenticate = async (user: TelegramInitDataUser) => {
     const entity = await testApp.app
@@ -64,7 +64,10 @@ describe('Autorización por rol (e2e)', () => {
 
   const createRequestFor = async (user: TelegramInitDataUser) => {
     // Como en producción: toda solicitud nace con el mensaje de bienvenida del bot.
-    const requestChat = RequestChatEntity.asNew(users.get(user.id)!, 'furros');
+    const requestChat = RequestChatEntity.apply(
+      users.get(user.id)!,
+      ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+    );
     await chats.createRequestChat(requestChat);
     await messages.insert(
       requestChat.welcomeMessage(
@@ -205,17 +208,9 @@ describe('Autorización por rol (e2e)', () => {
 
     it('miembro crea una solicitud → 403', async () => {
       await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', auth(MEMBER))
-        .send({ requesterUUID: userId(MEMBER), interests: 'x' })
-        .expect(403);
-    });
-
-    it('solicitante crea una solicitud a nombre de otro → 403', async () => {
-      await request(server)
-        .post('/request-chats')
-        .set('Authorization', auth(APPLICANT_C))
-        .send({ requesterUUID: userId(APPLICANT_A), interests: 'x' })
+        .send({ age: 25, city: 'Bogotá' })
         .expect(403);
     });
 
@@ -320,9 +315,9 @@ describe('Autorización por rol (e2e)', () => {
       c.on('new-request-chat', (dto) => newRequests.push(dto));
 
       const res = await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', auth(APPLICANT_C))
-        .send({ requesterUUID: userId(APPLICANT_C), interests: 'furros' })
+        .send({ age: 25, city: 'Bogotá' })
         .expect(201);
       const requestC = { id: { value: (res.body as { uuid: string }).uuid } };
       await sleep(SETTLE_MS);

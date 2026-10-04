@@ -70,15 +70,15 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
   };
 
   const createRequestChat = async (applicant: TelegramInitDataUser) => {
-    const entity = await testApp.app
+    await testApp.app
       .get(InitDataAuthService)
       .authenticate(signInitData(applicant, TEST_BOT_TOKEN));
     return (
       (
         await request(server)
-          .post('/request-chats')
+          .post('/applications')
           .set('Authorization', tmaAuth(applicant))
-          .send({ requesterUUID: entity.id.value })
+          .send({ age: 25, city: 'Bogotá' })
           .expect(201)
       ).body as { uuid: string }
     ).uuid;

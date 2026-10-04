@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import { InitDataAuthService } from '../src/auth/application/init-data-auth.service';
 import { CHAT_PROVIDERS } from '../src/chat/chat.providers';
 import { RequestChatEntity } from '../src/chat/domain/entities/request-chat.entity';
+import { ApplicationForm } from '../src/applications/domain/application-form';
 import type { ChatRepository } from '../src/chat/domain/services/chat.repository';
 import type { RequestChatMessageRepository } from '../src/chat/domain/services/request-chat-message.repository';
 import { UserEntity } from '../src/members/domain/entities/user.entity';
@@ -95,7 +96,10 @@ describe('Autenticación del socket por initData (e2e)', () => {
 
   it('un mensaje de un miembro con userUUID ajeno queda a su nombre', async () => {
     const ana = await authenticate(ANA);
-    const requestChat = RequestChatEntity.asNew(ana, 'furros', 'Instagram');
+    const requestChat = RequestChatEntity.apply(
+      ana,
+      ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+    );
     const chats = testApp.app.get<ChatRepository>(
       CHAT_PROVIDERS.RequestChatRepository,
     );

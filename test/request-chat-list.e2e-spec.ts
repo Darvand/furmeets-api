@@ -99,11 +99,11 @@ describe('Listado liviano de solicitudes (e2e)', () => {
     server = testApp.app.getHttpServer() as App;
     await Promise.all(MEMBERS.map(authenticate));
     for (const applicant of APPLICANTS) {
-      const entity = await authenticate(applicant);
+      await authenticate(applicant);
       const res = await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', tmaAuth(applicant))
-        .send({ requesterUUID: entity.id.value })
+        .send({ age: 25, city: 'Bogotá' })
         .expect(201);
       created.push((res.body as { uuid: string }).uuid);
     }
