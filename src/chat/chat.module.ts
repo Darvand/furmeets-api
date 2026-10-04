@@ -14,6 +14,7 @@ import { RequestChatController } from './presentation/request-chat.controller';
 import { TelegramBotModule } from 'src/telegram-bot/telegram-bot.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { MembershipModule } from 'src/membership/membership.module';
+import { MediaModule } from 'src/media/media.module';
 import { RequestChatAccessService } from './application/request-chat-access.service';
 import { RequestChatMessageMongoRepository } from './infraestructure/repositories/request-chat-message-mongo.repository';
 import {
@@ -48,6 +49,7 @@ import { BackgroundQueue } from 'src/shared/async/background-queue';
     AuthModule,
     MembershipModule,
     TelegramBotModule,
+    MediaModule,
     MongooseModule.forFeature([
       { name: RequestChat.name, schema: RequestChatSchema },
       { name: RequestChatMessage.name, schema: RequestChatMessageSchema },

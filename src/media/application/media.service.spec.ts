@@ -38,6 +38,15 @@ function setup(role: Role = Roles.Applicant) {
       return Promise.resolve();
     }),
     registerOnce: jest.fn(() => Promise.resolve('media-existente')),
+    shareWith: jest.fn((ids: readonly string[], userId: string) => {
+      for (const id of ids) {
+        const media = stored.get(id);
+        if (media) {
+          media.sharedWith = [...(media.sharedWith ?? []), userId];
+        }
+      }
+      return Promise.resolve();
+    }),
   };
   const storage = {
     upload: jest.fn().mockResolvedValue(PHOTO),
@@ -152,6 +161,32 @@ describe('MediaService', () => {
       await expect(service.open(user(2), id)).resolves.toMatchObject({
         mimeType: 'image/jpeg',
       });
+    });
+  });
+
+  describe('shareUploads', () => {
+    it('quien recibe la imagen compartida la puede abrir sin ser miembro', async () => {
+      const { service } = setup(Roles.Applicant);
+      const member = user(1);
+      const applicant = user(2);
+      const id = await service.upload(member, JPEG);
+      await expect(service.open(applicant, id)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+
+      await service.shareUploads([id], applicant.id.value);
+
+      await expect(service.open(applicant, id)).resolves.toMatchObject({
+        mimeType: 'image/jpeg',
+      });
+    });
+
+    it('sin imágenes no escribe nada', async () => {
+      const { service, repository } = setup();
+
+      await service.shareUploads([], user(2).id.value);
+
+      expect(repository.shareWith).not.toHaveBeenCalled();
     });
   });
 

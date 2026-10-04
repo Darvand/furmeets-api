@@ -19,6 +19,10 @@ export class Media {
   @Prop({ type: mongoose.Schema.Types.UUID })
   ownerId?: string;
 
+  /** Quienes la ven sin ser miembros ni dueños (ver `visibleWithoutRole`). */
+  @Prop({ type: [mongoose.Schema.Types.UUID], default: undefined })
+  sharedWith?: string[];
+
   @Prop({ required: true })
   mimeType: string;
 

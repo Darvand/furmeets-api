@@ -9,7 +9,18 @@ export class GetRequestChatMessageDto {
    * en el historial: tras reconectar, la App confirma con él sus mensajes pendientes.
    */
   clientMessageId?: string;
+  /** Vacío si el mensaje es solo imágenes. */
   content: string;
+  /** Se ven con `GET /media/:id`; falta si no tiene imágenes. */
+  imageIds?: string[];
+  /** El mensaje al que responde, citado como estaba al enviarlo. */
+  replyTo?: {
+    uuid: string;
+    user: GetUserDto;
+    /** Inicio del texto citado; vacío si era solo imágenes. */
+    excerpt: string;
+    hasImages: boolean;
+  };
   user: GetUserDto;
   /** ISO-8601 UTC; el cliente lo formatea en su zona horaria. */
   sentAt: string;

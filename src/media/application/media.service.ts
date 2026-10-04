@@ -98,6 +98,17 @@ export class MediaService {
     }
   }
 
+  /**
+   * `viewer` también ve esas imágenes, aunque no sea miembro: el solicitante de un chat
+   * en el que un miembro las mandó. Llamar después de `assertOwnUploads`.
+   */
+  async shareUploads(ids: readonly string[], viewerId: string): Promise<void> {
+    if (!ids.length) {
+      return;
+    }
+    await this.repository.shareWith(ids, viewerId);
+  }
+
   /** Registra una foto que ya está en Telegram (avatar, foto del grupo) y devuelve su id. */
   registerTelegramPhoto(
     kind: MediaKind,

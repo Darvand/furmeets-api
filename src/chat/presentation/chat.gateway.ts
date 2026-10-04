@@ -20,6 +20,7 @@ import type { Server } from 'socket.io';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
 import {
+  BadRequestException,
   ForbiddenException,
   Logger,
   UseInterceptors,
@@ -117,11 +118,24 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
       inserted = await this.chatService.addMessageToRequestChat(
         UUID.from(message.requestChatUUID),
         author,
-        message.content,
+        {
+          content: message.content,
+          imageIds: message.imageIds,
+          replyToId: message.replyToId
+            ? UUID.from(message.replyToId)
+            : undefined,
+        },
         message.clientMessageId,
       );
     } catch (error) {
-      throw error instanceof ForbiddenException ? this.forbidden() : error;
+      if (error instanceof ForbiddenException) {
+        throw this.forbidden();
+      }
+      // Igual que un payload mal formado: la App lo marca como no enviado.
+      if (error instanceof BadRequestException) {
+        throw new WsException('invalid-payload');
+      }
+      throw error;
     }
     const dto = RequestChatMessageMapper.toDto(inserted.message);
     // Un reenvío (mismo `clientMessageId`) ya se emitió la primera vez.

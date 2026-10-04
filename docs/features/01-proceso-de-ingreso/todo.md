@@ -870,18 +870,36 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Mensajes con imágenes (sin límite de cantidad, ≤ 10 MB c/u) vía `media`, y `replyToId` para citar un mensaje de la misma solicitud.
 
 **Acceptance criteria:**
-- [ ] Un `replyToId` de otra solicitud → 400
-- [ ] El mensaje devuelto incluye la cita (autor y extracto)
+- [x] Un `replyToId` de otra solicitud → 400 (por socket, `invalid-payload`)
+- [x] El mensaje devuelto incluye la cita (autor y extracto)
 
 **Verification:**
-- [ ] e2e de imagen y de respuesta
+- [x] e2e de imagen y de respuesta (`test/request-chat-images-replies.e2e-spec.ts`); unitarias de la entidad, del servicio y de `media`
+- [x] Prueba de mutación: sin las validaciones de imágenes propias y del mensaje citado, fallan justo esos 4 casos
+
+**Notas de implementación:**
+- **Contrato del socket.** `request-chat` acepta `content?`, `imageIds?` (hasta 10 UUID sin repetir, subidos antes con `POST /media`) y `replyToId?`. Necesita texto o al menos una imagen. El mensaje devuelto (ack, evento, historial y recuperación) trae `imageIds` y `replyTo: { uuid, user, excerpt, hasImages }`; `content` queda vacío si es solo imágenes.
+- **Reglas.**
+  - `RequestChatMessageEntity.send` valida el cuerpo: texto o imágenes, máximo 10 (`MAX_MESSAGE_IMAGES`) y sin repetir.
+  - Las imágenes deben ser subidas del autor (`MediaService.assertOwnUploads`, la misma de T14).
+  - El mensaje citado debe ser de la misma solicitud.
+  - Si algo falla, el servicio responde 400 y el gateway lo devuelve como `invalid-payload`, igual que un payload mal formado: la App lo marca como no enviado.
+- **Cita.** Se guarda al enviar (`replyTo`: id, autor, los primeros 100 caracteres y si tenía imágenes). Los mensajes no se editan ni se borran, así que no se desactualiza. Leerla no pide otra consulta, solo poblar `replyTo.authorId` junto con `authorId`.
+- **Quién ve las imágenes del chat.**
+  - Las del solicitante ya las veían los miembros.
+  - Si escribe un miembro, sus imágenes se comparten con el solicitante (`media.sharedWith`, con `$addToSet`) antes de emitir el mensaje, así el solicitante puede abrirlas en cuanto lo recibe. Otro solicitante sigue recibiendo 403.
+  - `media` no depende de `chat`: guarda a quién se compartió, sin consultar la solicitud.
+- **Avisos de Telegram.** Si el mensaje es solo imágenes, el aviso al grupo dice "📷 Imagen" o "📷 N imágenes" (`preview`). Republicar las imágenes en el grupo es T27.
+- **Costo.** Un mensaje de texto sigue con 2 operaciones de Mongo. Responder suma la lectura del citado; las imágenes, su validación y, si escribe un miembro, compartirlas.
+- **Sin migración.** `content` deja de ser obligatorio en el schema; los mensajes anteriores no cambian.
 
 **Dependencies:** T08, T16
 
 **Files likely touched:**
-- `src/chat/domain/entities/request-chat-message.entity.ts`
-- `src/chat/mappers/request-chat-message.mapper.ts`
-- `src/chat/presentation/dtos/create-request-chat-message.dto.ts`
+- `src/chat/domain/entities/request-chat-message.entity.ts` (+ `.spec.ts`)
+- `src/chat/mappers/request-chat-message.mapper.ts`, `infraestructure/schemas/request-chat-message.schema.ts`, `repositories/request-chat-message-mongo.repository.ts`
+- `src/chat/application/chat.service.ts` (+ `.spec.ts`), `presentation/chat.gateway.ts`, `presentation/dtos/*message*.dto.ts`
+- `src/media/domain/media.ts`, `application/media.service.ts`, `infraestructure/media*.ts`
 
 **Estimated scope:** S
 

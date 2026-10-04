@@ -2,10 +2,38 @@ import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { Entity } from 'src/shared/domain/entities/entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 
+/** Imágenes por mensaje: lo que Telegram admite en un álbum al republicarlo (T27). */
+export const MAX_MESSAGE_IMAGES = 10;
+/** Caracteres del mensaje respondido que se citan. */
+export const REPLY_EXCERPT_LENGTH = 100;
+
+/**
+ * Cita del mensaje al que responde otro, tomada al enviarlo. Los mensajes no se editan
+ * ni se borran, así que la cita no se desactualiza y leerla no exige otra consulta.
+ */
+export interface MessageReply {
+  messageId: UUID;
+  author: UserEntity;
+  /** Inicio del texto citado; vacío si el mensaje era solo imágenes. */
+  excerpt: string;
+  hasImages: boolean;
+}
+
+/** Lo que escribe el autor: texto, imágenes o ambos, y opcionalmente a qué responde. */
+export interface MessageBody {
+  content?: string;
+  /** Ids de `media` subidos por el autor con `POST /media`. */
+  imageIds?: readonly string[];
+  replyTo?: MessageReply;
+}
+
 export interface RequestChatMessageProps {
   requestChatId: UUID;
   author: UserEntity;
+  /** Vacío si el mensaje es solo imágenes. */
   content: string;
+  imageIds?: readonly string[];
+  replyTo?: MessageReply;
   /** Lo fija el servidor al persistir y no cambia después (deuda #5). */
   createdAt: Date;
   /**
@@ -13,6 +41,14 @@ export interface RequestChatMessageProps {
    * solicitud devuelve este mensaje en vez de crear otro (RNF-CON-02).
    */
   clientMessageId?: string;
+}
+
+/** El mensaje no cumple las reglas del chat (SPEC §3.2). */
+export class InvalidMessageError extends Error {
+  constructor(readonly reason: string) {
+    super(`Invalid message: ${reason}`);
+    this.name = InvalidMessageError.name;
+  }
 }
 
 /**
@@ -32,21 +68,62 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
     return new RequestChatMessageEntity(props, id);
   }
 
-  /** Mensaje nuevo de `author`. */
+  /** Mensaje nuevo de `author`: texto, imágenes o ambos (SPEC §3.2). */
   static send(
     requestChatId: UUID,
     author: UserEntity,
-    content: string,
+    body: MessageBody,
     at: Date,
     clientMessageId?: string,
   ): RequestChatMessageEntity {
+    const content = body.content ?? '';
+    const imageIds = body.imageIds ?? [];
+    if (!/\S/.test(content) && imageIds.length === 0) {
+      throw new InvalidMessageError('a message needs text or images');
+    }
+    if (imageIds.length > MAX_MESSAGE_IMAGES) {
+      throw new InvalidMessageError(
+        `at most ${MAX_MESSAGE_IMAGES} images per message`,
+      );
+    }
+    if (new Set(imageIds).size !== imageIds.length) {
+      throw new InvalidMessageError('images must not repeat');
+    }
     return new RequestChatMessageEntity({
       requestChatId,
       author,
       content,
+      imageIds: imageIds.length ? Object.freeze([...imageIds]) : undefined,
+      replyTo: body.replyTo,
       createdAt: at,
       clientMessageId,
     });
+  }
+
+  /** La cita con la que otro mensaje responde a este. */
+  quote(): MessageReply {
+    const content = this.props.content;
+    return {
+      messageId: this.id,
+      author: this.props.author,
+      excerpt:
+        content.length > REPLY_EXCERPT_LENGTH
+          ? `${content.slice(0, REPLY_EXCERPT_LENGTH)}…`
+          : content,
+      hasImages: Boolean(this.props.imageIds?.length),
+    };
+  }
+
+  /**
+   * Texto para avisos de Telegram: el contenido o, si es solo imágenes, cuántas. (La
+   * republicación con las imágenes en el grupo es T27.)
+   */
+  get preview(): string {
+    if (/\S/.test(this.props.content)) {
+      return this.props.content;
+    }
+    const count = this.imageIds.length;
+    return count === 1 ? '📷 Imagen' : `📷 ${count} imágenes`;
   }
 
   fromUser(user: UserEntity): boolean {
@@ -67,6 +144,14 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
 
   get content(): string {
     return this.props.content;
+  }
+
+  get imageIds(): readonly string[] {
+    return this.props.imageIds ?? [];
+  }
+
+  get replyTo(): MessageReply | undefined {
+    return this.props.replyTo;
   }
 
   get createdAt(): Date {

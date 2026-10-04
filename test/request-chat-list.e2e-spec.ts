@@ -76,7 +76,9 @@ describe('Listado liviano de solicitudes (e2e)', () => {
   const send = (from: TelegramInitDataUser, uuid: string, content: string) =>
     testApp.app
       .get(ChatService)
-      .addMessageToRequestChat(UUID.from(uuid), users.get(from.id)!, content);
+      .addMessageToRequestChat(UUID.from(uuid), users.get(from.id)!, {
+        content,
+      });
 
   const vote = (
     member: TelegramInitDataUser,

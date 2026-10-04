@@ -22,9 +22,10 @@ import type {
   MessagesAfter,
   RequestChatMessageRepository,
 } from '../domain/services/request-chat-message.repository';
-import type { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
+import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
 import type { ChatGateway } from '../presentation/chat.gateway';
+import type { MediaService } from 'src/media/application/media.service';
 import { ChatService } from './chat.service';
 import type { RequestChatAccessService } from './request-chat-access.service';
 
@@ -90,6 +91,9 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
       Promise.resolve({ message, created: true }),
     ),
     findAfter: jest.fn(() => Promise.resolve<MessagesAfter | null>(null)),
+    findInRequestChat: jest.fn(() =>
+      Promise.resolve<RequestChatMessageEntity | null>(null),
+    ),
     findByRequestChat: jest.fn(() => Promise.resolve([])),
   };
   const users = {
@@ -109,6 +113,10 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
   const access = {
     canAccessLoaded: jest.fn(() => Promise.resolve(true)),
   };
+  const media = {
+    assertOwnUploads: jest.fn(() => Promise.resolve()),
+    shareUploads: jest.fn(() => Promise.resolve()),
+  };
   const queueLogger = { warn: jest.fn(), error: jest.fn() };
   const queue = new BackgroundQueue(queueLogger as unknown as Logger, {
     retryDelayMs: 1,
@@ -121,6 +129,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     gateway as unknown as ChatGateway,
     access as unknown as RequestChatAccessService,
     queue,
+    media as unknown as MediaService,
   );
   /** Operaciones de Mongo hechas hasta ahora. */
   const mongoOps = () =>
@@ -137,6 +146,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     telegram,
     gateway,
     access,
+    media,
     queue,
     queueLogger,
     mongoOps,
@@ -222,7 +232,7 @@ describe('ChatService', () => {
       const { message } = await ctx.service.addMessageToRequestChat(
         ctx.requestChat.id,
         requester,
-        'hola',
+        { content: 'hola' },
       );
 
       expect(message.content).toBe('hola');
@@ -243,11 +253,9 @@ describe('ChatService', () => {
       const ctx = setup();
       const resume = holdQueue(ctx.queue);
 
-      await ctx.service.addMessageToRequestChat(
-        ctx.requestChat.id,
-        member,
-        'hola',
-      );
+      await ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+        content: 'hola',
+      });
       expect(ctx.mongoOps()).toBe(2);
       resume();
       await ctx.queue.drain();
@@ -264,7 +272,9 @@ describe('ChatService', () => {
       ctx.telegram.sendMessageToGroup.mockRejectedValue(new Error('caído'));
 
       await expect(
-        ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, 'x'),
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
+          content: 'x',
+        }),
       ).resolves.toBeDefined();
       await ctx.queue.drain();
 
@@ -281,7 +291,7 @@ describe('ChatService', () => {
       const { message, created } = await ctx.service.addMessageToRequestChat(
         ctx.requestChat.id,
         requester,
-        'hola',
+        { content: 'hola' },
         'cliente-1',
       );
 
@@ -299,7 +309,7 @@ describe('ChatService', () => {
       const { created } = await ctx.service.addMessageToRequestChat(
         ctx.requestChat.id,
         requester,
-        'hola',
+        { content: 'hola' },
         'cliente-1',
       );
       await ctx.queue.drain();
@@ -308,12 +318,98 @@ describe('ChatService', () => {
       expect(ctx.telegram.sendMessageToGroup).not.toHaveBeenCalled();
     });
 
+    it('imágenes de un miembro: valida que sean suyas y las comparte con el solicitante', async () => {
+      const ctx = setup();
+
+      const { message } = await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        member,
+        { imageIds: ['img-1'] },
+      );
+
+      expect(message.imageIds).toEqual(['img-1']);
+      expect(ctx.media.assertOwnUploads).toHaveBeenCalledWith(member, [
+        'img-1',
+      ]);
+      expect(ctx.media.shareUploads).toHaveBeenCalledWith(
+        ['img-1'],
+        requester.id.value,
+      );
+    });
+
+    it('imágenes del solicitante: no hace falta compartirlas (los miembros ven todas)', async () => {
+      const ctx = setup();
+
+      await ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
+        imageIds: ['img-1'],
+      });
+
+      expect(ctx.media.assertOwnUploads).toHaveBeenCalled();
+      expect(ctx.media.shareUploads).not.toHaveBeenCalled();
+    });
+
+    it('imágenes ajenas → 400 y no guarda nada', async () => {
+      const ctx = setup();
+      ctx.media.assertOwnUploads.mockRejectedValue(new BadRequestException());
+
+      await expect(
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+          imageIds: ['ajena'],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
+    });
+
+    it('sin texto ni imágenes → 400', async () => {
+      const ctx = setup();
+
+      await expect(
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('responde citando el mensaje original de la misma solicitud', async () => {
+      const ctx = setup();
+      const original = RequestChatMessageEntity.send(
+        ctx.requestChat.id,
+        requester,
+        { content: '¿cuándo es el meet?' },
+        new Date(),
+      );
+      ctx.messages.findInRequestChat.mockResolvedValue(original);
+
+      const { message } = await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        member,
+        { content: 'el sábado', replyToId: original.id },
+      );
+
+      expect(message.replyTo).toMatchObject({
+        author: requester,
+        excerpt: '¿cuándo es el meet?',
+      });
+    });
+
+    it('responder a un mensaje que no es de la solicitud → 400', async () => {
+      const ctx = setup();
+
+      await expect(
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+          content: 'hola',
+          replyToId: UUID.generate(),
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
+    });
+
     it('sin acceso → 403 y no guarda nada', async () => {
       const ctx = setup();
       ctx.access.canAccessLoaded.mockResolvedValue(false);
 
       await expect(
-        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, 'x'),
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+          content: 'x',
+        }),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
     });
@@ -322,7 +418,9 @@ describe('ChatService', () => {
       const ctx = setup({ state: 'Approved' });
 
       await expect(
-        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, 'x'),
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+          content: 'x',
+        }),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
     });

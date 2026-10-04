@@ -131,7 +131,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] T14: Imágenes del formulario
 - [x] T15: App: pantalla Formulario (paso 1 de 3) — falta la prueba manual en staging
 - [x] T16: Chat: texto con idempotencia y recuperación
-- [ ] T17: Chat: imágenes y respuestas
+- [x] T17: Chat: imágenes y respuestas
 - [ ] T18: Chat: historial paginado
 - [ ] T19: Chat: mensajes de sistema y solo lectura
 - [ ] T20: App: chat del solicitante y chat de miembros

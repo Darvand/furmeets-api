@@ -103,8 +103,8 @@ Reglas:
 
 Alcance de la v1:
 - Mensajes de texto.
-- **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram).
-- **Responder a un mensaje** (cita al estilo Telegram).
+- **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram), hasta 10 por mensaje (un álbum de Telegram). Un mensaje lleva texto, imágenes o ambos. Las imágenes que manda un miembro también las ve el solicitante.
+- **Responder a un mensaje** (cita al estilo Telegram): la cita muestra al autor y el inicio del texto del mensaje original, o que era una imagen.
 - Mensajes de sistema o del bot: bienvenida, "X entró al chat de revisión" y resultado.
 - Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**.
 
