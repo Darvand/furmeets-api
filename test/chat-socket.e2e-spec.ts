@@ -135,8 +135,8 @@ describe('Autenticación del socket por initData (e2e)', () => {
       .get<RequestChatMessageRepository>(
         CHAT_PROVIDERS.RequestChatMessageRepository,
       )
-      .findByRequestChat(requestChat.id);
-    const last = stored.at(-1)!;
+      .findLatest(requestChat.id, 1);
+    const last = stored.items.at(-1)!;
     expect(last.content).toBe('hola, soy Beto');
     expect(last.author.telegramId).toBe(BETO.id);
   });

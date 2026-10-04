@@ -283,14 +283,14 @@ describe('Autorización por rol (e2e)', () => {
       const rejected = new Promise<{ message: string }>((resolve) =>
         a.once('exception', resolve),
       );
-      const before = (await messages.findByRequestChat(requestB.id)).length;
+      const before = (await messages.findLatest(requestB.id, 100)).items.length;
 
       send(a, requestB, 'intruso');
 
       expect((await rejected).message).toBe('forbidden');
       await sleep(SETTLE_MS);
       expect(bInbox).toHaveLength(0);
-      const after = (await messages.findByRequestChat(requestB.id)).length;
+      const after = (await messages.findLatest(requestB.id, 100)).items.length;
       expect(after).toBe(before);
     });
 

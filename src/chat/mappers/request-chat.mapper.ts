@@ -1,7 +1,6 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatEntity } from '../domain/entities/request-chat.entity';
 import { RequestChat } from '../infraestructure/schemas/request-chat.schema';
-import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { GetRequestChatDto } from '../presentation/dtos/get-request-chat.dto';
 import { UserMapper } from 'src/members/mappers/user.mapper';
@@ -15,7 +14,7 @@ import { uuidRef } from 'src/shared/infraestructure/mongo-uuid';
 import type { RequestChatPage } from '../domain/services/chat.repository';
 import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
 import { ApplicationFormMapper } from 'src/applications/mappers/application-form.mapper';
-import type { VoteResult } from '../application/chat.service';
+import type { RequestChatView, VoteResult } from '../application/chat.service';
 import {
   RequestChatVotesEventDto,
   VoteRequestChatDto,
@@ -65,8 +64,7 @@ export class RequestChatMapper {
   }
 
   static toDto(
-    requestChat: RequestChatEntity,
-    messages: RequestChatMessageEntity[],
+    { requestChat, messages, hasOlder }: RequestChatView,
     /** Sin `viewer` (eventos que reciben todos) no se incluye `userVote`. */
     viewer?: UserEntity,
   ): GetRequestChatDto {
@@ -76,6 +74,7 @@ export class RequestChatMapper {
       messages: messages.map((message) =>
         RequestChatMessageMapper.toDto(message),
       ),
+      hasOlderMessages: hasOlder,
       form:
         requestChat.props.form &&
         ApplicationFormMapper.toDto(requestChat.props.form),

@@ -239,7 +239,7 @@ export class ChatMongoRepository implements ChatRepository {
           },
         },
         { $unwind: '$requester' },
-        // Solo el último mensaje, por el índice `requestChatId + createdAt`.
+        // Solo el último mensaje, por el índice `requestChatId + createdAt + _id`.
         {
           $lookup: {
             from: REQUEST_CHAT_MESSAGES_COLLECTION,
@@ -247,7 +247,7 @@ export class ChatMongoRepository implements ChatRepository {
             foreignField: 'requestChatId',
             as: 'lastMessage',
             pipeline: [
-              { $sort: { createdAt: -1 } },
+              { $sort: { createdAt: -1, _id: -1 } },
               { $limit: 1 },
               {
                 $lookup: {

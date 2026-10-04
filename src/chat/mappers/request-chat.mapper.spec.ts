@@ -30,8 +30,7 @@ describe('RequestChatMapper', () => {
 
   it('las fechas de los mensajes van en ISO-8601 UTC, sin formato del servidor', () => {
     const dto = RequestChatMapper.toDto(
-      requestChat,
-      [welcome, hello],
+      { requestChat, messages: [welcome, hello], hasOlder: false },
       requester,
     );
 
