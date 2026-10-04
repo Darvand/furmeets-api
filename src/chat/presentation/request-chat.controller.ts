@@ -9,6 +9,12 @@ import {
   ListRequestChatQueryDto,
 } from './dtos/list-request-chat.dto';
 import { RequestChatCursorCodec } from './request-chat-cursor';
+import {
+  DEFAULT_MESSAGES_LIMIT,
+  ListMessagesAfterDto,
+  ListMessagesAfterQueryDto,
+} from './dtos/list-request-chat-messages.dto';
+import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper';
 import { VoteRequestChatParamsDto } from './dtos/vote-request-chat-params.dto';
 import { VoteRequestChatDto } from './dtos/vote-request-chat.dto';
 import { UserService } from 'src/members/application/user.service';
@@ -22,6 +28,29 @@ export class RequestChatController {
     private readonly chatService: ChatService,
     private readonly userService: UserService,
   ) {}
+
+  /**
+   * Mensajes posteriores a `after`, para recuperar lo perdido tras una desconexión
+   * (RNF-CON-03). Paginado hacia adelante con `hasMore`.
+   */
+  @Get(':id/messages')
+  @OwnerOrMember()
+  async getMessagesAfter(
+    @Param('id') id: string,
+    @Query() { after, limit }: ListMessagesAfterQueryDto,
+  ): Promise<ListMessagesAfterDto> {
+    const page = await this.chatService.getMessagesAfter(
+      UUID.from(id),
+      UUID.from(after),
+      limit ?? DEFAULT_MESSAGES_LIMIT,
+    );
+    return {
+      items: page.items.map((message) =>
+        RequestChatMessageMapper.toDto(message),
+      ),
+      hasMore: page.hasMore,
+    };
+  }
 
   @Get(':id')
   @OwnerOrMember()

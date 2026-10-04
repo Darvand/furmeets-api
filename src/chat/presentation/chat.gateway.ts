@@ -35,7 +35,7 @@ import {
 import { MembershipService } from 'src/membership/application/membership.service';
 import { Roles } from 'src/membership/domain/role';
 import { isUUID } from 'class-validator';
-import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
+import type { InsertedMessage } from '../domain/services/request-chat-message.repository';
 import { GetRequestChatMessageDto } from './dtos/get-request-chat-message.dto';
 
 /** Sala de todos los miembros: reciben los eventos de todas las solicitudes. */
@@ -111,22 +111,23 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     if (!isUUID(message.requestChatUUID)) {
       throw this.forbidden();
     }
-    let messageEntity: RequestChatMessageEntity;
+    let inserted: InsertedMessage;
     try {
       // Guarda y vuelve: el aviso de Telegram queda en segundo plano (RNF-REN-08).
-      messageEntity = await this.chatService.addMessageToRequestChat(
+      inserted = await this.chatService.addMessageToRequestChat(
         UUID.from(message.requestChatUUID),
         author,
         message.content,
+        message.clientMessageId,
       );
     } catch (error) {
       throw error instanceof ForbiddenException ? this.forbidden() : error;
     }
-    const dto: GetRequestChatMessageDto = {
-      ...RequestChatMessageMapper.toDto(messageEntity),
-      clientMessageId: message.clientMessageId,
-    };
-    this.toRequestChat(message.requestChatUUID).emit('request-chat', dto);
+    const dto = RequestChatMessageMapper.toDto(inserted.message);
+    // Un reenvío (mismo `clientMessageId`) ya se emitió la primera vez.
+    if (inserted.created) {
+      this.toRequestChat(message.requestChatUUID).emit('request-chat', dto);
+    }
     // Ack al emisor: el mensaje ya quedó guardado.
     return dto;
   }

@@ -210,7 +210,6 @@ async function openChat(chatId: string): Promise<number> {
 function sendMessage(
   socket: Socket,
   chatId: string,
-  userUUID: string,
   i: number,
 ): Promise<number> {
   const content = `[perf T37] mensaje ${i + 1} ${Date.now()}`;
@@ -227,7 +226,7 @@ function sendMessage(
       resolve(now() - startedAt);
     };
     socket.on('request-chat', onMessage);
-    socket.emit('request-chat', { requestChatUUID: chatId, userUUID, content });
+    socket.emit('request-chat', { requestChatUUID: chatId, content });
   });
 }
 
@@ -292,10 +291,6 @@ async function main(): Promise<void> {
   const warmup = await http('GET', '/groups');
   console.log(`Calentamiento: GET /groups en ${fmt(warmup.ms)}`);
 
-  const { body: me } = await http<{ uuid: string }>(
-    'GET',
-    `/users/${TELEGRAM_ID}`,
-  );
   const { body: list } = await http<{ items: { uuid: string }[] }>(
     'GET',
     '/request-chats',
@@ -344,9 +339,7 @@ async function main(): Promise<void> {
     if (connection) {
       try {
         for (let i = 0; i < ITERATIONS; i++) {
-          sendTimes.push(
-            await sendMessage(connection.socket, CHAT_ID, me.uuid, i),
-          );
+          sendTimes.push(await sendMessage(connection.socket, CHAT_ID, i));
         }
       } finally {
         connection.socket.close();

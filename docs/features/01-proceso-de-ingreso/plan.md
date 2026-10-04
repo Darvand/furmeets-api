@@ -130,7 +130,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] T13: Formulario de solicitud (API)
 - [x] T14: Imágenes del formulario
 - [x] T15: App: pantalla Formulario (paso 1 de 3) — falta la prueba manual en staging
-- [ ] T16: Chat: texto con idempotencia y recuperación
+- [x] T16: Chat: texto con idempotencia y recuperación
 - [ ] T17: Chat: imágenes y respuestas
 - [ ] T18: Chat: historial paginado
 - [ ] T19: Chat: mensajes de sistema y solo lectura
@@ -201,7 +201,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-PRI-01 | Votos (a favor y en contra), avales y comentarios llevan el nombre de su autor y los ven todos los miembros (decidido el 2026-10-03; reemplaza el anonimato). | e2e por rol sobre la forma de las respuestas | T21, T22, T24 |
 | RNF-PRI-02 | No se listan por nombre los miembros que faltan por votar. Solo la etiqueta personal "Falta tu voto". | e2e sobre la respuesta del listado | T21, T23 |
 | RNF-PRI-03 | Formulario, votos, avales y comentarios solo visibles para miembros; el solicitante ve su formulario y su chat. Nada de la revisión viaja en las respuestas ni en los eventos de socket que recibe el solicitante (incluido `request-chat-update`, que va a la sala de su solicitud). | e2e por rol; prueba que serializa las salidas al solicitante (criterio de éxito 10) | T06, T21, T22 |
-| RNF-PRI-04 | El formulario advierte que los mensajes se comparten en el grupo y que el envío es definitivo. | Revisión manual de la pantalla | T15 |
+| ~~RNF-PRI-04~~ | ~~El formulario advierte que los mensajes se comparten en el grupo y que el envío es definitivo.~~ Retirado el 2026-10-04: el formulario no muestra esos avisos. | — | — |
 | RNF-PRI-05 | Retención indefinida: no se borran solicitudes, mensajes ni imágenes. La migración conserva la colección original. | Revisión del script de migración | T12 |
 
 ### Rendimiento

@@ -8,6 +8,11 @@ export interface RequestChatMessageProps {
   content: string;
   /** Lo fija el servidor al persistir y no cambia después (deuda #5). */
   createdAt: Date;
+  /**
+   * Id que le puso el cliente a su envío. Un reenvío con el mismo id y autor en la misma
+   * solicitud devuelve este mensaje en vez de crear otro (RNF-CON-02).
+   */
+  clientMessageId?: string;
 }
 
 /**
@@ -33,12 +38,14 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
     author: UserEntity,
     content: string,
     at: Date,
+    clientMessageId?: string,
   ): RequestChatMessageEntity {
     return new RequestChatMessageEntity({
       requestChatId,
       author,
       content,
       createdAt: at,
+      clientMessageId,
     });
   }
 
@@ -64,5 +71,9 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
 
   get createdAt(): Date {
     return this.props.createdAt;
+  }
+
+  get clientMessageId(): string | undefined {
+    return this.props.clientMessageId;
   }
 }

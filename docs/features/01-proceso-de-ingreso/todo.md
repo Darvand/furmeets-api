@@ -673,7 +673,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - **Mensajes optimistas.** Los propios sin confirmar viven en una bandeja aparte (`state/outbox.slice.ts`), así una recarga de la caché no los pierde. Se confirman por `clientMessageId` con el ack o con el evento, lo que llegue primero, sin duplicarse. Si la API los rechaza o no confirma en 10 s, quedan "No enviado · Reintentar".
   - **Votos.** El voto propio se aplica al chat y al listado antes de la respuesta, se corrige con los conteos reales y se revierte si falla.
   - **Reconexión.** Al reconectar se invalida el tag `RequestChat` para recuperar lo perdido durante el corte: es la única recarga.
-- **Pendiente para T16:** reintentar un mensaje cuyo primer intento sí se guardó (ack perdido) lo duplica, hasta que la API guarde el `clientMessageId` con índice único.
+- **Resuelto en T16:** reintentar un mensaje cuyo primer intento sí se guardó (ack perdido) lo duplicaba; ahora la API guarda el `clientMessageId` con índice único y devuelve el mismo mensaje.
 
 **Dependencies:** T06, T40, T41
 
@@ -786,9 +786,9 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ## Task 15: App: pantalla Formulario (paso 1 de 3)
 
-**Repo:** App · **RNF:** PRI-04, USA-01, USA-02 · **Deuda:** #13
+**Repo:** App · **RNF:** USA-01, USA-02 · **Deuda:** #13
 
-**Description:** Pantalla *Bienvenida* (presenta FurMeets y los 3 pasos; "Quiero unirme" abre el formulario) y reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios sin pronombres, hasta 3 imágenes (contador "2 de 3"), aviso de envío definitivo y de que los mensajes se comparten en el grupo. Sin reglas de convivencia. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
+**Description:** Pantalla *Bienvenida* (presenta FurMeets y los 3 pasos; "Quiero unirme" abre el formulario) y reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios sin pronombres, hasta 3 imágenes (contador "2 de 3"). Sin reglas de convivencia ni avisos de envío definitivo o de que los mensajes se comparten en el grupo (retirados el 2026-10-04). Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
 
 **Acceptance criteria:**
 - [x] Un usuario sin solicitud ve primero la Bienvenida
@@ -805,7 +805,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - **Ruteo.** Un solicitante sin solicitud entra a `/welcome` (`homePathFor`); "Quiero unirme" abre `/register`, y el botón atrás vuelve a la Bienvenida. Las dos rutas solo las ve un solicitante sin solicitud.
 - **Imágenes.** Cada una se sube a `POST /media` al elegirla (`ImagePicker`), con vista previa local, indicador de subida y botón para quitarla. Antes de subir se revisan el tipo (JPEG, PNG o WebP) y el tamaño (10 MB); un 400 o 413 de la API se muestra igual. Enviar espera a que terminen las subidas. La imagen subida queda en la caché de `media.ts`: mostrarla después no la vuelve a descargar.
 - **Envío.** `submitApplication` (`POST /applications`) reemplaza a `createRequestChat`. Recorta los textos y omite los vacíos. Antes pide `requestWriteAccess` si Telegram lo permite; si lo rechaza, sigue. Un 409 vuelve a pedir `GET /me`, que lleva a su pantalla.
-- **Avisos.** Antes del botón: el envío es definitivo y los mensajes del chat se comparten en el grupo (RNF-PRI-04). Con menos de 18 años, aviso de la etiqueta "Menor de edad". Bajo el botón dice qué falta (edad o ciudad) mientras no se puede enviar.
+- **Avisos.** Bajo el botón dice qué falta (edad o ciudad) mientras no se puede enviar. Los avisos de envío definitivo, de que los mensajes se comparten en el grupo y de la etiqueta "Menor de edad" se quitaron a pedido (2026-10-04, miniapp #12).
 - **Accesibilidad.** Cada campo tiene `<label>` propio: el `header` de los inputs de telegram-ui no se muestra en iOS.
 - **`StepProgress`.** Componente "Paso N de 3", para reusar en el chat del solicitante (T20) y en Aprobado (T26).
 - **API.** Se quitaron `POST /request-chats`, `CreateRequestChatDto`, `ChatService.createRequestChat`, `RequestChatEntity.asNew` y `legacyApplication`. Las solicitudes `legacy` ahora solo salen de la migración (T12). Las pruebas que creaban solicitudes por ese endpoint usan `POST /applications`. Una e2e confirma que `POST /request-chats` responde 404.
@@ -828,20 +828,36 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Evento de envío con `clientMessageId`; ack con el mensaje persistido; reenvíos con el mismo id no duplican. Endpoint/evento para recuperar mensajes posteriores a un id o fecha. Emisión a `request-chat:<id>` y resumen a `members`. Se construye sobre el orden persistir → emitir → notificar de T41.
 
 **Acceptance criteria:**
-- [ ] Reenviar el mismo `clientMessageId` devuelve el mismo mensaje sin duplicar
-- [ ] Tras reconectar, el cliente obtiene los mensajes que se perdió
-- [ ] Longitud de texto validada
+- [x] Reenviar el mismo `clientMessageId` devuelve el mismo mensaje sin duplicar
+- [x] Tras reconectar, el cliente obtiene los mensajes que se perdió
+- [x] Longitud de texto validada
 
 **Verification:**
-- [ ] e2e de idempotencia y reconexión
+- [x] e2e de idempotencia y reconexión (`test/request-chat-idempotency.e2e-spec.ts`); unitarias del servicio (`chat.service.spec.ts`)
+
+**Notas de implementación:**
+- **Idempotencia.**
+  - El mensaje guarda `clientMessageId`. Un índice único parcial `{ requestChatId, authorId, clientMessageId }` (solo los que lo tienen) deja un envío por autor e id en cada solicitud.
+  - `insertOnce` inserta y, si el índice lo rechaza, lee el ya guardado: un reenvío, aunque llegue a la vez, recibe el mismo mensaje (mismo `uuid` y `sentAt`).
+  - Un reenvío no se vuelve a emitir ni a avisar por Telegram (`created: false`).
+  - El índice incluye al autor: el mismo id enviado por dos personas son dos mensajes, y nadie recibe el mensaje de otro por adivinar su id.
+  - El índice lo crea Mongoose al arrancar. Los mensajes anteriores no tienen el campo y quedan fuera, así que no hace falta migración.
+  - Con esto se resuelve el pendiente de T42: la App reintenta con el mismo `clientMessageId` y ya no duplica.
+- **`clientMessageId` en el historial.** Viene en el ack, en el evento y en `GET /request-chats/:id`. Tras reconectar, la App puede confirmar con él los mensajes que quedaron "enviando" aunque el ack se haya perdido.
+- **Recuperación.**
+  - `GET /request-chats/:id/messages?after=<uuid>&limit=` (dueño o miembro) devuelve `{ items, hasMore }`: los mensajes posteriores a `after`, en orden, hasta `limit` (50 por defecto, 100 como máximo).
+  - Si `hasMore` es `true`, se vuelve a pedir con `after` = el último. Un `after` de otra solicitud → 400.
+  - Usa el índice `requestChatId + createdAt`. La App lo adopta en T20; hoy recarga el chat al reconectar.
+- **Validación.** `content` de 1 a 4096 caracteres (límite de un mensaje de Telegram) y no solo espacios. Si no cumple, el socket responde `invalid-payload`.
+- **`userUUID`.** Se quitó del DTO del socket: la App ya no lo envía desde T07.
 
 **Dependencies:** T06, T11, T41
 
 **Files likely touched:**
 - `src/chat/presentation/chat.gateway.ts`
-- `src/chat/application/chat.service.ts`
-- `src/chat/presentation/dtos/create-request-chat-message.dto.ts`
-- índice único `requestChatId + clientMessageId` en el schema
+- `src/chat/application/chat.service.ts` (+ `.spec.ts`)
+- `src/chat/presentation/dtos/create-request-chat-message.dto.ts`, `list-request-chat-messages.dto.ts` (nuevo)
+- `src/chat/infraestructure/schemas/request-chat-message.schema.ts`, `repositories/request-chat-message-mongo.repository.ts`
 
 **Estimated scope:** M
 

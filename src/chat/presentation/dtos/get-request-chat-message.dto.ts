@@ -5,8 +5,8 @@ export class GetRequestChatMessageDto {
   /** Solicitud del mensaje: el cliente filtra los eventos por ella. */
   requestChatUUID: string;
   /**
-   * Solo en el ack y en el evento de un mensaje recién enviado: el id que le puso el
-   * cliente, para confirmar su mensaje optimista. Aún no se guarda (idempotencia: T16).
+   * El id que le puso el cliente a su envío, si lo envió. Viene en el ack, en el evento y
+   * en el historial: tras reconectar, la App confirma con él sus mensajes pendientes.
    */
   clientMessageId?: string;
   content: string;

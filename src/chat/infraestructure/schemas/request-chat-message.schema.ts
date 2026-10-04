@@ -25,6 +25,10 @@ export class RequestChatMessage {
 
   @Prop({ required: true })
   createdAt: Date;
+
+  /** Id del envío generado por el cliente (texto: no referencia a otro documento). */
+  @Prop()
+  clientMessageId?: string;
 }
 
 export const RequestChatMessageSchema =
@@ -32,3 +36,13 @@ export const RequestChatMessageSchema =
 
 // El historial de una solicitud, en orden (y el último mensaje para el listado).
 RequestChatMessageSchema.index({ requestChatId: 1, createdAt: 1 });
+
+// Idempotencia (T16): un envío por autor y `clientMessageId` en cada solicitud. Los
+// mensajes sin id (bot, sistema, anteriores a T16) quedan fuera del índice.
+RequestChatMessageSchema.index(
+  { requestChatId: 1, authorId: 1, clientMessageId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { clientMessageId: { $exists: true } },
+  },
+);

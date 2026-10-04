@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   forwardRef,
@@ -21,7 +22,11 @@ import {
   type RequestChatPage,
   type RequestChatSummary,
 } from '../domain/services/chat.repository';
-import type { RequestChatMessageRepository } from '../domain/services/request-chat-message.repository';
+import type {
+  InsertedMessage,
+  MessagesAfter,
+  RequestChatMessageRepository,
+} from '../domain/services/request-chat-message.repository';
 import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { UserService } from 'src/members/application/user.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
@@ -126,11 +131,16 @@ export class ChatService {
    * no se pisan ni reescriben la solicitud (RNF-CON-01). El aviso de Telegram queda en
    * segundo plano.
    */
+  /**
+   * Guarda un mensaje de `author` y avisa en segundo plano. Con `clientMessageId`, un
+   * reenvío devuelve el mensaje ya guardado (`created: false`) y no vuelve a avisar.
+   */
   async addMessageToRequestChat(
     requestChatUUID: UUID,
     author: UserEntity,
     content: string,
-  ): Promise<RequestChatMessageEntity> {
+    clientMessageId?: string,
+  ): Promise<InsertedMessage> {
     this.logger.debug(
       `Adding message to request chat UUID: ${requestChatUUID.value} from user UUID: ${author.id.value}`,
     );
@@ -147,15 +157,41 @@ export class ChatService {
         `Cannot add messages to a request chat that is not in progress`,
       );
     }
-    const message = RequestChatMessageEntity.send(
-      header.id,
-      author,
-      content,
-      this.clock.now(),
+    const inserted = await this.messageRepository.insertOnce(
+      RequestChatMessageEntity.send(
+        header.id,
+        author,
+        content,
+        this.clock.now(),
+        clientMessageId,
+      ),
     );
-    await this.messageRepository.insert(message);
-    this.notifyNewMessage(header, message);
-    return message;
+    if (inserted.created) {
+      this.notifyNewMessage(header, inserted.message);
+    }
+    return inserted;
+  }
+
+  /**
+   * Mensajes posteriores a `afterId`, para recuperar lo perdido al reconectar. La ruta ya
+   * autorizó al usuario (`OwnerOrMember`). `afterId` de otra solicitud → 400.
+   */
+  async getMessagesAfter(
+    requestChatId: UUID,
+    afterId: UUID,
+    limit: number,
+  ): Promise<MessagesAfter> {
+    const page = await this.messageRepository.findAfter(
+      requestChatId,
+      afterId,
+      limit,
+    );
+    if (!page) {
+      throw new BadRequestException(
+        'after must be a message of this request chat',
+      );
+    }
+    return page;
   }
 
   async findRequestChatSummaryOf(

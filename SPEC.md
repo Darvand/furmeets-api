@@ -95,8 +95,7 @@ Reglas:
 - **No hay reglas de convivencia** en ninguna pantalla: ni en el formulario, ni en *Aprobado*, ni en *Carga*.
 - **Menores de edad pueden aplicar.** Si la edad es menor que 18, la solicitud lleva la etiqueta visible **"Menor de edad"**. No hay otras reglas especiales.
 - **Una solicitud por usuario.** Si existe cualquier solicitud previa, sin importar su estado, no se puede crear otra. Rehabilitar a alguien se hace a mano en la BD.
-- **El formulario no se puede editar** una vez enviado. El diseño dice "puedes editarlo hasta que empiecen a revisarte": **ese texto se ajusta**, y el formulario debe advertir que el envío es definitivo.
-- El formulario debe informar que **los mensajes del chat se compartirán en el grupo**.
+- **El formulario no se puede editar** una vez enviado. El diseño dice "puedes editarlo hasta que empiecen a revisarte": **ese texto se quita**. El formulario no muestra avisos de envío definitivo ni de que los mensajes del chat se comparten en el grupo (decidido el 2026-10-04).
 - Al enviar, la MiniApp pide `requestWriteAccess` para que el bot pueda escribirle por privado. Si el usuario lo rechaza, igual puede continuar.
 - `requesterUUID` **no** viaja en el body: el solicitante es siempre el usuario autenticado.
 
@@ -235,7 +234,7 @@ Alternativas documentadas (precios de referencia, verificar antes de usar):
 - Los datos del formulario, los votos, los avales y los comentarios solo son visibles para los miembros.
 - **Dentro del grupo no hay nada privado:** votos (a favor y en contra), avales y comentarios muestran a su autor (§3.3).
 - El solicitante ve su formulario y su chat. Al ingresar se vuelve miembro y ve lo mismo que cualquier miembro, incluida su propia revisión.
-- Los mensajes del solicitante se republican en el grupo, y el formulario lo advierte (§3.1).
+- Los mensajes del solicitante se republican en el grupo (§3.5).
 - **Retención: indefinida.** No se borran solicitudes, mensajes ni imágenes. Las imágenes son de fursonas (personajes), no fotos de las personas.
 
 ---
@@ -555,4 +554,8 @@ No hay preguntas abiertas.
 - No se piden pronombres en el formulario (2026-10-03).
 - Las reglas de convivencia tampoco aparecen en *Aprobado* ni en *Carga* (2026-10-03).
 - "Contactar a un admin" en *Carga* abre `https://t.me/DarvandFrovonwill` (2026-10-03).
+
+### Resueltas (2026-10-04)
+
+- El formulario ya no avisa que el envío es definitivo ni que los mensajes del chat se comparten en el grupo; tampoco muestra el aviso de la etiqueta "Menor de edad" mientras se llena. La etiqueta sigue en la solicitud (§3.1).
 - *No aprobado* no promete otra solicitud con un aval, aunque el diseño lo diga: rehabilitar sigue siendo manual (2026-10-03, §3.6).
