@@ -17,17 +17,24 @@ const ANA = { id: 9902, first_name: 'Ana' };
 const BETO = { id: 9903, first_name: 'Beto' };
 const CECI = { id: 9904, first_name: 'Ceci' };
 const DANI = { id: 9905, first_name: 'Dani' };
+const EVA = { id: 9906, first_name: 'Eva' };
+const FER = { id: 9907, first_name: 'Fer' };
 const BOT = { id: 999, is_bot: true, first_name: 'FurBot', username: 'furbot' };
 const TELEGRAM_GROUP = { id: Number(TEST_GROUP_ID), type: 'supergroup' };
 
 const FORM = { age: 16, city: 'Bogotá' };
+const JPEG = Buffer.concat([
+  Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+  Buffer.from('fursona de prueba'),
+]);
+const UNKNOWN_ID = '00000000-0000-4000-8000-000000000000';
 
 interface RequestChatDto {
   uuid: string;
   state: string;
   requester: { uuid: string; name: string };
   messages: unknown[];
-  form?: Record<string, unknown> & { isMinor: boolean };
+  form?: Record<string, unknown> & { isMinor: boolean; imageIds?: string[] };
 }
 
 describe('Formulario de solicitud: POST /applications (e2e)', () => {
@@ -46,6 +53,21 @@ describe('Formulario de solicitud: POST /applications (e2e)', () => {
       .set('Authorization', tmaAuth(user))
       .send(body);
 
+  const upload = async (user: TelegramInitDataUser): Promise<string> => {
+    const res = await request(server)
+      .post('/media')
+      .set('Authorization', tmaAuth(user))
+      .attach('file', JPEG, {
+        filename: 'fursona.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(201);
+    return (res.body as { id: string }).id;
+  };
+
+  const download = (user: TelegramInitDataUser, id: string) =>
+    request(server).get(`/media/${id}`).set('Authorization', tmaAuth(user));
+
   const chatsOf = async (user: TelegramInitDataUser) => {
     const entity = await authenticate(user);
     return db
@@ -61,9 +83,27 @@ describe('Formulario de solicitud: POST /applications (e2e)', () => {
     );
     tg.getBotInfo.mockResolvedValue(BOT);
     tg.getGroup.mockResolvedValue(TELEGRAM_GROUP);
+    let uploads = 0;
+    tg.uploadPhotoToStorage.mockImplementation(() => {
+      uploads += 1;
+      return Promise.resolve({
+        file_id: `upload-${uploads}`,
+        file_unique_id: `upload-${uploads}-u`,
+        width: 1280,
+        height: 1280,
+      });
+    });
+    tg.getFilePath.mockImplementation((fileId: string) =>
+      Promise.resolve(`photos/${fileId}.jpg`),
+    );
+    tg.downloadFile.mockImplementation(() =>
+      Promise.resolve(new Response('bytes de la fursona')),
+    );
     server = testApp.app.getHttpServer() as App;
     db = testApp.app.get<Connection>(getConnectionToken());
-    await Promise.all([MEMBER, ANA, BETO, CECI, DANI].map(authenticate));
+    await Promise.all(
+      [MEMBER, ANA, BETO, CECI, DANI, EVA, FER].map(authenticate),
+    );
   });
 
   afterAll(async () => {
@@ -107,6 +147,41 @@ describe('Formulario de solicitud: POST /applications (e2e)', () => {
     });
   });
 
+  it('guarda hasta 3 imágenes propias; las ven el solicitante y los miembros, no otro solicitante', async () => {
+    const imageIds = [await upload(EVA), await upload(EVA), await upload(EVA)];
+
+    const res = await apply(EVA, { ...FORM, imageIds }).expect(201);
+
+    const chat = res.body as RequestChatDto;
+    expect(chat.form?.imageIds).toEqual(imageIds);
+    const opened = await request(server)
+      .get(`/request-chats/${chat.uuid}`)
+      .set('Authorization', tmaAuth(MEMBER))
+      .expect(200);
+    expect((opened.body as RequestChatDto).form?.imageIds).toEqual(imageIds);
+    await download(MEMBER, imageIds[0]).expect(200);
+    await download(EVA, imageIds[0]).expect(200);
+    await download(DANI, imageIds[0]).expect(403);
+  });
+
+  it.each([
+    ['con 4 imágenes', () => Promise.all([1, 2, 3, 4].map(() => upload(FER)))],
+    [
+      'con una imagen repetida',
+      async () => {
+        const id = await upload(FER);
+        return [id, id];
+      },
+    ],
+    ['con un id que no es UUID', () => Promise.resolve(['no-es-uuid'])],
+    ['con una imagen que no existe', () => Promise.resolve([UNKNOWN_ID])],
+    ['con una imagen de otro usuario', async () => [await upload(DANI)]],
+  ])('%s → 400 y no crea nada', async (_, imageIdsOf) => {
+    await apply(FER, { ...FORM, imageIds: await imageIdsOf() }).expect(400);
+
+    expect(await chatsOf(FER)).toBe(0);
+  });
+
   it('una segunda solicitud del mismo usuario → 409', async () => {
     await apply(ANA, { ...FORM, age: 30 }).expect(409);
 
@@ -132,6 +207,8 @@ describe('Formulario de solicitud: POST /applications (e2e)', () => {
     ['sin ciudad', { age: 20 }],
     ['con ciudad vacía', { ...FORM, city: '' }],
     ['con un campo desconocido', { ...FORM, interests: 'furros' }],
+    // Ya no se piden (2026-10-03).
+    ['con pronombres', { ...FORM, pronouns: 'él' }],
   ])('%s → 400 y no crea nada', async (_, body) => {
     await apply(DANI, body).expect(400);
 

@@ -76,6 +76,28 @@ export class MediaService {
     return id;
   }
 
+  /**
+   * Las imágenes existen y las subió `owner` con `POST /media`: nadie adjunta a su
+   * solicitud la imagen de otro, ni un avatar. Si no → 400.
+   */
+  async assertOwnUploads(
+    owner: UserEntity,
+    ids: readonly string[],
+  ): Promise<void> {
+    if (!ids.length) {
+      return;
+    }
+    const own = (await this.repository.findByIds(ids)).filter(
+      (media) =>
+        media.kind === MediaKinds.Upload && media.ownerId === owner.id.value,
+    );
+    if (own.length !== new Set(ids).size) {
+      throw new BadRequestException(
+        'Images must be your own uploads from POST /media',
+      );
+    }
+  }
+
   /** Registra una foto que ya está en Telegram (avatar, foto del grupo) y devuelve su id. */
   registerTelegramPhoto(
     kind: MediaKind,

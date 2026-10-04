@@ -12,6 +12,14 @@ type MediaDoc = Omit<Media, '_id' | 'ownerId'> & {
   ownerId?: UUIDValue;
 };
 
+const MEDIA_PROJECTION = {
+  kind: 1,
+  fileId: 1,
+  fileUniqueId: 1,
+  ownerId: 1,
+  mimeType: 1,
+};
+
 @Injectable()
 export class MediaMongoRepository implements MediaRepository {
   constructor(
@@ -20,23 +28,18 @@ export class MediaMongoRepository implements MediaRepository {
 
   async findById(id: string): Promise<MediaItem | null> {
     const doc = await this.mediaModel
-      .findOne(
-        { _id: id },
-        { kind: 1, fileId: 1, fileUniqueId: 1, ownerId: 1, mimeType: 1 },
-      )
+      .findOne({ _id: id }, MEDIA_PROJECTION)
       .lean<MediaDoc>()
       .exec();
-    if (!doc) {
-      return null;
-    }
-    return {
-      id: toUUIDString(doc._id),
-      kind: doc.kind,
-      fileId: doc.fileId,
-      fileUniqueId: doc.fileUniqueId,
-      ownerId: doc.ownerId ? toUUIDString(doc.ownerId) : undefined,
-      mimeType: doc.mimeType,
-    };
+    return doc ? fromDb(doc) : null;
+  }
+
+  async findByIds(ids: readonly string[]): Promise<MediaItem[]> {
+    const docs = await this.mediaModel
+      .find({ _id: { $in: ids } }, MEDIA_PROJECTION)
+      .lean<MediaDoc[]>()
+      .exec();
+    return docs.map(fromDb);
   }
 
   async create(media: MediaItem): Promise<void> {
@@ -75,6 +78,17 @@ export class MediaMongoRepository implements MediaRepository {
     }
     return toUUIDString(doc._id);
   }
+}
+
+function fromDb(doc: MediaDoc): MediaItem {
+  return {
+    id: toUUIDString(doc._id),
+    kind: doc.kind,
+    fileId: doc.fileId,
+    fileUniqueId: doc.fileUniqueId,
+    ownerId: doc.ownerId ? toUUIDString(doc.ownerId) : undefined,
+    mimeType: doc.mimeType,
+  };
 }
 
 function toDb(media: MediaItem): Media {

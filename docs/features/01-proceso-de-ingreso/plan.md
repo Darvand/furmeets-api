@@ -128,7 +128,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 
 ### Fase 1 — v1 funcional
 - [x] T13: Formulario de solicitud (API)
-- [ ] T14: Imágenes del formulario
+- [x] T14: Imágenes del formulario
 - [ ] T15: App: pantalla Formulario (paso 1 de 3)
 - [ ] T16: Chat: texto con idempotencia y recuperación
 - [ ] T17: Chat: imágenes y respuestas

@@ -1,8 +1,9 @@
 /** Formulario de una solicitud, para el solicitante y los miembros. */
 export class GetApplicationFormDto {
+  /** Se ven con `GET /media/:id`: las ve el solicitante y cualquier miembro. */
+  imageIds?: readonly string[];
   fursonaName?: string;
   species?: string;
-  pronouns?: string;
   age: number;
   city: string;
   socialLinks?: string;
