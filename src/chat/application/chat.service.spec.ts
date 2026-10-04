@@ -22,7 +22,7 @@ import type {
   MessagesAfter,
   RequestChatMessageRepository,
 } from '../domain/services/request-chat-message.repository';
-import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
+import type { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
 import type { ChatGateway } from '../presentation/chat.gateway';
 import type { MediaService } from 'src/media/application/media.service';
@@ -91,9 +91,6 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
       Promise.resolve({ message, created: true }),
     ),
     findAfter: jest.fn(() => Promise.resolve<MessagesAfter | null>(null)),
-    findInRequestChat: jest.fn(() =>
-      Promise.resolve<RequestChatMessageEntity | null>(null),
-    ),
     findByRequestChat: jest.fn(() => Promise.resolve([])),
   };
   const users = {
@@ -366,40 +363,6 @@ describe('ChatService', () => {
       await expect(
         ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {}),
       ).rejects.toBeInstanceOf(BadRequestException);
-    });
-
-    it('responde citando el mensaje original de la misma solicitud', async () => {
-      const ctx = setup();
-      const original = RequestChatMessageEntity.send(
-        ctx.requestChat.id,
-        requester,
-        { content: '¿cuándo es el meet?' },
-        new Date(),
-      );
-      ctx.messages.findInRequestChat.mockResolvedValue(original);
-
-      const { message } = await ctx.service.addMessageToRequestChat(
-        ctx.requestChat.id,
-        member,
-        { content: 'el sábado', replyToId: original.id },
-      );
-
-      expect(message.replyTo).toMatchObject({
-        author: requester,
-        excerpt: '¿cuándo es el meet?',
-      });
-    });
-
-    it('responder a un mensaje que no es de la solicitud → 400', async () => {
-      const ctx = setup();
-
-      await expect(
-        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
-          content: 'hola',
-          replyToId: UUID.generate(),
-        }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
     });
 
     it('sin acceso → 403 y no guarda nada', async () => {

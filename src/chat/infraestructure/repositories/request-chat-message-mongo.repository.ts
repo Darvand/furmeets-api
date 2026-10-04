@@ -8,7 +8,6 @@ import type {
   RequestChatMessageRepository,
 } from 'src/chat/domain/services/request-chat-message.repository';
 import {
-  MESSAGE_AUTHORS,
   RequestChatMessageMapper,
   type RequestChatMessageDoc,
 } from 'src/chat/mappers/request-chat-message.mapper';
@@ -53,7 +52,6 @@ export class RequestChatMessageMongoRepository
         authorId: message.author.id.value,
         clientMessageId: message.clientMessageId,
       })
-      .populate('replyTo.authorId')
       .lean<Omit<RequestChatMessageDoc, 'authorId'>>()
       .orFail()
       .exec();
@@ -89,7 +87,7 @@ export class RequestChatMessageMongoRepository
       })
       .sort(CHRONOLOGICAL)
       .limit(limit + 1)
-      .populate(MESSAGE_AUTHORS)
+      .populate('authorId')
       .lean<RequestChatMessageDoc[]>()
       .exec();
     return {
@@ -100,25 +98,13 @@ export class RequestChatMessageMongoRepository
     };
   }
 
-  async findInRequestChat(
-    requestChatId: UUID,
-    messageId: UUID,
-  ): Promise<RequestChatMessageEntity | null> {
-    const doc = await this.messageModel
-      .findOne({ _id: messageId.value, requestChatId: requestChatId.value })
-      .populate(MESSAGE_AUTHORS)
-      .lean<RequestChatMessageDoc>()
-      .exec();
-    return doc ? RequestChatMessageMapper.fromDb(doc) : null;
-  }
-
   async findByRequestChat(
     requestChatId: UUID,
   ): Promise<RequestChatMessageEntity[]> {
     const docs = await this.messageModel
       .find({ requestChatId: requestChatId.value })
       .sort(CHRONOLOGICAL)
-      .populate(MESSAGE_AUTHORS)
+      .populate('authorId')
       .lean<RequestChatMessageDoc[]>()
       .exec();
     return docs.map((doc) => RequestChatMessageMapper.fromDb(doc));

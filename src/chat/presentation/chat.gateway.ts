@@ -118,13 +118,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
       inserted = await this.chatService.addMessageToRequestChat(
         UUID.from(message.requestChatUUID),
         author,
-        {
-          content: message.content,
-          imageIds: message.imageIds,
-          replyToId: message.replyToId
-            ? UUID.from(message.replyToId)
-            : undefined,
-        },
+        { content: message.content, imageIds: message.imageIds },
         message.clientMessageId,
       );
     } catch (error) {

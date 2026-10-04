@@ -3,7 +3,6 @@ import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import {
   InvalidMessageError,
   MAX_MESSAGE_IMAGES,
-  REPLY_EXCERPT_LENGTH,
   RequestChatMessageEntity,
 } from './request-chat-message.entity';
 
@@ -67,42 +66,5 @@ describe('RequestChatMessageEntity', () => {
     expect(
       RequestChatMessageEntity.send(chatId, author, body, at).preview,
     ).toBe(preview);
-  });
-
-  describe('respuestas', () => {
-    it('cita al autor y un extracto del mensaje respondido', () => {
-      const original = RequestChatMessageEntity.send(
-        chatId,
-        user(2),
-        { content: 'x'.repeat(REPLY_EXCERPT_LENGTH + 20) },
-        at,
-      );
-
-      const reply = RequestChatMessageEntity.send(
-        chatId,
-        author,
-        { content: 'de acuerdo', replyTo: original.quote() },
-        at,
-      );
-
-      // Por `.value`: `ValueObject.equals` no compara hasta T45.
-      expect(reply.replyTo?.messageId.value).toBe(original.id.value);
-      expect(reply.replyTo?.author).toBe(original.author);
-      expect(reply.replyTo?.excerpt).toBe(
-        `${'x'.repeat(REPLY_EXCERPT_LENGTH)}…`,
-      );
-      expect(reply.replyTo?.hasImages).toBe(false);
-    });
-
-    it('la cita de un mensaje con solo imágenes no tiene texto pero lo indica', () => {
-      const photo = RequestChatMessageEntity.send(
-        chatId,
-        user(2),
-        { imageIds: ['img-1'] },
-        at,
-      );
-
-      expect(photo.quote()).toMatchObject({ excerpt: '', hasImages: true });
-    });
   });
 });

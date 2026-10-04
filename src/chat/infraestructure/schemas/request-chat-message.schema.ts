@@ -4,24 +4,6 @@ import { User } from 'src/members/infraestructure/schemas/user.schema';
 
 export const REQUEST_CHAT_MESSAGES_COLLECTION = 'requestchatmessages';
 
-/** Cita del mensaje respondido, tomada al enviar (los mensajes no se editan). */
-@Schema({ _id: false })
-export class MessageReplyDoc {
-  @Prop({ type: mongoose.Schema.Types.UUID, required: true })
-  messageId: string;
-
-  @Prop({ type: mongoose.Schema.Types.UUID, ref: User.name, required: true })
-  authorId: string;
-
-  @Prop({ default: '' })
-  excerpt: string;
-
-  @Prop({ default: false })
-  hasImages: boolean;
-}
-
-export const MessageReplySchema = SchemaFactory.createForClass(MessageReplyDoc);
-
 /**
  * Mensaje del chat de una solicitud, en su propia colección (`requestchatmessages`).
  * Se inserta una vez y no se reescribe: `createdAt` lo fija el servidor al enviarlo
@@ -45,9 +27,6 @@ export class RequestChatMessage {
   /** Ids de `media`; falta si no tiene imágenes. */
   @Prop({ type: [mongoose.Schema.Types.UUID], default: undefined })
   imageIds?: string[];
-
-  @Prop({ type: MessageReplySchema })
-  replyTo?: MessageReplyDoc;
 
   @Prop({ required: true })
   createdAt: Date;

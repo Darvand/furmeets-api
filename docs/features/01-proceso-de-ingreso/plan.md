@@ -62,7 +62,7 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
         ├─ T41 enviar/votar sin Telegram ───┴─ T42 App: en vivo y optimista (+T06)
         │
         ├─ T13 formulario API ─ T14 imágenes form ─ T15 App: formulario
-        ├─ T16 chat texto/ack ─ T17 imágenes y reply ─ T18 historial paginado ─ T19 sistema/solo lectura
+        ├─ T16 chat texto/ack ─ T17 imágenes ─ T18 historial paginado ─ T19 sistema/solo lectura
         │                                                   └─ T20 App: chats
         ├─ T45 equals ─ T21 votos ─ T22 avales/comentarios ─ T23 inicio (API + App) ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
@@ -131,7 +131,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] T14: Imágenes del formulario
 - [x] T15: App: pantalla Formulario (paso 1 de 3) — falta la prueba manual en staging
 - [x] T16: Chat: texto con idempotencia y recuperación
-- [x] T17: Chat: imágenes y respuestas
+- [x] T17: Chat: imágenes (las respuestas se quitaron el 2026-10-04)
 - [ ] T18: Chat: historial paginado
 - [ ] T19: Chat: mensajes de sistema y solo lectura
 - [ ] T20: App: chat del solicitante y chat de miembros

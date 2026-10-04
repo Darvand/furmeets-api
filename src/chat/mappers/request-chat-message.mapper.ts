@@ -1,9 +1,6 @@
 import { UserMapper } from 'src/members/mappers/user.mapper';
 import type { UserEntity } from 'src/members/domain/entities/user.entity';
-import {
-  type MessageReply,
-  RequestChatMessageEntity,
-} from '../domain/entities/request-chat-message.entity';
+import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { GetRequestChatMessageDto } from '../presentation/dtos/get-request-chat-message.dto';
 import { RequestChatMessage } from '../infraestructure/schemas/request-chat-message.schema';
 import { User } from 'src/members/infraestructure/schemas/user.schema';
@@ -12,10 +9,7 @@ import { toUUIDString } from 'src/shared/infraestructure/mongo-uuid';
 
 type UUIDValue = Parameters<typeof toUUIDString>[0];
 
-/**
- * Un mensaje leído con `lean()`, con su autor y el de la cita poblados
- * (`MESSAGE_AUTHORS`).
- */
+/** Un mensaje leído con `lean()` y su autor poblado (`populate('authorId')`). */
 export interface RequestChatMessageDoc {
   _id: UUIDValue;
   requestChatId: UUIDValue;
@@ -23,18 +17,9 @@ export interface RequestChatMessageDoc {
   /** Puede faltar en documentos viejos: se lee como vacío. */
   content?: string;
   imageIds?: UUIDValue[];
-  replyTo?: {
-    messageId: UUIDValue;
-    authorId: User;
-    excerpt?: string;
-    hasImages?: boolean;
-  };
   createdAt: Date;
   clientMessageId?: string;
 }
-
-/** Lo que hay que poblar al leer un mensaje: su autor y el del mensaje citado. */
-export const MESSAGE_AUTHORS = ['authorId', 'replyTo.authorId'];
 
 export class RequestChatMessageMapper {
   /** Fechas en ISO-8601 UTC: el formato y la zona horaria los decide el cliente. */
@@ -48,14 +33,6 @@ export class RequestChatMessageMapper {
     };
     if (message.imageIds.length) {
       dto.imageIds = [...message.imageIds];
-    }
-    if (message.replyTo) {
-      dto.replyTo = {
-        uuid: message.replyTo.messageId.value,
-        user: UserMapper.toDto(message.replyTo.author),
-        excerpt: message.replyTo.excerpt,
-        hasImages: message.replyTo.hasImages,
-      };
     }
     if (message.clientMessageId) {
       dto.clientMessageId = message.clientMessageId;
@@ -74,14 +51,6 @@ export class RequestChatMessageMapper {
     if (message.imageIds.length) {
       doc.imageIds = [...message.imageIds];
     }
-    if (message.replyTo) {
-      doc.replyTo = {
-        messageId: message.replyTo.messageId.value,
-        authorId: message.replyTo.author.id.value,
-        excerpt: message.replyTo.excerpt,
-        hasImages: message.replyTo.hasImages,
-      };
-    }
     if (message.clientMessageId) {
       doc.clientMessageId = message.clientMessageId;
     }
@@ -95,10 +64,7 @@ export class RequestChatMessageMapper {
     );
   }
 
-  /**
-   * Sin poblar `authorId`, cuando el autor ya se conoce (p. ej. en un reenvío). La cita
-   * sí debe venir poblada.
-   */
+  /** Sin poblar `authorId`, cuando el autor ya se conoce (p. ej. en un reenvío). */
   static fromDbWithAuthor(
     doc: Omit<RequestChatMessageDoc, 'authorId'>,
     author: UserEntity,
@@ -111,22 +77,10 @@ export class RequestChatMessageMapper {
         imageIds: doc.imageIds?.length
           ? doc.imageIds.map(toUUIDString)
           : undefined,
-        replyTo: doc.replyTo ? replyFromDb(doc.replyTo) : undefined,
         createdAt: doc.createdAt,
         clientMessageId: doc.clientMessageId,
       },
       UUID.from(toUUIDString(doc._id)),
     );
   }
-}
-
-function replyFromDb(
-  reply: NonNullable<RequestChatMessageDoc['replyTo']>,
-): MessageReply {
-  return {
-    messageId: UUID.from(toUUIDString(reply.messageId)),
-    author: UserMapper.fromDb(reply.authorId),
-    excerpt: reply.excerpt ?? '',
-    hasImages: reply.hasImages ?? false,
-  };
 }

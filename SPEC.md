@@ -62,7 +62,7 @@ Por su tamaño, el proyecto se divide en módulos. Cada uno puede tener después
 | `membership` | Resolver el rol (miembro/solicitante) en vivo contra Telegram, con caché corta | `auth` |
 | `media` | Guardar imágenes en Telegram (canal de almacenamiento) y servirlas por proxy autorizado | `auth`, `membership` |
 | `applications` | Formulario, ciclo de vida de la solicitud y reglas de edición y unicidad | `membership`, `media` |
-| `request-chat` | Mensajería en tiempo real, respuestas e imágenes | `applications`, `media` |
+| `request-chat` | Mensajería en tiempo real e imágenes | `applications`, `media` |
 | `review` | Votos, umbrales, avales y comentarios, todos con nombre | `applications` |
 | `admission` | Enlace con solicitud de unión, aprobación o rechazo automático de uniones | `review` |
 | `telegram-bridge` | Anuncios, republicación en el grupo, respuestas desde el grupo y DMs | `request-chat`, `review`, `admission` |
@@ -103,12 +103,10 @@ Reglas:
 
 Alcance de la v1:
 - Mensajes de texto.
-- **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram), hasta 10 por mensaje (un álbum de Telegram). Un mensaje lleva texto, imágenes o ambos. Las imágenes que manda un miembro también las ve el solicitante.
-- **Responder a un mensaje** (cita al estilo Telegram): la cita muestra al autor y el inicio del texto del mensaje original, o que era una imagen.
-- Mensajes de sistema o del bot: bienvenida, "X entró al chat de revisión" y resultado.
+- **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram), hasta 10 por mensaje (un álbum de Telegram). Un mensaje lleva texto, imágenes o ambos. Las imágenes que manda un miembro también las ve el solicitante.- Mensajes de sistema o del bot: bienvenida, "X entró al chat de revisión" y resultado.
 - Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**.
 
-Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, reacciones, leídos y no leídos (ni "Leído por" ni contador). El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar. El doble check de los mensajes propios indica que la API guardó el mensaje (ack), no que alguien lo leyó.
+Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, responder (citar) un mensaje, reacciones, leídos y no leídos (ni "Leído por" ni contador). El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar. El doble check de los mensajes propios indica que la API guardó el mensaje (ack), no que alguien lo leyó.
 
 Requisitos técnicos:
 - Cada solicitud tiene su propia sala de socket (`request-chat:<id>`). **Nunca** se hace un broadcast global. Los miembros además se unen a una sala `members` para recibir las actualizaciones del listado.
@@ -375,7 +373,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 4. Corregir la pérdida de datos: mensajes en su propia colección, operaciones atómicas y `createdAt` persistido, **junto con la migración de los datos existentes** (§9.1).
 5. Bajar la latencia de las interacciones con el servidor despierto: medir una línea base, sacar a Telegram del camino crítico, índices, listado liviano, actualización en vivo sin recargas y UI optimista. El arranque en frío se resuelve en la Fase 2.
 
-**Fase 1: v1 funcional:** formulario nuevo, chat con imágenes y respuestas, revisión (votos, avales y comentarios, todos con nombre), admisión por solicitud de unión, puente con el grupo.
+**Fase 1: v1 funcional:** formulario nuevo, chat con imágenes, revisión (votos, avales y comentarios, todos con nombre), admisión por solicitud de unión, puente con el grupo.
 
 **Fase 2: rendimiento e infraestructura:** webhook, keep-alive condicional, `GET /me`, caché de membresía, ambientes formalizados.
 
@@ -558,4 +556,5 @@ No hay preguntas abiertas.
 ### Resueltas (2026-10-04)
 
 - El formulario ya no avisa que el envío es definitivo ni que los mensajes del chat se comparten en el grupo; tampoco muestra el aviso de la etiqueta "Menor de edad" mientras se llena. La etiqueta sigue en la solicitud (§3.1).
+- Sin respuestas (citar un mensaje) en el chat de la MiniApp: agregan complejidad para poco valor, porque los chats son cortos (§3.2). Los *replies* de un miembro en el grupo de Telegram al mensaje republicado siguen creando un mensaje en el chat (§3.5, T28).
 - *No aprobado* no promete otra solicitud con un aval, aunque el diseño lo diga: rehabilitar sigue siendo manual (2026-10-03, §3.6).

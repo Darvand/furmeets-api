@@ -4,27 +4,12 @@ import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 
 /** Imágenes por mensaje: lo que Telegram admite en un álbum al republicarlo (T27). */
 export const MAX_MESSAGE_IMAGES = 10;
-/** Caracteres del mensaje respondido que se citan. */
-export const REPLY_EXCERPT_LENGTH = 100;
 
-/**
- * Cita del mensaje al que responde otro, tomada al enviarlo. Los mensajes no se editan
- * ni se borran, así que la cita no se desactualiza y leerla no exige otra consulta.
- */
-export interface MessageReply {
-  messageId: UUID;
-  author: UserEntity;
-  /** Inicio del texto citado; vacío si el mensaje era solo imágenes. */
-  excerpt: string;
-  hasImages: boolean;
-}
-
-/** Lo que escribe el autor: texto, imágenes o ambos, y opcionalmente a qué responde. */
+/** Lo que escribe el autor: texto, imágenes o ambos. */
 export interface MessageBody {
   content?: string;
   /** Ids de `media` subidos por el autor con `POST /media`. */
   imageIds?: readonly string[];
-  replyTo?: MessageReply;
 }
 
 export interface RequestChatMessageProps {
@@ -33,7 +18,6 @@ export interface RequestChatMessageProps {
   /** Vacío si el mensaje es solo imágenes. */
   content: string;
   imageIds?: readonly string[];
-  replyTo?: MessageReply;
   /** Lo fija el servidor al persistir y no cambia después (deuda #5). */
   createdAt: Date;
   /**
@@ -94,24 +78,9 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
       author,
       content,
       imageIds: imageIds.length ? Object.freeze([...imageIds]) : undefined,
-      replyTo: body.replyTo,
       createdAt: at,
       clientMessageId,
     });
-  }
-
-  /** La cita con la que otro mensaje responde a este. */
-  quote(): MessageReply {
-    const content = this.props.content;
-    return {
-      messageId: this.id,
-      author: this.props.author,
-      excerpt:
-        content.length > REPLY_EXCERPT_LENGTH
-          ? `${content.slice(0, REPLY_EXCERPT_LENGTH)}…`
-          : content,
-      hasImages: Boolean(this.props.imageIds?.length),
-    };
   }
 
   /**
@@ -148,10 +117,6 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
 
   get imageIds(): readonly string[] {
     return this.props.imageIds ?? [];
-  }
-
-  get replyTo(): MessageReply | undefined {
-    return this.props.replyTo;
   }
 
   get createdAt(): Date {

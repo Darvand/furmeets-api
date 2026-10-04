@@ -27,17 +27,10 @@ const JPEG = Buffer.concat([
   Buffer.from('foto del chat'),
 ]);
 
-interface ReplyDto {
-  uuid: string;
-  user: { name: string };
-  excerpt: string;
-  hasImages: boolean;
-}
 interface MessageDto {
   uuid: string;
   content: string;
   imageIds?: string[];
-  replyTo?: ReplyDto;
 }
 interface RequestChatDto {
   uuid: string;
@@ -47,13 +40,12 @@ interface WsError {
   message: string;
 }
 
-describe('Chat: imágenes y respuestas (e2e)', () => {
+describe('Chat: imágenes (e2e)', () => {
   let testApp: TestApp;
   let server: App;
   let url: string;
   let db: Connection;
   let requestChat: RequestChatDto;
-  let otherRequestChat: RequestChatDto;
   const sockets: Socket[] = [];
 
   const connect = async (user: TelegramInitDataUser): Promise<Socket> => {
@@ -142,7 +134,8 @@ describe('Chat: imágenes y respuestas (e2e)', () => {
       .get(InitDataAuthService)
       .authenticate(signInitData(MEMBER, TEST_BOT_TOKEN));
     requestChat = await apply(APPLICANT);
-    otherRequestChat = await apply(OTHER_APPLICANT);
+    // Registra a otro solicitante, que no debe ver las imágenes de este chat.
+    await apply(OTHER_APPLICANT);
   });
 
   afterEach(async () => {
@@ -232,95 +225,15 @@ describe('Chat: imágenes y respuestas (e2e)', () => {
     });
   });
 
-  describe('respuestas', () => {
-    it('la respuesta trae la cita (autor y extracto) en el ack, el historial y la recuperación', async () => {
-      const [ana, mia] = await Promise.all([
-        connect(APPLICANT),
-        connect(MEMBER),
-      ]);
-      const original = (await send(ana, {
-        requestChatUUID: requestChat.uuid,
-        content: '¿A qué hora es el próximo meet?',
-      })) as MessageDto;
+  it('responder a un mensaje no existe: replyToId → invalid-payload', async () => {
+    const ana = await connect(APPLICANT);
 
-      const reply = (await send(mia, {
-        requestChatUUID: requestChat.uuid,
-        content: 'A las 3',
-        replyToId: original.uuid,
-      })) as MessageDto;
-
-      const expected = {
-        uuid: original.uuid,
-        user: expect.objectContaining({ name: 'Ana' }) as unknown,
-        excerpt: '¿A qué hora es el próximo meet?',
-        hasImages: false,
-      };
-      expect(reply.replyTo).toEqual(expected);
-      const chat = (
-        await request(server)
-          .get(`/request-chats/${requestChat.uuid}`)
-          .set('Authorization', tmaAuth(APPLICANT))
-          .expect(200)
-      ).body as RequestChatDto;
-      expect(chat.messages.find((m) => m.uuid === reply.uuid)?.replyTo).toEqual(
-        expected,
-      );
-      const recovered = (
-        await request(server)
-          .get(`/request-chats/${requestChat.uuid}/messages`)
-          .query({ after: original.uuid })
-          .set('Authorization', tmaAuth(APPLICANT))
-          .expect(200)
-      ).body as { items: MessageDto[] };
-      expect(recovered.items[0].replyTo).toEqual(expected);
+    const result = await send(ana, {
+      requestChatUUID: requestChat.uuid,
+      content: 'respondo',
+      replyToId: randomUUID(),
     });
 
-    it('responder a un mensaje de solo imágenes lo indica en la cita', async () => {
-      const [ana, mia] = await Promise.all([
-        connect(APPLICANT),
-        connect(MEMBER),
-      ]);
-      const photo = (await send(ana, {
-        requestChatUUID: requestChat.uuid,
-        imageIds: [await upload(APPLICANT)],
-      })) as MessageDto;
-
-      const reply = (await send(mia, {
-        requestChatUUID: requestChat.uuid,
-        content: 'qué lindo',
-        replyToId: photo.uuid,
-      })) as MessageDto;
-
-      expect(reply.replyTo).toMatchObject({ excerpt: '', hasImages: true });
-    });
-
-    it.each([
-      ['a un mensaje de otra solicitud', 'other'],
-      ['a un mensaje que no existe', 'unknown'],
-    ])('responder %s → invalid-payload y no se guarda', async (_, kind) => {
-      const [beto, mia] = await Promise.all([
-        connect(OTHER_APPLICANT),
-        connect(MEMBER),
-      ]);
-      const replyToId =
-        kind === 'other'
-          ? (
-              (await send(beto, {
-                requestChatUUID: otherRequestChat.uuid,
-                content: 'de otra solicitud',
-              })) as MessageDto
-            ).uuid
-          : randomUUID();
-      const before = await storedMessages();
-
-      const result = await send(mia, {
-        requestChatUUID: requestChat.uuid,
-        content: 'respondo',
-        replyToId,
-      });
-
-      expect((result as WsError).message).toBe('invalid-payload');
-      expect(await storedMessages()).toBe(before);
-    });
+    expect((result as WsError).message).toBe('invalid-payload');
   });
 });

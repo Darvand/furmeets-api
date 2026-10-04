@@ -22,11 +22,6 @@ export interface RequestChatMessageRepository {
    * solicitud: un reenvío, aunque llegue a la vez, devuelve el mensaje ya guardado.
    */
   insertOnce(message: RequestChatMessageEntity): Promise<InsertedMessage>;
-  /** Un mensaje, solo si es de esa solicitud (p. ej. el que se quiere responder). */
-  findInRequestChat(
-    requestChatId: UUID,
-    messageId: UUID,
-  ): Promise<RequestChatMessageEntity | null>;
   /** Mensajes de una solicitud, del más antiguo al más reciente. */
   findByRequestChat(requestChatId: UUID): Promise<RequestChatMessageEntity[]>;
   /**

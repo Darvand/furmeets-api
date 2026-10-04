@@ -29,7 +29,7 @@ import type {
 } from '../domain/services/request-chat-message.repository';
 import {
   InvalidMessageError,
-  type MessageReply,
+  type MessageBody,
   RequestChatMessageEntity,
 } from '../domain/entities/request-chat-message.entity';
 import { MediaService } from 'src/media/application/media.service';
@@ -53,13 +53,6 @@ export interface RequestChatView {
 }
 
 /** Cómo quedó una solicitud tras el voto de un miembro. */
-/** Lo que manda el autor de un mensaje: texto, imágenes o ambos, y a qué responde. */
-export interface MessageDraft {
-  content?: string;
-  imageIds?: string[];
-  replyToId?: UUID;
-}
-
 export interface VoteResult {
   requestChatId: UUID;
   state: RequestChatStateType;
@@ -141,18 +134,17 @@ export class ChatService {
   /**
    * Agrega un mensaje de `author`, que debe ser miembro o el solicitante. Un mensaje de
    * texto son dos operaciones de Mongo: leer solicitante y estado, e insertar; los envíos
-   * concurrentes no se pisan ni reescriben la solicitud (RNF-CON-01). Responder suma la
-   * lectura del mensaje citado; las imágenes, validarlas y, si escribe un miembro,
-   * compartirlas con el solicitante. El aviso de Telegram queda en segundo plano.
+   * concurrentes no se pisan ni reescriben la solicitud (RNF-CON-01). Las imágenes suman
+   * validarlas y, si escribe un miembro, compartirlas con el solicitante. El aviso de
+   * Telegram queda en segundo plano.
    *
    * Con `clientMessageId`, un reenvío devuelve el mensaje ya guardado (`created: false`)
-   * y no vuelve a avisar. Un cuerpo inválido, imágenes ajenas o una respuesta a un
-   * mensaje de otra solicitud → 400.
+   * y no vuelve a avisar. Un cuerpo inválido o imágenes ajenas → 400.
    */
   async addMessageToRequestChat(
     requestChatUUID: UUID,
     author: UserEntity,
-    draft: MessageDraft,
+    body: MessageBody,
     clientMessageId?: string,
   ): Promise<InsertedMessage> {
     this.logger.debug(
@@ -171,25 +163,12 @@ export class ChatService {
         `Cannot add messages to a request chat that is not in progress`,
       );
     }
-    let replyTo: MessageReply | undefined;
-    if (draft.replyToId) {
-      const original = await this.messageRepository.findInRequestChat(
-        header.id,
-        draft.replyToId,
-      );
-      if (!original) {
-        throw new BadRequestException(
-          'replyToId must be a message of this request chat',
-        );
-      }
-      replyTo = original.quote();
-    }
     let message: RequestChatMessageEntity;
     try {
       message = RequestChatMessageEntity.send(
         header.id,
         author,
-        { content: draft.content, imageIds: draft.imageIds, replyTo },
+        body,
         this.clock.now(),
         clientMessageId,
       );

@@ -32,11 +32,6 @@ export class CreateRequestChatMessageDto {
   @IsUUID(undefined, { each: true })
   imageIds?: string[];
 
-  /** Mensaje de la misma solicitud al que responde. */
-  @IsOptional()
-  @IsUUID()
-  replyToId?: string;
-
   @IsUUID()
   requestChatUUID: string;
 
