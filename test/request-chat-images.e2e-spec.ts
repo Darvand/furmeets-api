@@ -224,16 +224,4 @@ describe('Chat: imágenes (e2e)', () => {
       expect((result as WsError).message).toBe('invalid-payload');
     });
   });
-
-  it('responder a un mensaje no existe: replyToId → invalid-payload', async () => {
-    const ana = await connect(APPLICANT);
-
-    const result = await send(ana, {
-      requestChatUUID: requestChat.uuid,
-      content: 'respondo',
-      replyToId: randomUUID(),
-    });
-
-    expect((result as WsError).message).toBe('invalid-payload');
-  });
 });

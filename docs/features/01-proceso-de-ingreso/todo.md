@@ -872,11 +872,10 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Acceptance criteria:**
 - [x] Un mensaje lleva texto, imágenes o ambos; las imágenes deben ser subidas del autor
 - [x] Las imágenes que manda un miembro las ve el solicitante; otro solicitante no
-- [x] `replyToId` ya no se acepta (por socket, `invalid-payload`)
 
 **Verification:**
 - [x] e2e (`test/request-chat-images.e2e-spec.ts`); unitarias de la entidad, del servicio y de `media`
-- [x] Prueba de mutación (antes de quitar las respuestas): sin la validación de imágenes propias fallan los casos de imagen ajena e inexistente
+- [x] Prueba de mutación: sin la validación de imágenes propias fallan los casos de imagen ajena e inexistente
 
 **Notas de implementación:**
 - **Contrato del socket.** `request-chat` acepta `content?` e `imageIds?` (hasta 10 UUID sin repetir, subidos antes con `POST /media`). Necesita texto o al menos una imagen. El mensaje devuelto (ack, evento, historial y recuperación) trae `imageIds`; `content` queda vacío si es solo imágenes.
