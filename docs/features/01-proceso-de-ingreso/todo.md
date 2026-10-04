@@ -863,25 +863,41 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 17: Chat: imágenes y respuestas
+## Task 17: Chat: imágenes
 
 **Repo:** API · **RNF:** SEG-05
 
-**Description:** Mensajes con imágenes (sin límite de cantidad, ≤ 10 MB c/u) vía `media`, y `replyToId` para citar un mensaje de la misma solicitud.
+**Description:** Mensajes con imágenes (sin límite de cantidad, ≤ 10 MB c/u) vía `media`. (Responder citando un mensaje se planeó aquí y se quitó el 2026-10-04: agrega complejidad para poco valor en chats cortos.)
 
 **Acceptance criteria:**
-- [ ] Un `replyToId` de otra solicitud → 400
-- [ ] El mensaje devuelto incluye la cita (autor y extracto)
+- [x] Un mensaje lleva texto, imágenes o ambos; las imágenes deben ser subidas del autor
+- [x] Las imágenes que manda un miembro las ve el solicitante; otro solicitante no
 
 **Verification:**
-- [ ] e2e de imagen y de respuesta
+- [x] e2e (`test/request-chat-images.e2e-spec.ts`); unitarias de la entidad, del servicio y de `media`
+- [x] Prueba de mutación: sin la validación de imágenes propias fallan los casos de imagen ajena e inexistente
+
+**Notas de implementación:**
+- **Contrato del socket.** `request-chat` acepta `content?` e `imageIds?` (hasta 10 UUID sin repetir, subidos antes con `POST /media`). Necesita texto o al menos una imagen. El mensaje devuelto (ack, evento, historial y recuperación) trae `imageIds`; `content` queda vacío si es solo imágenes.
+- **Reglas.**
+  - `RequestChatMessageEntity.send` valida el cuerpo: texto o imágenes, máximo 10 (`MAX_MESSAGE_IMAGES`) y sin repetir.
+  - Las imágenes deben ser subidas del autor (`MediaService.assertOwnUploads`, la misma de T14).
+  - Si algo falla, el servicio responde 400 y el gateway lo devuelve como `invalid-payload`, igual que un payload mal formado: la App lo marca como no enviado.
+- **Quién ve las imágenes del chat.**
+  - Las del solicitante ya las veían los miembros.
+  - Si escribe un miembro, sus imágenes se comparten con el solicitante (`media.sharedWith`, con `$addToSet`) antes de emitir el mensaje, así el solicitante puede abrirlas en cuanto lo recibe. Otro solicitante sigue recibiendo 403.
+  - `media` no depende de `chat`: guarda a quién se compartió, sin consultar la solicitud.
+- **Avisos de Telegram.** Si el mensaje es solo imágenes, el aviso al grupo dice "📷 Imagen" o "📷 N imágenes" (`preview`). Republicar las imágenes en el grupo es T27.
+- **Costo.** Un mensaje de texto sigue con 2 operaciones de Mongo. Las imágenes suman su validación y, si escribe un miembro, compartirlas.
+- **Sin migración.** `content` deja de ser obligatorio en el schema; los mensajes anteriores no cambian.
 
 **Dependencies:** T08, T16
 
 **Files likely touched:**
-- `src/chat/domain/entities/request-chat-message.entity.ts`
-- `src/chat/mappers/request-chat-message.mapper.ts`
-- `src/chat/presentation/dtos/create-request-chat-message.dto.ts`
+- `src/chat/domain/entities/request-chat-message.entity.ts` (+ `.spec.ts`)
+- `src/chat/mappers/request-chat-message.mapper.ts`, `infraestructure/schemas/request-chat-message.schema.ts`, `repositories/request-chat-message-mongo.repository.ts`
+- `src/chat/application/chat.service.ts` (+ `.spec.ts`), `presentation/chat.gateway.ts`, `presentation/dtos/*message*.dto.ts`
+- `src/media/domain/media.ts`, `application/media.service.ts`, `infraestructure/media*.ts`
 
 **Estimated scope:** S
 
@@ -939,7 +955,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** REN-01, CAL-04, USA-01, USA-02
 
-**Description:** Chat con texto, imágenes (adjuntar), responder, mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
+**Description:** Chat con texto, imágenes (adjuntar), mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
 
 **Acceptance criteria:**
 - [ ] Un mensaje enviado aparece en otro cliente conectado sin recargar

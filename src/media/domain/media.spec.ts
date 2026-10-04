@@ -19,4 +19,15 @@ describe('visibleWithoutRole', () => {
     ).toBe(false);
     expect(visibleWithoutRole({ kind: MediaKinds.Upload }, 'yo')).toBe(false);
   });
+
+  it('una imagen subida también la ve aquel con quien se compartió', () => {
+    const shared = {
+      kind: MediaKinds.Upload,
+      ownerId: 'miembro',
+      sharedWith: ['solicitante'],
+    };
+
+    expect(visibleWithoutRole(shared, 'solicitante')).toBe(true);
+    expect(visibleWithoutRole(shared, 'otro')).toBe(false);
+  });
 });

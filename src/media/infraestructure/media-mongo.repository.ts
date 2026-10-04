@@ -7,9 +7,10 @@ import type { MediaRepository } from '../domain/media.repository';
 import { Media } from './media.schema';
 
 type UUIDValue = Parameters<typeof toUUIDString>[0];
-type MediaDoc = Omit<Media, '_id' | 'ownerId'> & {
+type MediaDoc = Omit<Media, '_id' | 'ownerId' | 'sharedWith'> & {
   _id: UUIDValue;
   ownerId?: UUIDValue;
+  sharedWith?: UUIDValue[];
 };
 
 const MEDIA_PROJECTION = {
@@ -17,6 +18,7 @@ const MEDIA_PROJECTION = {
   fileId: 1,
   fileUniqueId: 1,
   ownerId: 1,
+  sharedWith: 1,
   mimeType: 1,
 };
 
@@ -44,6 +46,12 @@ export class MediaMongoRepository implements MediaRepository {
 
   async create(media: MediaItem): Promise<void> {
     await this.mediaModel.create(toDb(media));
+  }
+
+  async shareWith(ids: readonly string[], userId: string): Promise<void> {
+    await this.mediaModel
+      .updateMany({ _id: { $in: ids } }, { $addToSet: { sharedWith: userId } })
+      .exec();
   }
 
   async registerOnce(media: MediaItem): Promise<string> {
@@ -87,6 +95,7 @@ function fromDb(doc: MediaDoc): MediaItem {
     fileId: doc.fileId,
     fileUniqueId: doc.fileUniqueId,
     ownerId: doc.ownerId ? toUUIDString(doc.ownerId) : undefined,
+    sharedWith: doc.sharedWith?.map(toUUIDString),
     mimeType: doc.mimeType,
   };
 }

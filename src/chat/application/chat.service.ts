@@ -27,7 +27,12 @@ import type {
   MessagesAfter,
   RequestChatMessageRepository,
 } from '../domain/services/request-chat-message.repository';
-import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
+import {
+  InvalidMessageError,
+  type MessageBody,
+  RequestChatMessageEntity,
+} from '../domain/entities/request-chat-message.entity';
+import { MediaService } from 'src/media/application/media.service';
 import { UserService } from 'src/members/application/user.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
@@ -78,6 +83,7 @@ export class ChatService {
     private readonly chatGateway: ChatGateway,
     private readonly access: RequestChatAccessService,
     private readonly background: BackgroundQueue,
+    private readonly mediaService: MediaService,
   ) {}
 
   /**
@@ -126,19 +132,19 @@ export class ChatService {
   }
 
   /**
-   * Agrega un mensaje de `author`, que debe ser miembro o el solicitante. Son dos
-   * operaciones de Mongo: leer solicitante y estado, e insertar; los envíos concurrentes
-   * no se pisan ni reescriben la solicitud (RNF-CON-01). El aviso de Telegram queda en
-   * segundo plano.
-   */
-  /**
-   * Guarda un mensaje de `author` y avisa en segundo plano. Con `clientMessageId`, un
-   * reenvío devuelve el mensaje ya guardado (`created: false`) y no vuelve a avisar.
+   * Agrega un mensaje de `author`, que debe ser miembro o el solicitante. Un mensaje de
+   * texto son dos operaciones de Mongo: leer solicitante y estado, e insertar; los envíos
+   * concurrentes no se pisan ni reescriben la solicitud (RNF-CON-01). Las imágenes suman
+   * validarlas y, si escribe un miembro, compartirlas con el solicitante. El aviso de
+   * Telegram queda en segundo plano.
+   *
+   * Con `clientMessageId`, un reenvío devuelve el mensaje ya guardado (`created: false`)
+   * y no vuelve a avisar. Un cuerpo inválido o imágenes ajenas → 400.
    */
   async addMessageToRequestChat(
     requestChatUUID: UUID,
     author: UserEntity,
-    content: string,
+    body: MessageBody,
     clientMessageId?: string,
   ): Promise<InsertedMessage> {
     this.logger.debug(
@@ -157,15 +163,32 @@ export class ChatService {
         `Cannot add messages to a request chat that is not in progress`,
       );
     }
-    const inserted = await this.messageRepository.insertOnce(
-      RequestChatMessageEntity.send(
+    let message: RequestChatMessageEntity;
+    try {
+      message = RequestChatMessageEntity.send(
         header.id,
         author,
-        content,
+        body,
         this.clock.now(),
         clientMessageId,
-      ),
-    );
+      );
+    } catch (error) {
+      if (error instanceof InvalidMessageError) {
+        throw new BadRequestException(error.reason);
+      }
+      throw error;
+    }
+    if (message.imageIds.length) {
+      await this.mediaService.assertOwnUploads(author, message.imageIds);
+      // Antes de emitir: el solicitante ya puede abrir las imágenes al recibir el evento.
+      if (header.requesterId.value !== author.id.value) {
+        await this.mediaService.shareUploads(
+          message.imageIds,
+          header.requesterId.value,
+        );
+      }
+    }
+    const inserted = await this.messageRepository.insertOnce(message);
     if (inserted.created) {
       this.notifyNewMessage(header, inserted.message);
     }
@@ -311,7 +334,7 @@ export class ChatService {
         RequestChatEntity.requesterMessageNotice(
           header.id,
           author,
-          message.content,
+          message.preview,
         ),
       );
       return;

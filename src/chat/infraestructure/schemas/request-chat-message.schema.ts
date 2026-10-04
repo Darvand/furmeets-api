@@ -20,8 +20,13 @@ export class RequestChatMessage {
   @Prop({ type: mongoose.Schema.Types.UUID, ref: User.name, required: true })
   authorId: string;
 
-  @Prop({ required: true })
+  /** Vacío si el mensaje es solo imágenes. */
+  @Prop({ default: '' })
   content: string;
+
+  /** Ids de `media`; falta si no tiene imágenes. */
+  @Prop({ type: [mongoose.Schema.Types.UUID], default: undefined })
+  imageIds?: string[];
 
   @Prop({ required: true })
   createdAt: Date;

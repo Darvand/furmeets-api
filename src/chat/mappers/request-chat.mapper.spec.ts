@@ -24,7 +24,7 @@ describe('RequestChatMapper', () => {
   const hello = RequestChatMessageEntity.send(
     requestChat.id,
     requester,
-    'hola',
+    { content: 'hola' },
     new Date('2026-10-02T15:05:30.123Z'),
   );
 

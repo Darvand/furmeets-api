@@ -14,7 +14,9 @@ export interface RequestChatMessageDoc {
   _id: UUIDValue;
   requestChatId: UUIDValue;
   authorId: User;
-  content: string;
+  /** Puede faltar en documentos viejos: se lee como vacío. */
+  content?: string;
+  imageIds?: UUIDValue[];
   createdAt: Date;
   clientMessageId?: string;
 }
@@ -29,6 +31,9 @@ export class RequestChatMessageMapper {
       user: UserMapper.toDto(message.author),
       sentAt: message.createdAt.toISOString(),
     };
+    if (message.imageIds.length) {
+      dto.imageIds = [...message.imageIds];
+    }
     if (message.clientMessageId) {
       dto.clientMessageId = message.clientMessageId;
     }
@@ -43,6 +48,9 @@ export class RequestChatMessageMapper {
       content: message.content,
       createdAt: message.createdAt,
     };
+    if (message.imageIds.length) {
+      doc.imageIds = [...message.imageIds];
+    }
     if (message.clientMessageId) {
       doc.clientMessageId = message.clientMessageId;
     }
@@ -65,7 +73,10 @@ export class RequestChatMessageMapper {
       {
         requestChatId: UUID.from(toUUIDString(doc.requestChatId)),
         author,
-        content: doc.content,
+        content: doc.content ?? '',
+        imageIds: doc.imageIds?.length
+          ? doc.imageIds.map(toUUIDString)
+          : undefined,
         createdAt: doc.createdAt,
         clientMessageId: doc.clientMessageId,
       },
