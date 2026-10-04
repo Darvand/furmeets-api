@@ -94,7 +94,7 @@ describe('Autenticación del socket por initData (e2e)', () => {
     await expect(connected(socket)).resolves.toBeUndefined();
   });
 
-  it('un mensaje de un miembro con userUUID ajeno queda a su nombre', async () => {
+  it('el autor es el usuario del socket; un userUUID en el payload se rechaza', async () => {
     const ana = await authenticate(ANA);
     const requestChat = RequestChatEntity.apply(
       ana,
@@ -107,12 +107,22 @@ describe('Autenticación del socket por initData (e2e)', () => {
 
     const socket = connect({ initData: signInitData(BETO, TEST_BOT_TOKEN) });
     await connected(socket);
+    // Desde T16 el payload no acepta `userUUID`: suplantar a Ana ni siquiera se procesa.
+    const rejected = new Promise<{ message: string }>((resolve) =>
+      socket.once('exception', resolve),
+    );
+    socket.emit('request-chat', {
+      requestChatUUID: requestChat.id.value,
+      userUUID: ana.id.value,
+      content: 'soy Ana',
+    });
+    expect((await rejected).message).toBe('invalid-payload');
+
     const received = new Promise<MessageDto>((resolve) =>
       socket.once('request-chat', resolve),
     );
     socket.emit('request-chat', {
       requestChatUUID: requestChat.id.value,
-      userUUID: ana.id.value,
       content: 'hola, soy Beto',
     });
 

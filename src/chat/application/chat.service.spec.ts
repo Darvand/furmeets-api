@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Logger,
@@ -17,7 +18,11 @@ import {
   type VoteApplied,
 } from '../domain/services/chat.repository';
 import { ApplicationForm } from 'src/applications/domain/application-form';
-import type { RequestChatMessageRepository } from '../domain/services/request-chat-message.repository';
+import type {
+  MessagesAfter,
+  RequestChatMessageRepository,
+} from '../domain/services/request-chat-message.repository';
+import type { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
 import type { ChatGateway } from '../presentation/chat.gateway';
 import { ChatService } from './chat.service';
@@ -81,6 +86,10 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
   };
   const messages = {
     insert: jest.fn(() => Promise.resolve()),
+    insertOnce: jest.fn((message: RequestChatMessageEntity) =>
+      Promise.resolve({ message, created: true }),
+    ),
+    findAfter: jest.fn(() => Promise.resolve<MessagesAfter | null>(null)),
     findByRequestChat: jest.fn(() => Promise.resolve([])),
   };
   const users = {
@@ -210,7 +219,7 @@ describe('ChatService', () => {
       ctx.telegram.sendMessageToGroup = slow.call;
       const resume = holdQueue(ctx.queue);
 
-      const message = await ctx.service.addMessageToRequestChat(
+      const { message } = await ctx.service.addMessageToRequestChat(
         ctx.requestChat.id,
         requester,
         'hola',
@@ -218,7 +227,7 @@ describe('ChatService', () => {
 
       expect(message.content).toBe('hola');
       expect(ctx.chats.findHeader).toHaveBeenCalledTimes(1);
-      expect(ctx.messages.insert).toHaveBeenCalledTimes(1);
+      expect(ctx.messages.insertOnce).toHaveBeenCalledTimes(1);
       expect(ctx.mongoOps()).toBe(2);
       resume();
       // Telegram sigue sin responder y el mensaje ya está guardado.
@@ -259,11 +268,44 @@ describe('ChatService', () => {
       ).resolves.toBeDefined();
       await ctx.queue.drain();
 
-      expect(ctx.messages.insert).toHaveBeenCalledTimes(1);
+      expect(ctx.messages.insertOnce).toHaveBeenCalledTimes(1);
       expect(ctx.telegram.sendMessageToGroup).toHaveBeenCalledTimes(3);
       expect(ctx.queueLogger.error).toHaveBeenCalledWith(
         expect.stringContaining('caído'),
       );
+    });
+
+    it('guarda el clientMessageId con el mensaje', async () => {
+      const ctx = setup();
+
+      const { message, created } = await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        requester,
+        'hola',
+        'cliente-1',
+      );
+
+      expect(created).toBe(true);
+      expect(message.clientMessageId).toBe('cliente-1');
+    });
+
+    it('un reenvío devuelve el mensaje guardado y no vuelve a avisar', async () => {
+      const ctx = setup();
+      ctx.messages.insertOnce.mockImplementation(
+        (message: RequestChatMessageEntity) =>
+          Promise.resolve({ message, created: false }),
+      );
+
+      const { created } = await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        requester,
+        'hola',
+        'cliente-1',
+      );
+      await ctx.queue.drain();
+
+      expect(created).toBe(false);
+      expect(ctx.telegram.sendMessageToGroup).not.toHaveBeenCalled();
     });
 
     it('sin acceso → 403 y no guarda nada', async () => {
@@ -273,7 +315,7 @@ describe('ChatService', () => {
       await expect(
         ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, 'x'),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(ctx.messages.insert).not.toHaveBeenCalled();
+      expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
     });
 
     it('en una solicitud cerrada → 409', async () => {
@@ -282,7 +324,27 @@ describe('ChatService', () => {
       await expect(
         ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, 'x'),
       ).rejects.toBeInstanceOf(ConflictException);
-      expect(ctx.messages.insert).not.toHaveBeenCalled();
+      expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getMessagesAfter', () => {
+    it('un after que no es de la solicitud → 400', async () => {
+      const ctx = setup();
+
+      await expect(
+        ctx.service.getMessagesAfter(ctx.requestChat.id, UUID.generate(), 10),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('devuelve la página del repositorio', async () => {
+      const ctx = setup();
+      const page = { items: [], hasMore: true };
+      ctx.messages.findAfter.mockResolvedValue(page);
+
+      await expect(
+        ctx.service.getMessagesAfter(ctx.requestChat.id, UUID.generate(), 10),
+      ).resolves.toBe(page);
     });
   });
 
