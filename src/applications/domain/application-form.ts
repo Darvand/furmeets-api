@@ -3,11 +3,15 @@ import { ValueObject } from 'src/shared/domain/value-objects/value-object';
 /** Edad desde la que una solicitud ya no lleva la etiqueta "Menor de edad". */
 export const ADULT_AGE = 18;
 
-/** Lo que envía el solicitante (SPEC §3.1). Las imágenes llegan con T14. */
+/** Fotos o referencias de la fursona que admite el formulario (SPEC §3.1). */
+export const MAX_FORM_IMAGES = 3;
+
+/** Lo que envía el solicitante (SPEC §3.1). */
 export interface ApplicationFormProps {
+  /** Ids de `media` subidos antes con `POST /media`, en el orden elegido. */
+  imageIds?: readonly string[];
   fursonaName?: string;
   species?: string;
-  pronouns?: string;
   age: number;
   city: string;
   socialLinks?: string;
@@ -27,7 +31,6 @@ export class InvalidApplicationFormError extends Error {
 const OPTIONAL_TEXTS = [
   'fursonaName',
   'species',
-  'pronouns',
   'socialLinks',
   'howDidYouFindUs',
   'knowsSomeone',
@@ -54,6 +57,18 @@ export class ApplicationForm extends ValueObject<ApplicationFormProps> {
       throw new InvalidApplicationFormError('city is required');
     }
     const props: ApplicationFormProps = { age: input.age, city };
+    const imageIds = input.imageIds ?? [];
+    if (imageIds.length > MAX_FORM_IMAGES) {
+      throw new InvalidApplicationFormError(
+        `at most ${MAX_FORM_IMAGES} images are allowed`,
+      );
+    }
+    if (new Set(imageIds).size !== imageIds.length) {
+      throw new InvalidApplicationFormError('images must not repeat');
+    }
+    if (imageIds.length) {
+      props.imageIds = Object.freeze([...imageIds]);
+    }
     for (const key of OPTIONAL_TEXTS) {
       const value = input[key]?.trim();
       if (value) {
@@ -65,6 +80,9 @@ export class ApplicationForm extends ValueObject<ApplicationFormProps> {
 
   /** Reconstruye un formulario ya guardado, sin volver a validarlo. */
   static restore(props: ApplicationFormProps): ApplicationForm {
+    if (props.imageIds) {
+      props = { ...props, imageIds: Object.freeze([...props.imageIds]) };
+    }
     return new ApplicationForm(props);
   }
 

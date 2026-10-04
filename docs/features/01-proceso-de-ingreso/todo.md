@@ -755,19 +755,30 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** El formulario acepta 0–3 imágenes JPEG/PNG/WebP de ≤ 10 MB, subidas por `media`. Además se quita `pronouns`, que T13 dejó en el formulario (decidido el 2026-10-03).
 
 **Acceptance criteria:**
-- [ ] 4 imágenes → 400; MIME no permitido → 400; > 10 MB → 413
-- [ ] Las imágenes se ven en el resumen vía `/media/:id`
-- [ ] `pronouns` en el body → 400; desaparece de la entidad, el schema, el mapper y los DTOs (los datos ya guardados se ignoran)
+- [x] 4 imágenes → 400; MIME no permitido → 400; > 10 MB → 413 (los dos últimos los valida `POST /media`, T08)
+- [x] Las imágenes se ven en el resumen vía `/media/:id`
+- [x] `pronouns` en el body → 400; desaparece de la entidad, el schema, el mapper y los DTOs (los datos ya guardados se ignoran)
 
 **Verification:**
-- [ ] Unitarias de la regla de máximo 3; e2e de subida (criterio de éxito 11)
+- [x] Unitarias de la regla de máximo 3 (`application-form.spec.ts`), de `assertOwnUploads` (`media.service.spec.ts`) y del servicio (`applications.service.spec.ts`)
+- [x] e2e (`test/applications.e2e-spec.ts`): formulario con 3 imágenes propias que ven el solicitante y un miembro, pero no otro solicitante; 400 con 4 imágenes, repetidas, ids que no son UUID, inexistentes o de otro usuario, y con `pronouns` (criterio de éxito 11, parte de las imágenes)
+
+**Notas de implementación:**
+- **Contrato.** La App sube cada imagen con `POST /media` (devuelve `{ id }`) y envía los ids en `POST /applications` como `imageIds` (0–3 UUID, sin repetir, en el orden elegido). `form.imageIds` vuelve en la respuesta y en `GET /request-chats/:id`; la App las muestra con `GET /media/:id`.
+- **Reglas.** El máximo de 3 y la no repetición viven en `ApplicationForm` (`MAX_FORM_IMAGES`); el DTO las repite para responder 400 antes de tocar la BD. `MediaService.assertOwnUploads` exige que cada id exista, sea una subida (no un avatar) y la haya subido el solicitante: nadie adjunta la imagen de otro. Si no → 400 y no se crea la solicitud.
+- **Quién las ve.** No hizo falta cambiar `visibleWithoutRole`: el solicitante ve sus subidas y un miembro ve todas.
+- **Guardado.** `requestchats.form.imageIds` como UUID; el mapper los normaliza a texto (con `lean()` llegan como `Binary`). Sin imágenes el campo no se guarda.
+- **Pronombres.** Se quitaron del formulario. Los formularios de staging o producción que los tengan los conservan en la BD, pero el mapper ya no los lee.
+- **Pendiente.** Subidas que nunca se usan en un formulario (el solicitante sube y no envía) quedan en `media` y en el canal de almacenamiento. Son pocas y no cuestan nada; no se limpian por ahora.
 
 **Dependencies:** T08, T13
 
 **Files likely touched:**
-- `src/applications/presentation/applications.controller.ts`
-- `src/applications/domain/application-form.ts`
-- `src/media/application/media.service.ts`
+- `src/applications/domain/application-form.ts` (+ `.spec.ts`)
+- `src/applications/application/applications.service.ts` (+ `.spec.ts`)
+- `src/applications/presentation/dtos/create-application.dto.ts`, `get-application-form.dto.ts`
+- `src/applications/infraestructure/application-form.schema.ts`, `mappers/application-form.mapper.ts`
+- `src/media/application/media.service.ts` (+ `.spec.ts`), `src/media/infraestructure/media-mongo.repository.ts`
 
 **Estimated scope:** S
 

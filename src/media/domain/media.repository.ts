@@ -5,6 +5,9 @@ export const MEDIA_REPOSITORY = Symbol('MediaRepository');
 export interface MediaRepository {
   findById(id: string): Promise<MediaItem | null>;
 
+  /** Las que existen de esos ids, en cualquier orden. */
+  findByIds(ids: readonly string[]): Promise<MediaItem[]>;
+
   create(media: MediaItem): Promise<void>;
 
   /**
