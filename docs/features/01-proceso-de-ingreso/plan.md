@@ -64,10 +64,10 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
         ├─ T13 formulario API ─ T14 imágenes form ─ T15 App: formulario
         ├─ T16 chat texto/ack ─ T17 imágenes y reply ─ T18 historial paginado ─ T19 sistema/solo lectura
         │                                                   └─ T20 App: chats
-        ├─ T21 votos ─ T22 avales/comentarios ─ T23 App: inicio ─ T24 App: votación y resumen
+        ├─ T45 equals ─ T21 votos ─ T22 avales/comentarios ─ T23 inicio (API + App) ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
         └─ T27 anuncios/republicación ─ T28 replies desde grupo ─ T29 DMs y resultados
-T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambientes · T35 rendimiento · T36 limpieza App
+T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambientes · T35 rendimiento · T36 limpieza App · T44 App: carga
 ```
 
 ## Estado del release (2026-10-03)
@@ -140,14 +140,15 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [ ] Flujo solicitante: formulario → chat, en staging
 - [ ] Criterio de éxito 11
 
+- [ ] T45: Corregir `ValueObject.equals`
 - [ ] T21: Revisión: votos y umbrales
-- [ ] T22: Revisión: avales y comentarios privados
+- [ ] T22: Revisión: avales y comentarios
 - [ ] T23: App: inicio de miembros
 - [ ] T24: App: votación y resumen del solicitante
 
 #### Checkpoint D: Revisión
 - [ ] Criterios de éxito 9 y 10
-- [ ] Revisión humana de privacidad de votos y comentarios
+- [ ] Revisión humana: el solicitante no recibe votos, avales ni comentarios mientras no sea miembro
 
 - [ ] T25: Admisión por solicitud de unión
 - [ ] T26: App: pantallas Aprobado y No aprobado
@@ -167,6 +168,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [ ] T34: Ambientes staging/producción aislados
 - [ ] T35: Verificación de rendimiento
 - [ ] T36: Limpieza de la App
+- [ ] T44: App: pantalla de carga durante el arranque en frío
 
 #### Checkpoint F: Completo
 - [ ] Los 15 criterios de éxito (SPEC §13)
@@ -196,9 +198,9 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-PRI-01 | Nadie ve quién votó en contra ni quién escribió un comentario privado: ni API, ni socket, ni bot, ni logs. Solo conteos. | Unitarias sobre mappers/DTOs y eventos; revisión de logs | T21, T22, T29 |
+| RNF-PRI-01 | Votos (a favor y en contra), avales y comentarios llevan el nombre de su autor y los ven todos los miembros (decidido el 2026-10-03; reemplaza el anonimato). | e2e por rol sobre la forma de las respuestas | T21, T22, T24 |
 | RNF-PRI-02 | No se listan por nombre los miembros que faltan por votar. Solo la etiqueta personal "Falta tu voto". | e2e sobre la respuesta del listado | T21, T23 |
-| RNF-PRI-03 | Formulario, votos, avales y comentarios solo visibles para miembros; el solicitante ve su formulario y su chat. | e2e por rol | T06, T22 |
+| RNF-PRI-03 | Formulario, votos, avales y comentarios solo visibles para miembros; el solicitante ve su formulario y su chat. Nada de la revisión viaja en las respuestas ni en los eventos de socket que recibe el solicitante (incluido `request-chat-update`, que va a la sala de su solicitud). | e2e por rol; prueba que serializa las salidas al solicitante (criterio de éxito 10) | T06, T21, T22 |
 | RNF-PRI-04 | El formulario advierte que los mensajes se comparten en el grupo y que el envío es definitivo. | Revisión manual de la pantalla | T15 |
 | RNF-PRI-05 | Retención indefinida: no se borran solicitudes, mensajes ni imágenes. La migración conserva la colección original. | Revisión del script de migración | T12 |
 
@@ -241,7 +243,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-OBS-01 | Errores de llamadas a Telegram se registran con contexto (evento, id de solicitud), sin datos anónimos (RNF-PRI-01). | Revisión de logs en staging | T27, T29 |
+| RNF-OBS-01 | Errores de llamadas a Telegram se registran con contexto (evento, id de solicitud). | Revisión de logs en staging | T27, T29 |
 | RNF-OBS-02 | Autenticaciones y autorizaciones rechazadas se registran a nivel `warn`, sin el `initData` completo. | Revisión de logs | T03, T06 |
 | RNF-OBS-03 | La duración de cada ruta HTTP y de cada evento de socket queda registrada, para detectar regresiones de latencia. | Revisión de logs | T37 |
 
@@ -258,8 +260,8 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-USA-01 | Textos visibles al usuario en español; pantallas según el diseño de referencia con los ajustes de SPEC §3. | Revisión manual | T15, T20, T23, T24, T26 |
-| RNF-USA-02 | La App funciona en los clientes de Telegram móvil (Android/iOS) y escritorio, con tema claro y oscuro. | Prueba manual en staging | T15, T20, T23, T24, T26 |
+| RNF-USA-01 | Textos visibles al usuario en español; pantallas según el diseño de referencia con los ajustes de SPEC §3. | Revisión manual | T15, T20, T23, T24, T26, T44 |
+| RNF-USA-02 | La App funciona en los clientes de Telegram móvil (Android/iOS) y escritorio, con tema claro y oscuro. | Prueba manual en staging | T15, T20, T23, T24, T26, T44 |
 
 ## Riesgos y mitigaciones
 
@@ -267,7 +269,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 |---|---|---|
 | El token actual ya está publicado en el bundle | Alto | T01 va primero, antes de cualquier otra tarea |
 | La migración corrompe o pierde datos de producción | Alto | Script idempotente, ensayo en staging con copia, respaldo previo, colección original conservada, aprobación humana |
-| Fuga de la identidad de quien vota en contra (log, evento, mapper) | Alto | DTOs sin campo de autor para votos en contra; pruebas específicas que buscan el id en todas las salidas |
+| Fuga de la revisión al solicitante (p. ej. votos con nombre en `request-chat-update`, que también le llega) | Alto | DTO del solicitante sin votos, avales ni comentarios; prueba que serializa todo lo que recibe y no los encuentra |
 | El auto-ping no evita que Render duerma el servicio | Medio | Verificar en staging; alternativa cron-job.org (gratis) |
 | Keep-alive se considere abuso en los términos de Render | Medio | Solo con solicitudes en curso; plan B Render Starter (~$7/mes) |
 | La UI optimista muestra un mensaje o voto que luego falla | Medio | Estado "no enviado" con reintento; se reconcilia con el ack por `clientMessageId` |
@@ -287,6 +289,12 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 No hay preguntas abiertas.
 
 ### Resueltas
+
+- 2026-10-03: "Contactar a un admin" en la pantalla de carga abre `https://t.me/DarvandFrovonwill` (T44).
+- 2026-10-03: nada es anónimo dentro del grupo. Votos, avales y comentarios muestran a su autor a todos los miembros (RNF-PRI-01). Afecta a T21, T22, T24 y T29.
+- 2026-10-03: `REJECT_THRESHOLD` pasa a 5, igual que `APPROVE_THRESHOLD`; siguen siendo dos variables (T21).
+- 2026-10-03: el formulario no pide pronombres. La API de T13 ya los acepta: se quitan en T14.
+- 2026-10-03: sin reglas de convivencia también en *Aprobado* y en la pantalla de carga (T26, T44).
 
 - 2026-09-29: se aprueba `mongodb-memory-server` como dependencia de desarrollo para las pruebas e2e (T02).
 - 2026-09-29: los DTOs se validan con `class-validator` + `class-transformer` y un `ValidationPipe` global (T02). Joi queda solo para la configuración (T32).
