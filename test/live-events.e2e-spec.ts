@@ -91,18 +91,16 @@ describe('Eventos en vivo para la App (e2e)', () => {
     url = `http://127.0.0.1:${port}`;
 
     const auth = testApp.app.get(InitDataAuthService);
-    const ana = await auth.authenticate(
-      signInitData(APPLICANT, TEST_BOT_TOKEN),
-    );
+    await auth.authenticate(signInitData(APPLICANT, TEST_BOT_TOKEN));
     await Promise.all(
       MEMBERS.map((m) => auth.authenticate(signInitData(m, TEST_BOT_TOKEN))),
     );
     requestChatId = (
       (
         await request(server)
-          .post('/request-chats')
+          .post('/applications')
           .set('Authorization', tmaAuth(APPLICANT))
-          .send({ requesterUUID: ana.id.value })
+          .send({ age: 25, city: 'Bogotá' })
           .expect(201)
       ).body as { uuid: string }
     ).uuid;

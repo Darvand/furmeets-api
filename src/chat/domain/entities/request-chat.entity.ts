@@ -9,10 +9,7 @@ import {
 import { RequestChatVoteEntity } from './request-chat-vote.entity';
 import { DateTime } from 'luxon';
 import { ApplicationForm } from 'src/applications/domain/application-form';
-import {
-  legacyApplication,
-  type LegacyApplication,
-} from 'src/applications/domain/legacy-application';
+import type { LegacyApplication } from 'src/applications/domain/legacy-application';
 
 const APPROVE_THRESHOLD = process.env.APPROVE_THRESHOLD || 5;
 const REJECT_THRESHOLD = process.env.REJECT_THRESHOLD || 3;
@@ -78,24 +75,6 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     return new RequestChatEntity({
       requester,
       form,
-      state: RequestChatState.InProgress(),
-      createdAt: DateTime.now(),
-      votes: [],
-    });
-  }
-
-  /**
-   * Formulario anterior (`POST /request-chats`): nace como solicitud `legacy`, igual que
-   * las que migra T12. Se elimina cuando la App use `POST /applications` (T15).
-   */
-  static asNew(
-    requester: UserEntity,
-    interests?: string,
-    whereYouFoundUs?: string,
-  ): RequestChatEntity {
-    return new RequestChatEntity({
-      requester,
-      legacy: legacyApplication(whereYouFoundUs, interests),
       state: RequestChatState.InProgress(),
       createdAt: DateTime.now(),
       votes: [],

@@ -1,6 +1,8 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatEntity } from './request-chat.entity';
 import { ApplicationForm } from 'src/applications/domain/application-form';
+import { DateTime } from 'luxon';
+import { RequestChatState } from '../value-objects/request-chat-state.value-object';
 
 const user = (telegramId: number) =>
   UserEntity.create({ name: `User ${telegramId}`, telegramId, isMember: true });
@@ -10,7 +12,10 @@ describe('RequestChatEntity', () => {
   let requestChat: RequestChatEntity;
 
   beforeEach(() => {
-    requestChat = RequestChatEntity.asNew(requester, 'furros', 'Instagram');
+    requestChat = RequestChatEntity.apply(
+      requester,
+      ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+    );
   });
 
   it('una solicitud nueva queda en curso y sin votos', () => {
@@ -59,7 +64,14 @@ describe('RequestChatEntity', () => {
 
   describe('announceWelcomeMesssage', () => {
     it('del formulario anterior: solo sus líneas, sin las del formulario nuevo', () => {
-      const text = requestChat.announceWelcomeMesssage();
+      // Como las que migró T12: sin `form`, con el bloque `legacy`.
+      const text = RequestChatEntity.create({
+        requester,
+        legacy: { howDidYouFindUs: 'Instagram', interests: 'furros' },
+        state: RequestChatState.InProgress(),
+        createdAt: DateTime.now(),
+        votes: [],
+      }).announceWelcomeMesssage();
 
       expect(text).toContain('*¿Cómo conoció FurMeets?* Instagram');
       expect(text).toContain('*¿Cuáles son sus intereses?* furros');

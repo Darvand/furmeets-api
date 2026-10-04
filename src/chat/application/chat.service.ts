@@ -25,7 +25,6 @@ import type { RequestChatMessageRepository } from '../domain/services/request-ch
 import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { UserService } from 'src/members/application/user.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
-import { CreateRequestChatDto } from '../presentation/dtos/create-request-chat.dto';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
 import { ChatGateway } from '../presentation/chat.gateway';
@@ -75,24 +74,6 @@ export class ChatService {
     private readonly access: RequestChatAccessService,
     private readonly background: BackgroundQueue,
   ) {}
-
-  async createRequestChat(
-    createRequestChatDto: CreateRequestChatDto,
-  ): Promise<RequestChatView> {
-    this.logger.debug(
-      `Creating request chat for requester UUID: ${createRequestChatDto.requesterUUID}`,
-    );
-    const requester = await this.userService.getUserByUUID(
-      UUID.from(createRequestChatDto.requesterUUID),
-    );
-    return this.openRequestChat(
-      RequestChatEntity.asNew(
-        requester,
-        createRequestChatDto.interests,
-        createRequestChatDto.whereYouFoundUs,
-      ),
-    );
-  }
 
   /**
    * Abre una solicitud nueva con su mensaje de bienvenida, avisa a los miembros por

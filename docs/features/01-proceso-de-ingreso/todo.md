@@ -520,7 +520,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - **`legacy: true` es el bloque `legacy`:** su presencia marca la solicitud.
 - **Modelo.**
   - La solicitud ya no tiene `whereYouFoundUs` ni `interests` sueltos: tiene `legacy` (`LegacyApplication`). `GET /request-chats/:id` devuelve `legacy` en lugar de esos dos campos; la App actual no los mostraba.
-  - `POST /request-chats` (formulario anterior, hasta T15) crea solicitudes `legacy`.
+  - `POST /request-chats` (formulario anterior) creaba solicitudes `legacy` hasta que T15 lo eliminó.
   - `species` del usuario es texto libre: con el enum, una especie fuera de la lista hacía fallar la lectura del usuario.
   - El seed escribe `legacy`.
 - **Ensayo en staging (2026-10-03).** Sus 41 solicitudes eran del seed anterior a T10, con los mensajes embebidos, igual que producción.
@@ -733,7 +733,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - **Una por usuario.**
   - Además de la lectura previa, `requestchats.requester` pasa a ser índice único: un doble toque en "Enviar" no crea dos solicitudes. El `E11000` se traduce a 409.
   - **Paso manual:** T38 creó `requester_1` no único, y Mongoose no cambia un índice que ya existe. En staging y en producción hay que correr `scripts/requester-unique-index-t13.mjs`. Sin `--apply` solo detecta duplicados; con `--apply` y `CONFIRM=<base>` deja el índice único.
-- **`POST /request-chats`** (formulario anterior) sigue hasta que la App use este endpoint (T15), y después se elimina.
+- **`POST /request-chats`** (formulario anterior) se eliminó en T15, cuando la App pasó a este endpoint.
 
 **Dependencies:** T06, T10
 
@@ -791,22 +791,30 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Pantalla *Bienvenida* (presenta FurMeets y los 3 pasos; "Quiero unirme" abre el formulario) y reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios sin pronombres, hasta 3 imágenes (contador "2 de 3"), aviso de envío definitivo y de que los mensajes se comparten en el grupo. Sin reglas de convivencia. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
 
 **Acceptance criteria:**
-- [ ] Un usuario sin solicitud ve primero la Bienvenida
-- [ ] El botón de enviar se bloquea sin edad o ciudad; con 3 imágenes ya no se puede subir otra
-- [ ] No aparece el texto "puedes editarlo hasta que empiecen a revisarte"
-- [ ] Tras enviar (`POST /applications`), navega al chat del solicitante
-- [ ] Ya sin uso desde la App, se elimina `POST /request-chats` de la API (T13). API y App se despliegan juntas
+- [x] Un usuario sin solicitud ve primero la Bienvenida
+- [x] El botón de enviar se bloquea sin edad o ciudad; con 3 imágenes ya no se puede subir otra
+- [x] No aparece el texto "puedes editarlo hasta que empiecen a revisarte"
+- [x] Tras enviar (`POST /applications`), navega al chat del solicitante
+- [x] Ya sin uso desde la App, se elimina `POST /request-chats` de la API (T13). API y App se despliegan juntas
 
 **Verification:**
-- [ ] `npm run lint` y `npm run build` en la App; `npm test` y `npm run test:e2e` en la API
+- [x] `npm run lint` y `npm run build` en la App; `npm test` y `npm run test:e2e` en la API
 - [ ] Manual en staging (móvil y escritorio, tema claro y oscuro)
+
+**Notas de implementación:**
+- **Ruteo.** Un solicitante sin solicitud entra a `/welcome` (`homePathFor`); "Quiero unirme" abre `/register`, y el botón atrás vuelve a la Bienvenida. Las dos rutas solo las ve un solicitante sin solicitud.
+- **Imágenes.** Cada una se sube a `POST /media` al elegirla (`ImagePicker`), con vista previa local, indicador de subida y botón para quitarla. Antes de subir se revisan el tipo (JPEG, PNG o WebP) y el tamaño (10 MB); un 400 o 413 de la API se muestra igual. Enviar espera a que terminen las subidas. La imagen subida queda en la caché de `media.ts`: mostrarla después no la vuelve a descargar.
+- **Envío.** `submitApplication` (`POST /applications`) reemplaza a `createRequestChat`. Recorta los textos y omite los vacíos. Antes pide `requestWriteAccess` si Telegram lo permite; si lo rechaza, sigue. Un 409 vuelve a pedir `GET /me`, que lleva a su pantalla.
+- **Avisos.** Antes del botón: el envío es definitivo y los mensajes del chat se comparten en el grupo (RNF-PRI-04). Con menos de 18 años, aviso de la etiqueta "Menor de edad". Bajo el botón dice qué falta (edad o ciudad) mientras no se puede enviar.
+- **Accesibilidad.** Cada campo tiene `<label>` propio: el `header` de los inputs de telegram-ui no se muestra en iOS.
+- **`StepProgress`.** Componente "Paso N de 3", para reusar en el chat del solicitante (T20) y en Aprobado (T26).
+- **API.** Se quitaron `POST /request-chats`, `CreateRequestChatDto`, `ChatService.createRequestChat`, `RequestChatEntity.asNew` y `legacyApplication`. Las solicitudes `legacy` ahora solo salen de la migración (T12). Las pruebas que creaban solicitudes por ese endpoint usan `POST /applications`. Una e2e confirma que `POST /request-chats` responde 404.
+- **Despliegue.** La App vieja usa `POST /request-chats`: API y App se despliegan juntas.
 
 **Dependencies:** T07, T14
 
 **Files likely touched:**
-- `src/pages/WelcomePage.tsx` (nuevo)
-- `src/pages/RegisterPage/RegisterPage.tsx`
-- `src/services/request-chat.service.ts`
+- App: `src/pages/WelcomePage.tsx` (nuevo), `src/pages/RegisterPage/RegisterPage.tsx`, `src/pages/RegisterPage/ImagePicker.tsx` (nuevo), `src/components/StepProgress.tsx` (nuevo), `src/services/request-chat.service.ts`, `src/services/media.ts`, `src/navigation/*`
 - API: `src/chat/presentation/request-chat.controller.ts` (quitar `POST /request-chats`)
 
 **Estimated scope:** M

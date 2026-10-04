@@ -1,6 +1,7 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { RequestChatEntity } from '../domain/entities/request-chat.entity';
+import { ApplicationForm } from 'src/applications/domain/application-form';
 import { RequestChatMapper } from './request-chat.mapper';
 import { BadRequestException } from '@nestjs/common';
 import type { RequestChatListItem } from '../domain/services/chat.repository';
@@ -12,7 +13,10 @@ const user = (telegramId: number) =>
 describe('RequestChatMapper', () => {
   const requester = user(1);
   const bot = user(999);
-  const requestChat = RequestChatEntity.asNew(requester, 'furros');
+  const requestChat = RequestChatEntity.apply(
+    requester,
+    ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+  );
   const welcome = requestChat.welcomeMessage(
     bot,
     new Date('2026-10-02T15:00:00.000Z'),

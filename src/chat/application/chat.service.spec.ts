@@ -48,7 +48,10 @@ function holdQueue(queue: BackgroundQueue) {
 }
 
 function setup({ state = 'InProgress', approves = 0 } = {}) {
-  const requestChat = RequestChatEntity.asNew(requester, 'furros');
+  const requestChat = RequestChatEntity.apply(
+    requester,
+    ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+  );
   if (state !== 'InProgress') {
     requestChat.props.state = RequestChatState.create(state);
   }
