@@ -1050,7 +1050,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ### Checkpoint C: solicitud y chat
 - [ ] Flujo formulario → chat en staging
-- [ ] Criterio de éxito 11
+- [x] Criterio de éxito 11 (`test/applications.e2e-spec.ts`: más de 3 imágenes → 400; `PUT`/`PATCH` → 404)
 
 ---
 
@@ -1061,11 +1061,20 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** `ValueObject.equals` devuelve `true` para cualquier par de objetos con `props`: no compara valores (hallazgo de T41). T21 y T22 comparan votantes y autores, así que se corrige antes. Comparar `props` por valor (superficial, con recursión en value objects anidados) y revisar quién lo usa hoy.
 
 **Acceptance criteria:**
-- [ ] Dos value objects con las mismas `props` son iguales; con `props` distintas, no
-- [ ] Los usos actuales siguen funcionando (o se cambian si dependían del bug)
+- [x] Dos value objects con las mismas `props` son iguales; con `props` distintas, no
+- [x] Los usos actuales siguen funcionando (o se cambian si dependían del bug)
 
 **Verification:**
-- [ ] Unitarias de `value-object.spec.ts`; `npm test` y `npm run test:e2e` completos
+- [x] Unitarias de `value-object.spec.ts` (fallaban 7 de 8 con el código anterior); `npm test` (229) y `npm run test:e2e` (168) completos
+
+**Notas de implementación:**
+- **Igualdad por valor.** Misma clase y mismas `props`, comparadas una a una:
+  - los value objects anidados, con su propio `equals`;
+  - las listas, elemento por elemento y en orden;
+  - las fechas, por instante;
+  - lo demás, con `Object.is`.
+- Una prop ausente equivale a una en `undefined`, así `{ text }` es igual a `{ text, author: undefined }`. Dos clases distintas con las mismas `props` no son iguales.
+- **Usos actuales.** Ningún código de `src` llamaba a `ValueObject.equals`, así que nada dependía del bug. `Entity.equals`, que usan `fromUser` y `GroupEntity`, compara `_id.value` como texto y no cambia. Desde ahora, `UUID.equals` compara el valor; T21 y T22 pueden usarlo para votantes y autores.
 
 **Dependencies:** Ninguna
 

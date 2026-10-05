@@ -140,9 +140,9 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 
 #### Checkpoint C: Solicitud y chat
 - [ ] Flujo solicitante: formulario → chat, en staging
-- [ ] Criterio de éxito 11
+- [x] Criterio de éxito 11: `test/applications.e2e-spec.ts` (4 imágenes → 400 sin crear la solicitud; `PUT` y `PATCH` a `/applications` → 404; una segunda solicitud → 409)
 
-- [ ] T45: Corregir `ValueObject.equals`
+- [x] T45: Corregir `ValueObject.equals`
 - [ ] T21: Revisión: votos y umbrales
 - [ ] T22: Revisión: avales y comentarios
 - [ ] T23: App: inicio de miembros
