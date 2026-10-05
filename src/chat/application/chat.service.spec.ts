@@ -18,8 +18,8 @@ import {
   DuplicateRequestChatError,
   type ChatRepository,
   type RequestChatHeader,
-  type VoteApplied,
 } from '../domain/services/chat.repository';
+import { Votes } from 'src/review/domain/vote';
 import { ApplicationForm } from 'src/applications/domain/application-form';
 import type {
   MessagesPage,
@@ -37,6 +37,8 @@ const user = (telegramId: number) =>
 
 const requester = user(1);
 const member = user(2);
+/** Los de `.env` no aplican: las pruebas unitarias no cargan la configuración. */
+const THRESHOLDS = { approve: 5, reject: 5 };
 
 /** Una promesa que no termina hasta que la prueba la suelta: un Telegram lento. */
 function slowTelegram() {
@@ -68,18 +70,20 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     requesterId: requester.id,
     state: requestChat.state,
   };
-  const voted = (approved: number): VoteApplied => ({
-    votes: { approved, rejected: 0 },
-    voterVote: 'approve',
-  });
+  /** `approved` aprobaciones; la primera es de `member`, si hay alguna. */
+  const voted = (approved: number): Votes =>
+    Votes.of(
+      Array.from({ length: approved }, (_, i) => ({
+        voterId: i === 0 ? member.id : UUID.generate(),
+        type: 'approve' as const,
+      })),
+    );
   // Funciones sueltas (no métodos) para poder pasarlas a `expect`.
   const chats = {
     findHeader: jest.fn(() =>
       Promise.resolve<RequestChatHeader | null>(header),
     ),
-    toggleVote: jest.fn(() =>
-      Promise.resolve<VoteApplied | null>(voted(approves)),
-    ),
+    toggleVote: jest.fn(() => Promise.resolve<Votes | null>(voted(approves))),
     close: jest.fn(() => Promise.resolve(true)),
     getRequestChatByUUID: jest.fn(() =>
       Promise.resolve<RequestChatEntity | null>(requestChat),
@@ -175,10 +179,8 @@ describe('ChatService', () => {
       // El bot no escribe en el chat: la bienvenida la muestra la App.
       expect(view.messages).toEqual([]);
       expect(ctx.messages.insert).not.toHaveBeenCalled();
-      expect(ctx.gateway.emitNewRequestChat).toHaveBeenCalledWith(
-        view,
-        requester,
-      );
+      expect(ctx.gateway.emitNewRequestChat).toHaveBeenCalledWith(view);
+      expect(view.thresholds).toEqual(THRESHOLDS);
       await ctx.queue.drain();
       const announcement = ctx.telegram.sendMessageToGroup.mock
         .calls[0] as unknown as [string];
@@ -468,13 +470,14 @@ describe('ChatService', () => {
         expect.any(Date),
       );
       expect(ctx.mongoOps()).toBe(1);
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         requestChatId: ctx.requestChat.id,
         state: 'InProgress',
-        votes: { approved: 1, rejected: 0 },
+        thresholds: THRESHOLDS,
         userVote: 'approve',
       });
-      // Los conteos salen en vivo a los miembros, en cuanto se guarda el voto.
+      expect(result.votes.tally()).toEqual({ approved: 1, rejected: 0 });
+      // La votación sale en vivo a los miembros, en cuanto se guarda el voto.
       expect(ctx.gateway.emitVotes).toHaveBeenCalledWith(result);
       await ctx.queue.drain();
       expect(ctx.messages.insert).not.toHaveBeenCalled();
@@ -538,7 +541,11 @@ describe('ChatService', () => {
     it('si otro voto la cerró primero, no repite los avisos', async () => {
       const ctx = setup({ approves: 5 });
       ctx.chats.close.mockResolvedValue(false);
-      ctx.requestChat.props.state = RequestChatState.Approved();
+      ctx.chats.findHeader.mockResolvedValue({
+        id: ctx.requestChat.id,
+        requesterId: requester.id,
+        state: 'Approved',
+      });
 
       const result = await ctx.service.voteOnRequestChat(
         ctx.requestChat.id,
@@ -554,7 +561,7 @@ describe('ChatService', () => {
     });
 
     it('si la solicitud ya no está en curso → 409', async () => {
-      const ctx = setup();
+      const ctx = setup({ state: 'Rejected' });
       ctx.chats.toggleVote.mockResolvedValue(null);
 
       await expect(
@@ -562,10 +569,21 @@ describe('ChatService', () => {
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
+    it('votar la propia solicitud → 403, aunque ya sea miembro', async () => {
+      const ctx = setup();
+      ctx.chats.toggleVote.mockResolvedValue(null);
+
+      await expect(
+        ctx.service.voteOnRequestChat(ctx.requestChat.id, requester, 'approve'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(ctx.chats.close).not.toHaveBeenCalled();
+      expect(ctx.gateway.emitVotes).not.toHaveBeenCalled();
+    });
+
     it('si la solicitud no existe → 404', async () => {
       const ctx = setup();
       ctx.chats.toggleVote.mockResolvedValue(null);
-      ctx.chats.getRequestChatByUUID.mockResolvedValue(null);
+      ctx.chats.findHeader.mockResolvedValue(null);
 
       await expect(
         ctx.service.voteOnRequestChat(UUID.generate(), member, 'approve'),

@@ -569,7 +569,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Acceptance criteria:**
 - [x] La respuesta no contiene arreglos de mensajes ni de leídos
 - [x] El tiempo de respuesta no crece con la cantidad total de mensajes (medido con datos de prueba de 50 solicitudes × 200 mensajes)
-- [x] Solo expone conteos de votos en contra, nunca identidades (regla vigente hasta el 2026-10-03; los nombres se agregan en T21)
+- [x] Solo expone conteos de votos, nunca identidades (los votos son anónimos desde el 2026-10-05, T21)
 
 **Verification:**
 - [x] e2e sobre la forma de la respuesta (`test/request-chat-list.e2e-spec.ts`)
@@ -728,7 +728,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - `POST /applications`, solo para solicitantes (`@ApplicantsOnly`). Devuelve la solicitud completa (como `GET /request-chats/:id`), así la App navega al chat sin pedirla de nuevo.
   - `requesterUUID` se acepta y se ignora; cualquier otro campo desconocido da 400.
   - Límites: textos cortos de 100 caracteres y largos de 2.000; edad entera de 1 a 120 (el tope solo descarta errores de tipeo).
-- **Apertura.** `ChatService.openRequestChat` es el flujo común del endpoint nuevo y del viejo: unicidad, bienvenida, `new-request-chat` y anuncio en el grupo en segundo plano. El anuncio usa el formulario y solo lleva las líneas con valor; escapa el texto del usuario y enlaza a la solicitud con `startapp`. La etiqueta "Menor de edad" no va en el anuncio: se muestra en señales y comentarios de la App.
+- **Apertura.** `ChatService.openRequestChat` es el flujo común del endpoint nuevo y del viejo: unicidad, bienvenida, `new-request-chat` y anuncio en el grupo en segundo plano. El anuncio usa el formulario y solo lleva las líneas con valor; escapa el texto del usuario y enlaza a la solicitud con `startapp`. La etiqueta "Menor de edad" no va en el anuncio: se muestra en el Resumen de la App.
 - **Lectura.** `GET /request-chats/:id` incluye `form` con `isMinor`.
 - **Una por usuario.**
   - Además de la lectura previa, `requestchats.requester` pasa a ser índice único: un doble toque en "Enviar" no crea dos solicitudes. El `E11000` se traduce a 409.
@@ -1089,18 +1089,36 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** SEG-04, PRI-01, PRI-02, PRI-03, CON-07 · **Deuda:** #11
 
-**Description:** Votar (`approve | reject`), cambiar y retirar mientras está en curso. Umbrales `APPROVE_THRESHOLD`/`REJECT_THRESHOLD`, los dos en 5; el voto que alcanza uno cierra en el acto (actualización condicional para evitar doble cierre). Para los miembros, las respuestas incluyen quién votó a favor y quién en contra, los conteos, los umbrales y el voto propio. Para el solicitante no incluyen votos (decidido el 2026-10-03: nada es anónimo dentro del grupo).
+**Description:** Votar (`approve | reject`), cambiar y retirar mientras está en curso. Umbrales `APPROVE_THRESHOLD`/`REJECT_THRESHOLD`, los dos en 5; el voto que alcanza uno cierra en el acto (actualización condicional para evitar doble cierre). Los votos son anónimos (decidido por el grupo el 2026-10-05): los miembros reciben los conteos, los umbrales y su propio voto, nunca quién votó, y nada se registra en los logs. Para el solicitante, las respuestas no incluyen votos.
 
 **Acceptance criteria:**
-- [ ] Solicitante votando → 403; `vote` inválido → 400
-- [ ] Al alcanzar el umbral, la solicitud pasa a *Approved*/*Rejected* una sola vez
-- [ ] Un miembro recibe los nombres de los votos a favor y en contra, en `GET /request-chats/:id`, en la respuesta del voto y en el evento `request-chat-votes` (que hoy solo lleva conteos, T42)
-- [ ] Mientras no sea miembro, el solicitante no recibe votos ni en `GET` ni en `request-chat-update`
-- [ ] El valor por defecto de `REJECT_THRESHOLD` en el código pasa de 3 a 5 (`request-chat.entity.ts`); revisar el valor en Render de staging y producción (cambiarlo requiere aprobación, SPEC §12)
+- [x] Solicitante votando → 403; `vote` inválido → 400
+- [x] Al alcanzar el umbral, la solicitud pasa a *Approved*/*Rejected* una sola vez
+- [x] Un miembro recibe conteos, umbrales y su propio voto en `GET /request-chats/:id` y en la respuesta del voto; `request-chat-votes` lleva conteos y umbrales. Ninguna salida dice quién votó, ni a los admins
+- [x] Sin log de quién vota ni de qué
+- [x] Mientras no sea miembro, el solicitante no recibe votos ni en `GET` ni en `request-chat-update`
+- [x] El valor por defecto de `REJECT_THRESHOLD` en el código pasa de 3 a 5 (ahora en `src/review/domain/vote.ts`)
+- [ ] Revisar `REJECT_THRESHOLD` en Render de staging y producción: debe ser 5 o no estar (cambiarlo requiere aprobación, SPEC §12)
 
 **Verification:**
-- [ ] Unitarias de dominio (umbrales, cambio, retiro, no votar la propia)
-- [ ] Prueba que serializa las salidas dirigidas al solicitante y no encuentra votos (criterio de éxito 10)
+- [x] Unitarias de dominio: umbrales y su lectura del entorno, "no votar la propia", solo en curso (`vote.spec.ts`, `request-chat.entity.spec.ts`). Cambiar y retirar el voto los aplica el pipeline atómico de Mongo, así que se prueban en e2e (`send-vote-background`)
+- [x] Prueba que serializa las salidas dirigidas al solicitante y no encuentra votos (criterio de éxito 10): unitaria del mapper y e2e de `GET`, `POST /applications` y `request-chat-update`
+- [x] Pruebas de anonimato: la salida de los miembros (`GET`, respuesta del voto, `request-chat-votes`, `request-chat-update`) serializada no contiene el nombre ni el id de quienes votaron
+- [x] `npm test` (250) y `npm run test:e2e` (170) completos
+
+**Notas de implementación:**
+- **Dominio en `src/review/domain/vote.ts`:** `Vote` (id del votante y opción), `Votes` (conteos, voto de un miembro, ganador) y los umbrales. Reemplaza a `RequestChatVoteEntity`. Quién puede votar y el estado al que pasa la solicitud siguen en `RequestChatEntity` (`assertAcceptsVoteFrom`, `outcomeFor`).
+- **Umbrales:** `ChatService` los lee al crearse, ya con el `.env` cargado. Antes se leían al importar la entidad, antes que el `.env`: en local valía el default, no el `.env`. Si falta uno, vale 5; si no es un entero positivo, la API no arranca. Las e2e fijan 5 y 5 aunque el `.env` local diga otra cosa.
+- **No votar la propia:** el filtro del voto atómico excluye al solicitante (`requester: { $ne: voter }`). Si el voto no se aplica, se lee la cabecera para responder 404 (no existe), 403 (es la propia, aunque ya sea miembro) o 409 (cerrada).
+- **Anonimato:**
+  - El votante se guarda (`votes.from`) solo para que cada miembro tenga un voto y pueda cambiarlo o retirarlo. No sale de la API, de los eventos ni de los logs, ni siquiera a los admins.
+  - Por eso ni el voto ni `GET` cargan a los votantes (`populate`): votar sigue en autenticar + `findAndModify`, más `update` si cierra.
+  - Se quitó el log de debug que registraba quién votaba y qué. El log de tiempos solo guarda el patrón de la ruta, sin el tipo de voto.
+- **Contrato (solo se agrega, la App actual sigue igual):**
+  - Miembros: `votes` (conteos, como antes), `thresholds: { approve, reject }` y `userVote`. Eso llega en `GET /request-chats/:id`, en la respuesta de `PUT …/vote/:type`, en `request-chat-votes`, en `new-request-chat` y en `request-chat-update` (estos tres sin `userVote`).
+  - Solicitante (no miembro): `GET /request-chats/:id`, `POST /applications` y su `request-chat-update` van sin `votes`, `thresholds` ni `userVote`. El evento se emite por separado a `members` y a la sala de la solicitud (`except(members)`). La App del solicitante no lee `votes`, así que no se rompe; el tipo `RequestChat` de la App se ajusta en T24.
+  - Si el solicitante ya es miembro, ve los conteos de su solicitud, como cualquier miembro (SPEC §3.3).
+  - El listado sigue con conteos y voto propio. Los umbrales para "4/5 a favor" se agregan en T23.
 
 **Dependencies:** T11, T06, T45
 
@@ -1114,15 +1132,15 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 22: Revisión: avales y comentarios
+## Task 22: Revisión: avales
 
 **Repo:** API · **RNF:** PRI-01, PRI-03
 
-**Description:** "Lo conozco, lo avalo" (aval informativo, cualquier miembro, con opción de retirarlo) y comentarios entre miembros. Avales y comentarios llevan el nombre de su autor y la fecha, y los ven todos los miembros. El solicitante no ve ninguno de los dos mientras no sea miembro.
+**Description:** "Lo conozco, lo avalo" (aval informativo, cualquier miembro, con opción de retirarlo). Los avales llevan el nombre de quien avala y la fecha, y los ven todos los miembros. El solicitante no los ve mientras no sea miembro. Los comentarios entre miembros se quitaron el 2026-10-05 (votación del grupo).
 
 **Acceptance criteria:**
-- [ ] Solicitante pidiendo avales o comentarios → 403
-- [ ] Avales y comentarios traen autor y fecha
+- [ ] Solicitante pidiendo o dando avales → 403
+- [ ] Los avales traen autor y fecha
 - [ ] Avalar dos veces no duplica; retirar el aval lo quita
 
 **Verification:**
@@ -1131,7 +1149,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Dependencies:** T21
 
 **Files likely touched:**
-- `src/review/domain/endorsement.ts`, `comment.ts`
+- `src/review/domain/endorsement.ts`
 - `src/review/presentation/review.controller.ts`
 - `src/review/infraestructure/schemas/*.ts`
 
@@ -1170,13 +1188,13 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** PRI-01, USA-01
 
-**Description:** Votación plegada con dos barras, una por opción, hacia los umbrales fijos (sin estado *Vencida*). Abierta muestra quién votó aceptar y quién rechazar, y el texto "tu voto lo ve todo el grupo". Resumen con fursona, datos, respuestas, avales, comentarios con su autor y leyenda de solicitud migrada. Sin pronombres ni *Reportar solicitud*.
+**Description:** Votación plegada con dos barras, una por opción, hacia los umbrales fijos (sin estado *Vencida*). Abierta muestra los conteos y el voto propio, nunca quién votó: los votos son anónimos (2026-10-05). Resumen con fursona, datos, respuestas, avales con su autor y leyenda de solicitud migrada. Sin pronombres ni *Reportar solicitud*.
 
 En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad · ciudad · avales) abre el Resumen. El Resumen muestra la etiqueta "Menor de edad" cuando corresponde y las imágenes del formulario por `/media/:id`.
 
 **Acceptance criteria:**
 - [ ] El solicitante no ve el panel de votación
-- [ ] Los nombres de quienes votaron aparecen agrupados por opción
+- [ ] La votación muestra conteos contra los umbrales y el voto propio, sin nombres; el texto del panel no dice que el voto lo ve el grupo
 - [ ] Cambiar y retirar el voto funciona desde la UI
 - [ ] Solicitudes `legacy` muestran "Solicitud anterior al formulario actual"
 
@@ -1194,7 +1212,7 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 
 ### Checkpoint D: revisión
 - [ ] Criterios de éxito 9 y 10
-- [ ] Revisión humana: el solicitante no recibe votos, avales ni comentarios mientras no sea miembro
+- [ ] Revisión humana: el solicitante no recibe votos ni avales mientras no sea miembro, y nadie ve quién votó
 
 ---
 
@@ -1299,7 +1317,7 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 
 **Repo:** API · **RNF:** CON-04, PRI-03, OBS-01 · **Deuda:** #7
 
-**Description:** DM al solicitante cuando escribe un miembro (si hay permiso). Anuncio en el grupo y DM al cerrar una solicitud. `/faq` responde un placeholder. El DM al solicitante no incluye votos, avales ni comentarios.
+**Description:** DM al solicitante cuando escribe un miembro (si hay permiso). Anuncio en el grupo y DM al cerrar una solicitud. `/faq` responde un placeholder. El DM al solicitante no incluye votos ni avales, y ningún aviso dice quién votó.
 
 **Acceptance criteria:**
 - [ ] Sin permiso de DM, el mensaje se entrega por socket igual (criterio de éxito 8)

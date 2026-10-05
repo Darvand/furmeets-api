@@ -18,7 +18,11 @@ import { signInitData, TelegramInitDataUser } from './helpers/init-data';
 const MEMBER = { id: 9101, first_name: 'Mia' };
 const MEMBER_2 = { id: 9103, first_name: 'Beto' };
 const MEMBER_3 = { id: 9104, first_name: 'Caro' };
-const MEMBER_IDS = new Set([MEMBER.id, MEMBER_2.id, MEMBER_3.id]);
+const MEMBER_4 = { id: 9105, first_name: 'Dani' };
+const MEMBER_5 = { id: 9106, first_name: 'Eli' };
+/** Los cinco rechazos del umbral. */
+const VOTERS = [MEMBER, MEMBER_2, MEMBER_3, MEMBER_4, MEMBER_5];
+const MEMBER_IDS = new Set(VOTERS.map((m) => m.id));
 const APPLICANT = { id: 9102, first_name: 'Ana' };
 const BOT = { id: 999, is_bot: true, first_name: 'FurBot', username: 'furbot' };
 const TELEGRAM_GROUP = { id: Number(TEST_GROUP_ID), type: 'supergroup' };
@@ -174,7 +178,7 @@ describe('Mensajes en su propia colección (e2e)', () => {
     );
     const before = (await getRequestChat(MEMBER)).messages;
     let closing: { state: string } | undefined;
-    for (const member of [MEMBER, MEMBER_2, MEMBER_3]) {
+    for (const member of VOTERS) {
       closing = (
         await request(server)
           .put(`/request-chats/${requestChat.uuid}/vote/reject`)

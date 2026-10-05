@@ -47,7 +47,8 @@ export class RequestChatAccessService {
     return this.isOwner(user, header) || (await this.isMember(user));
   }
 
-  private async isMember(user: UserEntity): Promise<boolean> {
+  /** Si `user` es miembro del grupo (rol en vivo, con caché). */
+  async isMember(user: UserEntity): Promise<boolean> {
     return (await this.membershipService.resolveRole(user)) === Roles.Member;
   }
 

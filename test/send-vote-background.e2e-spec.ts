@@ -38,6 +38,7 @@ interface VoteDto {
   uuid: string;
   state: string;
   votes: { approved: number; rejected: number };
+  thresholds: { approve: number; reject: number };
   userVote?: string;
 }
 
@@ -240,14 +241,19 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
     expect(stored.messages.at(-1)!.content).toBe('hola, Beto');
   });
 
-  it('votar alterna el voto y responde solo estado y conteos', async () => {
+  it('votar alterna el voto y responde estado, conteos y umbrales, sin quién votó', async () => {
     const id = await createRequestChat(APPLICANT_3);
 
-    const approved = await vote(MEMBER, id, 'approve');
+    const { result: approved, commands } = await mongoCommandsDuring(() =>
+      vote(MEMBER, id, 'approve'),
+    );
+    // Autenticar (find del usuario) + guardar el voto (findAndModify).
+    expect(commands).toEqual(['find', 'findAndModify']);
     expect(approved).toEqual({
       uuid: id,
       state: 'InProgress',
       votes: { approved: 1, rejected: 0 },
+      thresholds: { approve: 5, reject: 5 },
       userVote: 'approve',
     });
     // Un voto distinto reemplaza al anterior.
@@ -256,13 +262,9 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
       userVote: 'reject',
     });
     // El mismo voto otra vez lo retira.
-    const { result: removed, commands } = await mongoCommandsDuring(() =>
-      vote(MEMBER, id, 'reject'),
-    );
+    const removed = await vote(MEMBER, id, 'reject');
     expect(removed.votes).toEqual({ approved: 0, rejected: 0 });
     expect(removed.userVote).toBeUndefined();
-    // Autenticar (find del usuario) + guardar el voto (findAndModify).
-    expect(commands).toEqual(['find', 'findAndModify']);
   });
 
   it('el voto que cierra responde sin esperar a Telegram y avisa después', async () => {

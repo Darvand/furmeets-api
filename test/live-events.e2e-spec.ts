@@ -38,6 +38,7 @@ interface VotesEvent {
   uuid: string;
   state: string;
   votes: { approved: number; rejected: number };
+  thresholds: { approve: number; reject: number };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -174,7 +175,7 @@ describe('Eventos en vivo para la App (e2e)', () => {
     },
   );
 
-  it('cada voto llega en vivo a los miembros con conteos, sin votos de nadie; el solicitante no lo recibe', async () => {
+  it('cada voto llega en vivo a los miembros con conteos y umbrales, sin quién votó; el solicitante no lo recibe', async () => {
     const member = await connect(OTHER_MEMBER);
     const ana = await connect(APPLICANT);
     const memberVotes = inbox<VotesEvent>(member, 'request-chat-votes');
@@ -188,29 +189,56 @@ describe('Eventos en vivo para la App (e2e)', () => {
         uuid: requestChatId,
         state: 'InProgress',
         votes: { approved: 0, rejected: 1 },
+        thresholds: { approve: 5, reject: 5 },
       },
     ]);
+    // Anónimo: ni el voto de nadie en particular ni quién votó (RNF-PRI-01).
+    expect(memberVotes[0]).not.toHaveProperty('userVote');
+    expect(JSON.stringify(memberVotes)).not.toContain(MEMBER.first_name);
     expect(anaVotes).toHaveLength(0);
   });
 
-  it('request-chat-update no lleva el voto de quien cerró', async () => {
+  it('request-chat-update: los miembros lo reciben con conteos, sin quién votó; el solicitante, sin votos', async () => {
     const ana = await connect(APPLICANT);
     const member = await connect(OTHER_MEMBER);
     const updated = new Promise<Record<string, unknown>>((resolve) =>
       member.once('request-chat-update', resolve),
     );
-    const anaUpdated = new Promise<Record<string, unknown>>((resolve) =>
-      ana.once('request-chat-update', resolve),
+    const anaUpdates = inbox<Record<string, unknown>>(
+      ana,
+      'request-chat-update',
     );
 
-    // Con el rechazo de la prueba anterior, dos más llegan al umbral de 3.
-    for (const m of MEMBERS.slice(1, 3)) {
+    // Con el rechazo de la prueba anterior, cuatro más llegan al umbral de 5.
+    for (const m of MEMBERS.slice(1, 5)) {
       await vote(m, 'reject');
     }
 
     const update = await updated;
-    expect(update).toMatchObject({ uuid: requestChatId, state: 'Rejected' });
+    expect(update).toMatchObject({
+      uuid: requestChatId,
+      state: 'Rejected',
+      votes: { approved: 0, rejected: 5 },
+      thresholds: { approve: 5, reject: 5 },
+    });
     expect(update).not.toHaveProperty('userVote');
-    expect(await anaUpdated).toMatchObject({ state: 'Rejected' });
+    // En este chat solo escribe Ana: ningún nombre de miembro tiene por qué llegar.
+    const memberRaw = JSON.stringify(update);
+    for (const m of MEMBERS) {
+      expect(memberRaw).not.toContain(m.first_name);
+    }
+
+    await sleep(SETTLE_MS);
+    // Una sola vez, y sin nada de la votación (criterio de éxito 10).
+    expect(anaUpdates).toHaveLength(1);
+    const [anaUpdate] = anaUpdates;
+    expect(anaUpdate).toMatchObject({ uuid: requestChatId, state: 'Rejected' });
+    const raw = JSON.stringify(anaUpdate);
+    for (const key of ['votes', 'userVote', 'thresholds']) {
+      expect(raw).not.toContain(`"${key}"`);
+    }
+    for (const m of MEMBERS) {
+      expect(raw).not.toContain(m.first_name);
+    }
   });
 });

@@ -6,6 +6,9 @@ import { RequestChatMapper } from './request-chat.mapper';
 import { BadRequestException } from '@nestjs/common';
 import type { RequestChatListItem } from '../domain/services/chat.repository';
 import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
+import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
+import { Votes } from 'src/review/domain/vote';
+import type { RequestChatView, VoteResult } from '../application/chat.service';
 
 const user = (telegramId: number) =>
   UserEntity.create({ name: `User ${telegramId}`, telegramId, isMember: true });
@@ -30,16 +33,113 @@ describe('RequestChatMapper', () => {
     new Date('2026-10-02T15:05:30.123Z'),
   );
 
+  const thresholds = { approve: 5, reject: 5 };
+
   it('las fechas de los mensajes van en ISO-8601 UTC, sin formato del servidor', () => {
-    const dto = RequestChatMapper.toDto(
-      { requestChat, messages: [first, hello], hasOlder: false },
-      requester,
-    );
+    const dto = RequestChatMapper.toRequesterDto({
+      requestChat,
+      messages: [first, hello],
+      hasOlder: false,
+      thresholds,
+    });
 
     expect(dto.messages.map((m) => m.sentAt)).toEqual([
       '2026-10-02T15:00:00.000Z',
       '2026-10-02T15:05:30.123Z',
     ]);
+  });
+
+  describe('votación', () => {
+    const approver = UserEntity.create({
+      name: 'Zelev07',
+      username: 'zelev',
+      telegramId: 7,
+      isMember: true,
+    });
+    const rejecter = UserEntity.create({
+      name: 'Sombra',
+      telegramId: 8,
+      isMember: true,
+    });
+    // Ninguno escribió en el chat: si su nombre o su id salen, es por la votación.
+    const nala = UserEntity.create({
+      name: 'Nala',
+      telegramId: 9,
+      isMember: true,
+    });
+    const voted = RequestChatEntity.create(
+      {
+        ...requestChat.props,
+        state: RequestChatState.InProgress(),
+        votes: Votes.of([
+          { voterId: approver.id, type: 'approve' },
+          { voterId: rejecter.id, type: 'reject' },
+          { voterId: nala.id, type: 'approve' },
+        ]),
+      },
+      requestChat.id,
+    );
+    const view: RequestChatView = {
+      requestChat: voted,
+      messages: [first, hello],
+      hasOlder: false,
+      thresholds,
+    };
+    const voterNames = [approver.name, rejecter.name, nala.name];
+    const voterIds = [approver, rejecter, nala].map((u) => u.id.value);
+
+    /** Nada en `raw` permite saber quién votó. */
+    const expectAnonymous = (raw: string) => {
+      expect(raw).not.toContain('"voters"');
+      for (const leaked of [...voterNames, ...voterIds]) {
+        expect(raw).not.toContain(leaked);
+      }
+    };
+
+    it('un miembro ve los conteos, los umbrales y su propio voto, pero no quién votó', () => {
+      const dto = RequestChatMapper.toMemberDto(view, nala);
+
+      expect(dto.votes).toEqual({ approved: 2, rejected: 1 });
+      expect(dto.thresholds).toEqual({ approve: 5, reject: 5 });
+      expect(dto.userVote).toBe('approve');
+      expectAnonymous(JSON.stringify(dto));
+      // Sin `viewer` (eventos para todos), sin voto propio.
+      expect(RequestChatMapper.toMemberDto(view).userVote).toBeUndefined();
+    });
+
+    it('la respuesta del voto y el evento llevan solo conteos y umbrales', () => {
+      const result: VoteResult = {
+        requestChatId: voted.id,
+        state: 'InProgress',
+        votes: voted.votes,
+        thresholds,
+        userVote: 'approve',
+      };
+
+      const event = RequestChatMapper.toVotesEvent(result);
+      expect(event).toEqual({
+        uuid: voted.id.value,
+        state: 'InProgress',
+        votes: { approved: 2, rejected: 1 },
+        thresholds,
+      });
+      expect(RequestChatMapper.toVoteDto(result)).toEqual({
+        ...event,
+        userVote: 'approve',
+      });
+      expectAnonymous(JSON.stringify(RequestChatMapper.toVoteDto(result)));
+    });
+
+    it('la salida para el solicitante, serializada, no contiene votos (criterio 10)', () => {
+      const raw = JSON.stringify(RequestChatMapper.toRequesterDto(view));
+
+      for (const key of ['votes', 'userVote', 'thresholds']) {
+        expect(raw).not.toContain(`"${key}"`);
+      }
+      expectAnonymous(raw);
+      // Lo suyo sí: el chat con sus mensajes.
+      expect(raw).toContain('hola, Ana');
+    });
   });
 
   describe('listado', () => {
