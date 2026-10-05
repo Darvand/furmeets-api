@@ -954,7 +954,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [x] Enviar a una solicitud cerrada → error `RequestChatClosed`
 - [x] Una solicitud nueva no tiene mensajes, y cerrarla no agrega ninguno
 - [x] La App muestra la bienvenida como encabezado al inicio del chat
-- [ ] Los mensajes del bot que ya existen se quitan en staging y producción (migración 002)
+- [ ] Los mensajes del bot que ya existen se quitan en staging y producción (migración 002). Staging: hecho el 2026-10-05 (8 mensajes de `@furmeets_test_bot`, respaldados en `requestchatmessages_bot_pre_002`). Falta producción.
 
 **Verification:**
 - [x] Unitarias de la entidad y del servicio
@@ -1019,15 +1019,32 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [ ] El solicitante ve "Paso 2 de 3 · conversación con el grupo" y ninguna votación
 
 **Verification:**
-- [ ] Manual en staging con dos cuentas
+- [ ] Manual en staging con dos cuentas (los criterios se marcan con ella; lint y build en verde)
+
+**Notas de implementación** (App, `feat/t20-chat`):
+- **Imágenes.**
+  - Adjuntar hasta 10 por mensaje. Cada una sube a `POST /media` al elegirla y queda como miniatura que se puede quitar. Enviar espera a que terminen las subidas (`ChatComposer`).
+  - En la burbuja, una imagen ocupa el ancho y varias van en dos columnas. Al tocarla se abre a pantalla completa.
+  - El listado muestra "📷 Imagen" si el último mensaje es solo imágenes (`messagePreview`).
+- **Diseño** (artboards *Solicitante* y *Main*).
+  - Burbujas: las propias a la derecha con hora y doble check (guardado, no leído); las ajenas con avatar y un color de nombre fijo por autor.
+  - Caja: adjuntar, texto y enviar.
+  - Cabecera del solicitante: "FurMeets · tu solicitud" y la barra "Paso 2 de 3 · conversación con el grupo · en revisión".
+  - La cabecera de miembros queda igual: la votación plegada y la tarjeta de resumen son T24.
+  - Los colores salen del tema de Telegram (`themeParams`), así el chat funciona en tema claro y oscuro.
+- **Solo lectura.** Con la solicitud cerrada no hay caja de texto: se ve "La solicitud se cerró: el chat es de solo lectura". Un envío rechazado con `request-chat-closed` queda "no enviado".
+- **Reconexión.**
+  - Al reconectar, la App pide de nuevo el chat abierto y reenvía los mensajes propios que seguían "enviando", con el mismo `clientMessageId` (la API devuelve el ya guardado, T16).
+  - Si el historial trae un mensaje propio pendiente (ack perdido), sale de la bandeja de salida, así no se ve dos veces.
+  - Los "no enviado" esperan a que el usuario los reintente.
 
 **Dependencies:** T07, T09, T17, T18, T19
 
 **Files likely touched:**
 - `src/pages/RequestChatPage/RequestChatPage.tsx`
-- `src/components/ChatBubble/ChatBubble.tsx`
-- `src/state/request-chat.slice.ts`
-- `src/services/request-chat.service.ts`
+- `src/components/ChatBubble/ChatBubble.tsx`, `src/components/ChatComposer/ChatComposer.tsx`
+- `src/services/live-updates.ts`, `src/state/outbox.slice.ts`
+- `src/models/request-chat-message.model.ts`, `src/components/RequestChatList/RequestChatList.tsx`
 
 **Estimated scope:** M
 
