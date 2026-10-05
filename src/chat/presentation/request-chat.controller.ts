@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Put, Query, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Param,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ChatService } from '../application/chat.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { GetRequestChatDto } from './dtos/get-request-chat.dto';
@@ -11,8 +19,8 @@ import {
 import { RequestChatCursorCodec } from './request-chat-cursor';
 import {
   DEFAULT_MESSAGES_LIMIT,
-  ListMessagesAfterDto,
-  ListMessagesAfterQueryDto,
+  ListMessagesDto,
+  ListMessagesQueryDto,
 } from './dtos/list-request-chat-messages.dto';
 import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper';
 import { VoteRequestChatParamsDto } from './dtos/vote-request-chat-params.dto';
@@ -30,18 +38,22 @@ export class RequestChatController {
   ) {}
 
   /**
-   * Mensajes posteriores a `after`, para recuperar lo perdido tras una desconexión
-   * (RNF-CON-03). Paginado hacia adelante con `hasMore`.
+   * Una página de mensajes: los anteriores a `before`, para subir por el historial (T18,
+   * RNF-REN-04), o los posteriores a `after`, para recuperar lo perdido tras una
+   * desconexión (RNF-CON-03). `hasMore` dice si quedan en esa dirección.
    */
   @Get(':id/messages')
   @OwnerOrMember()
-  async getMessagesAfter(
+  async getMessages(
     @Param('id') id: string,
-    @Query() { after, limit }: ListMessagesAfterQueryDto,
-  ): Promise<ListMessagesAfterDto> {
-    const page = await this.chatService.getMessagesAfter(
+    @Query() { before, after, limit }: ListMessagesQueryDto,
+  ): Promise<ListMessagesDto> {
+    if ((before === undefined) === (after === undefined)) {
+      throw new BadRequestException('Use either before or after');
+    }
+    const page = await this.chatService.getMessages(
       UUID.from(id),
-      UUID.from(after),
+      before ? { before: UUID.from(before) } : { after: UUID.from(after) },
       limit ?? DEFAULT_MESSAGES_LIMIT,
     );
     return {
@@ -58,9 +70,8 @@ export class RequestChatController {
     @Param('id') id: string,
     @Req() req: CustomRequest,
   ): Promise<GetRequestChatDto> {
-    const { requestChat, messages } =
-      await this.chatService.getRequestChatByUUID(UUID.from(id));
-    return RequestChatMapper.toDto(requestChat, messages, req.user);
+    const view = await this.chatService.getRequestChatByUUID(UUID.from(id));
+    return RequestChatMapper.toDto(view, req.user);
   }
 
   @Get()

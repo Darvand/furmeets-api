@@ -8,12 +8,17 @@ export interface InsertedMessage {
   created: boolean;
 }
 
-/** Una página de mensajes posteriores a otro (recuperación al reconectar). */
-export interface MessagesAfter {
+/** Una página de mensajes, siempre del más antiguo al más reciente. */
+export interface MessagesPage {
   items: RequestChatMessageEntity[];
+  /** Quedan más en la dirección pedida: anteriores (`findLatest`, `findBefore`) o posteriores (`findAfter`). */
   hasMore: boolean;
 }
 
+/**
+ * Los mensajes se ordenan por `createdAt` y, si empatan (mensajes migrados sin fecha
+ * propia, T12), por `_id`: las páginas no repiten ni saltan mensajes.
+ */
 export interface RequestChatMessageRepository {
   /** Un mensaje nuevo es una sola inserción: los envíos concurrentes no se pisan. */
   insert(message: RequestChatMessageEntity): Promise<void>;
@@ -22,15 +27,24 @@ export interface RequestChatMessageRepository {
    * solicitud: un reenvío, aunque llegue a la vez, devuelve el mensaje ya guardado.
    */
   insertOnce(message: RequestChatMessageEntity): Promise<InsertedMessage>;
-  /** Mensajes de una solicitud, del más antiguo al más reciente. */
-  findByRequestChat(requestChatId: UUID): Promise<RequestChatMessageEntity[]>;
+  /** Los últimos `limit` mensajes de una solicitud (al abrir el chat). */
+  findLatest(requestChatId: UUID, limit: number): Promise<MessagesPage>;
   /**
-   * Hasta `limit` mensajes posteriores a `afterId`, en orden. `null` si `afterId` no es
-   * un mensaje de esa solicitud.
+   * Hasta `limit` mensajes anteriores a `beforeId` (historial). `null` si `beforeId` no
+   * es un mensaje de esa solicitud.
+   */
+  findBefore(
+    requestChatId: UUID,
+    beforeId: UUID,
+    limit: number,
+  ): Promise<MessagesPage | null>;
+  /**
+   * Hasta `limit` mensajes posteriores a `afterId` (recuperación al reconectar). `null`
+   * si `afterId` no es un mensaje de esa solicitud.
    */
   findAfter(
     requestChatId: UUID,
     afterId: UUID,
     limit: number,
-  ): Promise<MessagesAfter | null>;
+  ): Promise<MessagesPage | null>;
 }

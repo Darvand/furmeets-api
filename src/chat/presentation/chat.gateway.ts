@@ -147,11 +147,14 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     return new WsException('forbidden');
   }
 
-  /** La solicitud cambió de estado. Sin `userVote`: lo reciben todos. */
-  emitRequestChatUpdate({ requestChat, messages }: RequestChatView): void {
-    this.toRequestChat(requestChat.id.value).emit(
+  /**
+   * La solicitud cambió de estado. Sin `userVote`: lo reciben todos. Trae la última
+   * página de mensajes, igual que `GET /request-chats/:id`.
+   */
+  emitRequestChatUpdate(view: RequestChatView): void {
+    this.toRequestChat(view.requestChat.id.value).emit(
       'request-chat-update',
-      RequestChatMapper.toDto(requestChat, messages),
+      RequestChatMapper.toDto(view),
     );
   }
 
@@ -162,20 +165,15 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
       .emit('request-chat-votes', RequestChatMapper.toVotesEvent(result));
   }
 
-  emitNewRequestChat(
-    { requestChat, messages }: RequestChatView,
-    viewer: UserEntity,
-  ): void {
+  emitNewRequestChat(view: RequestChatView, viewer: UserEntity): void {
+    const { requestChat } = view;
     // Los sockets ya abiertos del solicitante pasan a la sala de su nueva solicitud.
     this.server
       .in(userRoom(requestChat.props.requester.telegramId))
       .socketsJoin(requestChatRoom(requestChat.id.value));
     this.server
       .to(MEMBERS_ROOM)
-      .emit(
-        'new-request-chat',
-        RequestChatMapper.toDto(requestChat, messages, viewer),
-      );
+      .emit('new-request-chat', RequestChatMapper.toDto(view, viewer));
   }
 
   /** El solicitante de la solicitud y todos los miembros. */

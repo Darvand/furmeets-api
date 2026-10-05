@@ -84,8 +84,9 @@ La Fase 0 está en producción, junto con el formulario de la API (T13) y la mig
 - **T01:** token del bot revocado y rotado en staging y en producción (confirmado el 2026-10-03).
 
 **Pendiente del release:**
-- [ ] **REN-07:** enviar y votar cumplen p95 < 500 ms (medición del 2026-10-03, ver T37 en todo.md). Abrir chat queda en ~500 ms porque trae todo el historial: se resuelve con T18. Para el dato exacto, revisar las líneas `Timing` en los logs de Render.
+- [ ] **REN-07:** enviar y votar cumplen p95 < 500 ms (medición del 2026-10-03, ver T37 en todo.md). Abrir chat quedaba en ~500 ms porque traía todo el historial; con T18 trae solo los últimos 50 (falta medirlo de nuevo). Para el dato exacto, revisar las líneas `Timing` en los logs de Render.
 - [ ] **REN-06 / T42:** prueba manual con dos cuentas y la red en "Slow 3G".
+- [ ] **Índice viejo de mensajes (T18):** borrar `requestChatId_1_createdAt_1` en staging y producción después del despliegue.
 - [ ] **Copia de la migración:** borrar `requestchats_pre_001` en producción y en staging cuando ya no haga falta (se conserva por ahora, decisión del 2026-10-03).
 
 ## Lista de tareas
@@ -132,7 +133,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] T15: App: pantalla Formulario (paso 1 de 3) — falta la prueba manual en staging
 - [x] T16: Chat: texto con idempotencia y recuperación
 - [x] T17: Chat: imágenes (las respuestas se quitaron el 2026-10-04)
-- [ ] T18: Chat: historial paginado
+- [x] T18: Chat: historial paginado — falta la prueba manual de la App en staging
 - [ ] T19: Chat: mensajes de sistema y solo lectura
 - [ ] T20: App: chat del solicitante y chat de miembros
 

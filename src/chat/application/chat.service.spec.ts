@@ -19,14 +19,14 @@ import {
 } from '../domain/services/chat.repository';
 import { ApplicationForm } from 'src/applications/domain/application-form';
 import type {
-  MessagesAfter,
+  MessagesPage,
   RequestChatMessageRepository,
 } from '../domain/services/request-chat-message.repository';
 import type { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
 import type { ChatGateway } from '../presentation/chat.gateway';
 import type { MediaService } from 'src/media/application/media.service';
-import { ChatService } from './chat.service';
+import { ChatService, LATEST_MESSAGES_LIMIT } from './chat.service';
 import type { RequestChatAccessService } from './request-chat-access.service';
 
 const user = (telegramId: number) =>
@@ -90,8 +90,11 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     insertOnce: jest.fn((message: RequestChatMessageEntity) =>
       Promise.resolve({ message, created: true }),
     ),
-    findAfter: jest.fn(() => Promise.resolve<MessagesAfter | null>(null)),
-    findByRequestChat: jest.fn(() => Promise.resolve([])),
+    findAfter: jest.fn(() => Promise.resolve<MessagesPage | null>(null)),
+    findBefore: jest.fn(() => Promise.resolve<MessagesPage | null>(null)),
+    findLatest: jest.fn(() =>
+      Promise.resolve<MessagesPage>({ items: [], hasMore: false }),
+    ),
   };
   const users = {
     getBotUser: jest.fn(() => Promise.resolve(bot)),
@@ -216,6 +219,19 @@ describe('ChatService', () => {
       expect(messages.insert).not.toHaveBeenCalled();
       expect(chats.toggleVote).not.toHaveBeenCalled();
       expect(chats.close).not.toHaveBeenCalled();
+    });
+
+    it('trae solo la última página de mensajes y si hay anteriores', async () => {
+      const { service, requestChat, messages } = setup();
+      messages.findLatest.mockResolvedValue({ items: [], hasMore: true });
+
+      const view = await service.getRequestChatByUUID(requestChat.id);
+
+      expect(messages.findLatest).toHaveBeenCalledWith(
+        requestChat.id,
+        LATEST_MESSAGES_LIMIT,
+      );
+      expect(view.hasOlder).toBe(true);
     });
   });
 
@@ -389,23 +405,41 @@ describe('ChatService', () => {
     });
   });
 
-  describe('getMessagesAfter', () => {
-    it('un after que no es de la solicitud → 400', async () => {
+  describe('getMessages', () => {
+    it.each(['before', 'after'] as const)(
+      'un %s que no es de la solicitud → 400',
+      async (name) => {
+        const ctx = setup();
+        const cursor =
+          name === 'before'
+            ? { before: UUID.generate() }
+            : { after: UUID.generate() };
+
+        await expect(
+          ctx.service.getMessages(ctx.requestChat.id, cursor, 10),
+        ).rejects.toThrow(`${name} must be a message of this request chat`);
+      },
+    );
+
+    it('con before pide los anteriores; con after, los posteriores', async () => {
       const ctx = setup();
+      const older = { items: [], hasMore: true };
+      const newer = { items: [], hasMore: false };
+      ctx.messages.findBefore.mockResolvedValue(older);
+      ctx.messages.findAfter.mockResolvedValue(newer);
+      const anchor = UUID.generate();
 
       await expect(
-        ctx.service.getMessagesAfter(ctx.requestChat.id, UUID.generate(), 10),
-      ).rejects.toBeInstanceOf(BadRequestException);
-    });
-
-    it('devuelve la página del repositorio', async () => {
-      const ctx = setup();
-      const page = { items: [], hasMore: true };
-      ctx.messages.findAfter.mockResolvedValue(page);
-
+        ctx.service.getMessages(ctx.requestChat.id, { before: anchor }, 10),
+      ).resolves.toBe(older);
       await expect(
-        ctx.service.getMessagesAfter(ctx.requestChat.id, UUID.generate(), 10),
-      ).resolves.toBe(page);
+        ctx.service.getMessages(ctx.requestChat.id, { after: anchor }, 10),
+      ).resolves.toBe(newer);
+      expect(ctx.messages.findBefore).toHaveBeenCalledWith(
+        ctx.requestChat.id,
+        anchor,
+        10,
+      );
     });
   });
 

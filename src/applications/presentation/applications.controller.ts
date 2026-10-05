@@ -18,11 +18,11 @@ export class ApplicationsController {
     @Body() dto: CreateApplicationDto,
     @Req() req: CustomRequest,
   ): Promise<GetRequestChatDto> {
-    const { requestChat, messages } = await this.applicationsService.submit(
+    const view = await this.applicationsService.submit(
       req.user,
       // `requesterUUID` no se usa: el formulario solo toma sus campos.
       dto,
     );
-    return RequestChatMapper.toDto(requestChat, messages, req.user);
+    return RequestChatMapper.toDto(view, req.user);
   }
 }

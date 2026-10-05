@@ -24,7 +24,7 @@ import {
 } from '../domain/services/chat.repository';
 import type {
   InsertedMessage,
-  MessagesAfter,
+  MessagesPage,
   RequestChatMessageRepository,
 } from '../domain/services/request-chat-message.repository';
 import {
@@ -46,10 +46,15 @@ import {
 } from '../domain/value-objects/request-chat-state.value-object';
 import { RequestChatAccessService } from './request-chat-access.service';
 
-/** Una solicitud con sus mensajes, en orden cronológico. */
+/** Cuántos mensajes trae abrir un chat; los anteriores se piden por páginas (T18). */
+export const LATEST_MESSAGES_LIMIT = 50;
+
+/** Una solicitud con sus últimos mensajes, en orden cronológico. */
 export interface RequestChatView {
   requestChat: RequestChatEntity;
   messages: RequestChatMessageEntity[];
+  /** Hay mensajes anteriores a `messages`: se piden con `before`. */
+  hasOlder: boolean;
 }
 
 /** Cómo quedó una solicitud tras el voto de un miembro. */
@@ -113,7 +118,7 @@ export class ChatService {
         : error;
     }
     await this.messageRepository.insert(welcome);
-    const view = { requestChat, messages: [welcome] };
+    const view = { requestChat, messages: [welcome], hasOlder: false };
     this.chatGateway.emitNewRequestChat(view, requester);
     this.notifyGroup(
       'aviso de solicitud nueva',
@@ -122,13 +127,13 @@ export class ChatService {
     return view;
   }
 
-  /** Una solicitud con sus mensajes. Solo lee. */
+  /** Una solicitud con su última página de mensajes. Solo lee. */
   async getRequestChatByUUID(id: UUID): Promise<RequestChatView> {
-    const [requestChat, messages] = await Promise.all([
+    const [requestChat, page] = await Promise.all([
       this.findRequestChat(id),
-      this.messageRepository.findByRequestChat(id),
+      this.messageRepository.findLatest(id, LATEST_MESSAGES_LIMIT),
     ]);
-    return { requestChat, messages };
+    return { requestChat, messages: page.items, hasOlder: page.hasMore };
   }
 
   /**
@@ -196,22 +201,30 @@ export class ChatService {
   }
 
   /**
-   * Mensajes posteriores a `afterId`, para recuperar lo perdido al reconectar. La ruta ya
-   * autorizó al usuario (`OwnerOrMember`). `afterId` de otra solicitud → 400.
+   * Una página de mensajes junto a otro: los anteriores a `before` (historial, T18) o los
+   * posteriores a `after` (recuperar lo perdido al reconectar, T16). La ruta ya autorizó
+   * al usuario (`OwnerOrMember`). Un mensaje de otra solicitud → 400.
    */
-  async getMessagesAfter(
+  async getMessages(
     requestChatId: UUID,
-    afterId: UUID,
+    cursor: { before: UUID } | { after: UUID },
     limit: number,
-  ): Promise<MessagesAfter> {
-    const page = await this.messageRepository.findAfter(
-      requestChatId,
-      afterId,
-      limit,
-    );
+  ): Promise<MessagesPage> {
+    const older = 'before' in cursor;
+    const page = older
+      ? await this.messageRepository.findBefore(
+          requestChatId,
+          cursor.before,
+          limit,
+        )
+      : await this.messageRepository.findAfter(
+          requestChatId,
+          cursor.after,
+          limit,
+        );
     if (!page) {
       throw new BadRequestException(
-        'after must be a message of this request chat',
+        `${older ? 'before' : 'after'} must be a message of this request chat`,
       );
     }
     return page;
@@ -297,9 +310,14 @@ export class ChatService {
             ? requestChat.approvedMessage(bot, at)
             : requestChat.rejectedMessage(bot, at),
         );
+        const page = await this.messageRepository.findLatest(
+          id,
+          LATEST_MESSAGES_LIMIT,
+        );
         this.chatGateway.emitRequestChatUpdate({
           requestChat,
-          messages: await this.messageRepository.findByRequestChat(id),
+          messages: page.items,
+          hasOlder: page.hasMore,
         });
         this.notifyClosed(requestChat);
       },

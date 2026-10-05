@@ -5,7 +5,13 @@ import { GetApplicationFormDto } from 'src/applications/presentation/dtos/get-ap
 export class GetRequestChatDto {
   uuid: string;
   requester: GetUserDto;
+  /** Los últimos mensajes (hasta 50), del más antiguo al más reciente. */
   messages: GetRequestChatMessageDto[];
+  /**
+   * Hay mensajes anteriores: se piden con `GET /request-chats/:id/messages?before=` y el
+   * primero de `messages`.
+   */
+  hasOlderMessages: boolean;
   votes: {
     approved: number;
     rejected: number;

@@ -905,23 +905,36 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ## Task 18: Chat: historial paginado
 
-**Repo:** API · **RNF:** REN-04
+**Repo:** API + App · **RNF:** REN-04
 
 **Description:** Historial de mensajes de un chat paginado: abrir un chat trae los últimos mensajes y los anteriores se piden por páginas. (El resumen del listado se hace en T40. Los leídos y no leídos se quitaron el 2026-10-03, SPEC §15.)
 
 **Acceptance criteria:**
-- [ ] Abrir un chat con muchos mensajes trae solo la última página
-- [ ] Las páginas anteriores no repiten ni saltan mensajes
+- [x] Abrir un chat con muchos mensajes trae solo la última página
+- [x] Las páginas anteriores no repiten ni saltan mensajes
 
 **Verification:**
-- [ ] e2e de paginación del historial
+- [x] e2e (`test/request-chat-history.e2e-spec.ts`): 121 mensajes, recorridos hacia atrás de a 50 y de a 7, con `createdAt` empatados; unitarias del servicio
+- [x] Prueba de mutación: sin el desempate por `_id`, las páginas repiten o saltan mensajes y fallan 3 casos
+- [ ] App: manual en staging con un chat de más de 50 mensajes
+
+**Notas de implementación:**
+- **Contrato.**
+  - `GET /request-chats/:id` (y `POST /applications`, `new-request-chat`, `request-chat-update`) trae los últimos 50 mensajes (`LATEST_MESSAGES_LIMIT`) y `hasOlderMessages`.
+  - Los anteriores: `GET /request-chats/:id/messages?before=<primer mensaje>&limit=` (por defecto 50, máximo 100) → `{ items, hasMore }`, en orden cronológico.
+  - La misma ruta sigue sirviendo `?after=` (recuperación, T16). Lleva uno de los dos: ambos o ninguno → 400. Un mensaje de otra solicitud → 400.
+- **Orden estable.** Los mensajes nuevos tienen `createdAt` único (reloj monótono), pero los migrados sin fecha propia (T12) comparten la de su solicitud. El orden es `createdAt` y después `_id`, y el cursor compara los dos: las páginas no repiten ni saltan mensajes aunque empaten. Aplica también a `after`.
+- **Índice.** `requestChatId + createdAt` pasa a `requestChatId + createdAt + _id`, que sirve los dos sentidos y el último mensaje del listado. Mongoose crea el nuevo al arrancar. El anterior queda redundante: borrarlo a mano en staging y producción después del despliegue (`db.requestchatmessages.dropIndex('requestChatId_1_createdAt_1')`).
+- **Cierre.** El `request-chat-update` del cierre ya no lee todo el historial: lleva la última página, igual que abrir el chat.
+- **App (mínimo, el chat completo es T20).** Botón "Ver mensajes anteriores" arriba del chat mientras haya `hasOlderMessages`. La vista no se mueve al agregarlos y solo baja con un mensaje nuevo. `request-chat-update` agrega los mensajes nuevos sin borrar las páginas ya cargadas. Si no se solapa con lo que hay, reemplaza todo.
 
 **Dependencies:** T16
 
 **Files likely touched:**
-- `src/chat/application/chat.service.ts`
-- `src/chat/infraestructure/repositories/chat-mongo.repository.ts`
-- `src/chat/presentation/chat.gateway.ts`
+- `src/chat/application/chat.service.ts`, `domain/services/request-chat-message.repository.ts`
+- `src/chat/infraestructure/repositories/request-chat-message-mongo.repository.ts`, `schemas/request-chat-message.schema.ts`
+- `src/chat/presentation/request-chat.controller.ts`, `dtos/list-request-chat-messages.dto.ts`, `dtos/get-request-chat.dto.ts`, `chat.gateway.ts`
+- App: `src/pages/RequestChatPage/RequestChatPage.tsx`, `src/services/request-chat.service.ts`, `src/services/live-updates.ts`
 
 **Estimated scope:** S
 
