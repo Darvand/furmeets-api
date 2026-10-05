@@ -11,7 +11,7 @@ import { CreateApplicationDto } from './dtos/create-application.dto';
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
 
-  /** Envía el formulario y abre el chat de la solicitud, que devuelve completo. */
+  /** Envía el formulario y abre el chat de la solicitud, que devuelve sin votos. */
   @Post()
   @ApplicantsOnly()
   async submit(
@@ -23,6 +23,6 @@ export class ApplicationsController {
       // `requesterUUID` no se usa: el formulario solo toma sus campos.
       dto,
     );
-    return RequestChatMapper.toDto(view, req.user);
+    return RequestChatMapper.toRequesterDto(view);
   }
 }

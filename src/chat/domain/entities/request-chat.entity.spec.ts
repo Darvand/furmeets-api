@@ -1,8 +1,11 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import {
+  CannotVoteOwnRequestError,
   RequestChatClosedError,
   RequestChatEntity,
 } from './request-chat.entity';
+import { Votes, type VoteType } from 'src/review/domain/vote';
+import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { ApplicationForm } from 'src/applications/domain/application-form';
 import { DateTime } from 'luxon';
 import { RequestChatState } from '../value-objects/request-chat-state.value-object';
@@ -24,8 +27,7 @@ describe('RequestChatEntity', () => {
   it('una solicitud nueva queda en curso y sin votos', () => {
     expect(requestChat.isInProgress()).toBe(true);
     expect(requestChat.state).toBe('InProgress');
-    expect(requestChat.countApproves()).toBe(0);
-    expect(requestChat.countRejects()).toBe(0);
+    expect(requestChat.votes.tally()).toEqual({ approved: 0, rejected: 0 });
   });
 
   describe('assertAcceptsMessages', () => {
@@ -45,28 +47,67 @@ describe('RequestChatEntity', () => {
     );
   });
 
+  describe('assertAcceptsVoteFrom', () => {
+    const member = user(2);
+    const header = (state: 'InProgress' | 'Approved' | 'Rejected') => ({
+      id: requestChat.id,
+      requesterId: requester.id,
+      state,
+    });
+
+    it('un miembro vota una solicitud en curso', () => {
+      expect(() =>
+        RequestChatEntity.assertAcceptsVoteFrom(
+          header('InProgress'),
+          member.id,
+        ),
+      ).not.toThrow();
+    });
+
+    it('nadie vota su propia solicitud, aunque ya sea miembro', () => {
+      expect(() =>
+        RequestChatEntity.assertAcceptsVoteFrom(
+          header('InProgress'),
+          UUID.from(requester.id.value),
+        ),
+      ).toThrow(CannotVoteOwnRequestError);
+    });
+
+    it.each(['Approved', 'Rejected'] as const)(
+      '%s ya no acepta votos → RequestChatClosedError',
+      (state) => {
+        expect(() =>
+          RequestChatEntity.assertAcceptsVoteFrom(header(state), member.id),
+        ).toThrow(RequestChatClosedError);
+      },
+    );
+  });
+
   describe('outcomeFor', () => {
+    const thresholds = { approve: 5, reject: 5 };
+    const cast = (approves: number, rejects: number) =>
+      Votes.of(
+        [
+          ...Array<VoteType>(approves).fill('approve'),
+          ...Array<VoteType>(rejects).fill('reject'),
+        ].map((type, i) => ({ voter: user(100 + i), type })),
+      );
+
     it('sin umbral alcanzado no hay resultado', () => {
       expect(
-        RequestChatEntity.outcomeFor({ approved: 4, rejected: 1 }),
+        RequestChatEntity.outcomeFor(cast(4, 4), thresholds),
       ).toBeUndefined();
     });
 
     it('5 aprobaciones → aprobada', () => {
       expect(
-        RequestChatEntity.outcomeFor({
-          approved: 5,
-          rejected: 0,
-        })?.isApproved(),
+        RequestChatEntity.outcomeFor(cast(5, 0), thresholds)?.isApproved(),
       ).toBe(true);
     });
 
-    it('3 rechazos → rechazada', () => {
+    it('5 rechazos → rechazada', () => {
       expect(
-        RequestChatEntity.outcomeFor({
-          approved: 0,
-          rejected: 3,
-        })?.isRejected(),
+        RequestChatEntity.outcomeFor(cast(1, 5), thresholds)?.isRejected(),
       ).toBe(true);
     });
   });
@@ -79,7 +120,7 @@ describe('RequestChatEntity', () => {
         legacy: { howDidYouFindUs: 'Instagram', interests: 'furros' },
         state: RequestChatState.InProgress(),
         createdAt: DateTime.now(),
-        votes: [],
+        votes: Votes.none(),
       }).announceWelcomeMesssage();
 
       expect(text).toContain('*¿Cómo conoció FurMeets?* Instagram');

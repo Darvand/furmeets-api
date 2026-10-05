@@ -17,7 +17,6 @@ import {
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper';
 import type { Server } from 'socket.io';
-import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
 import { RequestChatClosedError } from '../domain/entities/request-chat.entity';
 import {
@@ -153,24 +152,30 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   /**
-   * La solicitud cambió de estado. Sin `userVote`: lo reciben todos. Trae la última
-   * página de mensajes, igual que `GET /request-chats/:id`.
+   * La solicitud cambió de estado. Trae la última página de mensajes, igual que
+   * `GET /request-chats/:id`. Los miembros la reciben con la votación (sin `userVote`:
+   * es para todos); el solicitante, sin votos (RNF-PRI-03).
    */
   emitRequestChatUpdate(view: RequestChatView): void {
-    this.toRequestChat(view.requestChat.id.value).emit(
-      'request-chat-update',
-      RequestChatMapper.toDto(view),
-    );
+    const id = view.requestChat.id.value;
+    this.server
+      .to(MEMBERS_ROOM)
+      .emit('request-chat-update', RequestChatMapper.toMemberDto(view));
+    this.server
+      .to(requestChatRoom(id))
+      .except(MEMBERS_ROOM)
+      .emit('request-chat-update', RequestChatMapper.toRequesterDto(view));
   }
 
-  /** Conteos tras un voto, solo a los miembros: el solicitante no vota. */
+  /** La votación tras un voto, solo a los miembros (RNF-PRI-03). */
   emitVotes(result: VoteResult): void {
     this.server
       .to(MEMBERS_ROOM)
       .emit('request-chat-votes', RequestChatMapper.toVotesEvent(result));
   }
 
-  emitNewRequestChat(view: RequestChatView, viewer: UserEntity): void {
+  /** A los miembros, con la votación (vacía). */
+  emitNewRequestChat(view: RequestChatView): void {
     const { requestChat } = view;
     // Los sockets ya abiertos del solicitante pasan a la sala de su nueva solicitud.
     this.server
@@ -178,7 +183,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
       .socketsJoin(requestChatRoom(requestChat.id.value));
     this.server
       .to(MEMBERS_ROOM)
-      .emit('new-request-chat', RequestChatMapper.toDto(view, viewer));
+      .emit('new-request-chat', RequestChatMapper.toMemberDto(view));
   }
 
   /** El solicitante de la solicitud y todos los miembros. */

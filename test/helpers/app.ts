@@ -66,6 +66,9 @@ export async function createTestApp(
   process.env.DB_URI = mongo.getUri('furmeets-test');
   process.env.TELEGRAM_BOT_TOKEN = TEST_BOT_TOKEN;
   process.env.TELEGRAM_GROUP_ID = TEST_GROUP_ID;
+  // Los de SPEC §3.3, aunque el `.env` local tenga otros.
+  process.env.APPROVE_THRESHOLD = '5';
+  process.env.REJECT_THRESHOLD = '5';
 
   const telegramBot = createTelegramBotStub();
   let builder = Test.createTestingModule({ imports: [AppModule] })

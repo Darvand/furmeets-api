@@ -6,7 +6,7 @@
 
 ## Resumen
 
-Reemplazar el ingreso libre al grupo FurMeets por un proceso de admisión controlado por los miembros, dentro de Telegram (bot + MiniApp). El solicitante llena un formulario, conversa con los miembros en un chat propio que se republica en el grupo, los miembros votan (a favor nominal, en contra anónimo) y, al llegar al umbral, el bot le entrega un enlace de solicitud de unión que solo acepta al aprobado.
+Reemplazar el ingreso libre al grupo FurMeets por un proceso de admisión controlado por los miembros, dentro de Telegram (bot + MiniApp). El solicitante llena un formulario, conversa con los miembros en un chat propio que se republica en el grupo, los miembros votan con su nombre y, al llegar al umbral, el bot le entrega un enlace de solicitud de unión que solo acepta al aprobado.
 
 Hoy existe una versión parcial (chat de solicitudes, votos, enlace con `member_limit: 1`) con problemas graves de seguridad y pérdida de datos (SPEC §14), y con una **lentitud notable en cada interacción, incluso con el servidor despierto**. Por eso el plan empieza por la Fase 0, que endurece lo existente y baja su latencia antes de agregar funcionalidad. El arranque en frío de Render se resuelve en la Fase 2 (T30, T31).
 
@@ -88,6 +88,7 @@ La Fase 0 está en producción, junto con el formulario de la API (T13) y la mig
 - [ ] **REN-06 / T42:** prueba manual con dos cuentas y la red en "Slow 3G".
 - [x] **Índice viejo de mensajes (T18):** `requestChatId_1_createdAt_1` borrado en staging y producción (2026-10-05), después de crear el nuevo.
 - [ ] **Migración 002 (T19):** quitar del chat los mensajes del bot (`npm run migrate:002`, ver T19 en todo.md). Hecha en staging el 2026-10-05 (8 mensajes, respaldados); falta producción después del release.
+- [ ] **`REJECT_THRESHOLD` (T21):** en Render de staging y producción debe valer 5 o no estar definida (el código ya usa 5 por defecto).
 - [ ] **Copia de la migración:** borrar `requestchats_pre_001` en producción y en staging cuando ya no haga falta (se conserva por ahora, decisión del 2026-10-03).
 
 ## Lista de tareas
@@ -143,7 +144,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] Criterio de éxito 11: `test/applications.e2e-spec.ts` (4 imágenes → 400 sin crear la solicitud; `PUT` y `PATCH` a `/applications` → 404; una segunda solicitud → 409)
 
 - [x] T45: Corregir `ValueObject.equals`
-- [ ] T21: Revisión: votos y umbrales
+- [x] T21: Revisión: votos y umbrales — falta revisar `REJECT_THRESHOLD` en Render
 - [ ] T22: Revisión: avales y comentarios
 - [ ] T23: App: inicio de miembros
 - [ ] T24: App: votación y resumen del solicitante

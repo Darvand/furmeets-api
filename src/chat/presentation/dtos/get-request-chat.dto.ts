@@ -1,7 +1,13 @@
 import { GetUserDto } from 'src/members/presentation/dtos/get-user.dto';
 import { GetRequestChatMessageDto } from './get-request-chat-message.dto';
 import { GetApplicationFormDto } from 'src/applications/presentation/dtos/get-application-form.dto';
+import type { VoteType } from 'src/review/domain/vote';
+import type { RequestChatVotingDto } from './vote-request-chat.dto';
 
+/**
+ * Una solicitud tal como la ve su solicitante mientras no sea miembro: sin votos
+ * (RNF-PRI-03). Los miembros reciben además la votación (`MemberRequestChatDto`).
+ */
 export class GetRequestChatDto {
   uuid: string;
   requester: GetUserDto;
@@ -12,12 +18,7 @@ export class GetRequestChatDto {
    * primero de `messages`.
    */
   hasOlderMessages: boolean;
-  votes: {
-    approved: number;
-    rejected: number;
-  };
   state: string;
-  userVote?: string;
   /** Falta en las solicitudes anteriores al formulario actual: esas traen `legacy`. */
   form?: GetApplicationFormDto;
   /**
@@ -26,3 +27,10 @@ export class GetRequestChatDto {
    */
   legacy?: { howDidYouFindUs?: string; interests?: string };
 }
+
+/** Una solicitud tal como la ve un miembro: con la votación y su propio voto. */
+export type MemberRequestChatDto = GetRequestChatDto &
+  RequestChatVotingDto & {
+    /** El voto de quien pide la solicitud; falta si no votó o en eventos para todos. */
+    userVote?: VoteType;
+  };

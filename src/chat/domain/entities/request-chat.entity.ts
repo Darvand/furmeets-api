@@ -5,13 +5,11 @@ import {
   RequestChatState,
   RequestChatStateType,
 } from '../value-objects/request-chat-state.value-object';
-import { RequestChatVoteEntity } from './request-chat-vote.entity';
+import { type VoteThresholds, Votes } from 'src/review/domain/vote';
 import { DateTime } from 'luxon';
 import { ApplicationForm } from 'src/applications/domain/application-form';
 import type { LegacyApplication } from 'src/applications/domain/legacy-application';
 
-const APPROVE_THRESHOLD = process.env.APPROVE_THRESHOLD || 5;
-const REJECT_THRESHOLD = process.env.REJECT_THRESHOLD || 3;
 const TELEGRAM_BOT_LINK =
   process.env.TELEGRAM_BOT_LINK || 't.me/furmeets_test_bot/furmeets_hub';
 
@@ -37,12 +35,12 @@ export class RequestChatClosedError extends Error {
   }
 }
 
-export type VoteType = 'approve' | 'reject';
-
-/** Conteos de votos de una solicitud. */
-export interface VoteTally {
-  approved: number;
-  rejected: number;
+/** Quien vota es el solicitante: nadie vota su propia solicitud (SPEC §3.3). */
+export class CannotVoteOwnRequestError extends Error {
+  constructor(readonly requestChatId: UUID) {
+    super(`Cannot vote on own request chat ${requestChatId.value}`);
+    this.name = CannotVoteOwnRequestError.name;
+  }
 }
 
 /**
@@ -58,7 +56,7 @@ export interface RequestChatProps {
   legacy?: LegacyApplication;
   state: RequestChatState;
   createdAt: DateTime;
-  votes: RequestChatVoteEntity[];
+  votes: Votes;
 }
 
 export class RequestChatEntity extends Entity<RequestChatProps> {
@@ -79,7 +77,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
       form,
       state: RequestChatState.InProgress(),
       createdAt: DateTime.now(),
-      votes: [],
+      votes: Votes.none(),
     });
   }
 
@@ -91,6 +89,21 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     if (state !== RequestChatState.InProgress().props.value) {
       throw new RequestChatClosedError(id);
     }
+  }
+
+  /**
+   * Quién puede votar (SPEC §3.3): nadie vota su propia solicitud (`CannotVoteOwnRequestError`)
+   * y solo se vota mientras está en curso (`RequestChatClosedError`). Que el votante sea
+   * miembro lo decide la ruta (`@MembersOnly()`).
+   */
+  static assertAcceptsVoteFrom(
+    requestChat: { id: UUID; requesterId: UUID; state: RequestChatStateType },
+    voter: UUID,
+  ): void {
+    if (voter.equals(requestChat.requesterId)) {
+      throw new CannotVoteOwnRequestError(requestChat.id);
+    }
+    RequestChatEntity.assertAcceptsMessages(requestChat.id, requestChat.state);
   }
 
   /**
@@ -136,18 +149,22 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
   }
 
   /**
-   * Estado al que pasa una solicitud en curso con estos conteos, si alcanzó un umbral.
+   * Estado al que pasa una solicitud en curso con estos votos, si alcanzaron un umbral.
    * Se evalúa con los votos ya guardados, que incluyen los de otros miembros que votaron
    * al mismo tiempo.
    */
-  static outcomeFor(votes: VoteTally): RequestChatState | undefined {
-    if (votes.approved >= +APPROVE_THRESHOLD) {
-      return RequestChatState.Approved();
+  static outcomeFor(
+    votes: Votes,
+    thresholds: VoteThresholds,
+  ): RequestChatState | undefined {
+    switch (votes.winner(thresholds)) {
+      case 'approve':
+        return RequestChatState.Approved();
+      case 'reject':
+        return RequestChatState.Rejected();
+      default:
+        return undefined;
     }
-    if (votes.rejected >= +REJECT_THRESHOLD) {
-      return RequestChatState.Rejected();
-    }
-    return undefined;
   }
 
   /**
@@ -187,19 +204,8 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     return !this.isApproved() && !this.isRejected();
   }
 
-  countApproves(): number {
-    return this.props.votes.filter((vote) => vote.isApprove()).length;
-  }
-
-  countRejects(): number {
-    return this.props.votes.filter((vote) => vote.isReject()).length;
-  }
-
-  getUserVoteType(user: UserEntity): 'approve' | 'reject' | undefined {
-    const vote = this.props.votes.find(
-      (v) => v.props.user.id.value === user.id.value,
-    );
-    return vote ? vote.props.type : undefined;
+  get votes(): Votes {
+    return this.props.votes;
   }
 
   get state(): RequestChatStateType {

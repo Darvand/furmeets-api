@@ -9,7 +9,10 @@ import {
 } from '@nestjs/common';
 import { ChatService } from '../application/chat.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
-import { GetRequestChatDto } from './dtos/get-request-chat.dto';
+import {
+  GetRequestChatDto,
+  MemberRequestChatDto,
+} from './dtos/get-request-chat.dto';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
 import {
   DEFAULT_LIST_LIMIT,
@@ -29,12 +32,14 @@ import { UserService } from 'src/members/application/user.service';
 import type { CustomRequest } from 'src/shared/types/custom-request.interface';
 import { MembersOnly } from 'src/auth/presentation/roles.guard';
 import { OwnerOrMember } from './owner-or-member.guard';
+import { RequestChatAccessService } from '../application/request-chat-access.service';
 
 @Controller('request-chats')
 export class RequestChatController {
   constructor(
     private readonly chatService: ChatService,
     private readonly userService: UserService,
+    private readonly access: RequestChatAccessService,
   ) {}
 
   /**
@@ -64,14 +69,24 @@ export class RequestChatController {
     };
   }
 
+  /**
+   * Un miembro recibe la solicitud con la votación; su solicitante, mientras no sea
+   * miembro, sin ella (RNF-PRI-03).
+   */
   @Get(':id')
   @OwnerOrMember()
   async getRequestChatById(
     @Param('id') id: string,
     @Req() req: CustomRequest,
-  ): Promise<GetRequestChatDto> {
-    const view = await this.chatService.getRequestChatByUUID(UUID.from(id));
-    return RequestChatMapper.toDto(view, req.user);
+  ): Promise<GetRequestChatDto | MemberRequestChatDto> {
+    const [view, isMember] = await Promise.all([
+      this.chatService.getRequestChatByUUID(UUID.from(id)),
+      // El guard ya resolvió el rol: aquí sale de la caché.
+      this.access.isMember(req.user),
+    ]);
+    return isMember
+      ? RequestChatMapper.toMemberDto(view, req.user)
+      : RequestChatMapper.toRequesterDto(view);
   }
 
   @Get()

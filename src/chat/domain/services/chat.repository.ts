@@ -1,10 +1,7 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
-import {
-  RequestChatEntity,
-  type VoteTally,
-  type VoteType,
-} from '../entities/request-chat.entity';
+import { RequestChatEntity } from '../entities/request-chat.entity';
+import type { Votes, VoteType } from 'src/review/domain/vote';
 import {
   RequestChatState,
   RequestChatStateType,
@@ -31,13 +28,6 @@ export interface RequestChatHeader {
   state: RequestChatStateType;
 }
 
-/** Cómo quedan los votos tras el voto de un miembro. */
-export interface VoteApplied {
-  votes: VoteTally;
-  /** El voto que le quedó al miembro; falta si lo retiró. */
-  voterVote?: VoteType;
-}
-
 /** Posición en el listado: la última solicitud de la página anterior. */
 export interface RequestChatCursor {
   createdAt: Date;
@@ -45,8 +35,8 @@ export interface RequestChatCursor {
 }
 
 /**
- * Una solicitud tal como sale en el listado: resumen, sin mensajes ni votos.
- * De los votos solo hay conteos y el voto de quien mira (RNF-PRI-01).
+ * Una solicitud tal como sale en el listado: resumen, sin mensajes. De los votos solo
+ * hay conteos y el voto de quien mira; quién votó viene al abrir la solicitud.
  */
 export interface RequestChatListItem {
   id: UUID;
@@ -56,7 +46,7 @@ export interface RequestChatListItem {
   /** Falta si la solicitud no tiene mensajes (solicitudes antiguas sin migrar, T12). */
   lastMessage?: { author: UserEntity; content: string; at: Date };
   votes: { approved: number; rejected: number };
-  viewerVote?: 'approve' | 'reject';
+  viewerVote?: VoteType;
 }
 
 /** Una página del listado, de la más reciente a la más antigua. */
@@ -75,16 +65,17 @@ export interface ChatRepository {
   createRequestChat(requestChat: RequestChatEntity): Promise<void>;
   /**
    * Aplica el voto de un miembro con una sola operación atómica, si la solicitud sigue
-   * en curso: repetir el mismo voto lo retira y uno distinto reemplaza al anterior.
-   * Devuelve los conteos con los votos guardados (incluidos los de otros miembros que
-   * votaron al mismo tiempo), o `null` si la solicitud no existe o ya no está en curso.
+   * en curso y no es suya: repetir el mismo voto lo retira y uno distinto reemplaza al
+   * anterior. Devuelve los votos guardados con sus votantes (incluidos los de otros
+   * miembros que votaron al mismo tiempo), o `null` si la solicitud no existe, ya no
+   * está en curso o es de `voter`.
    */
   toggleVote(
     id: UUID,
     voter: UUID,
     type: VoteType,
     at: Date,
-  ): Promise<VoteApplied | null>;
+  ): Promise<Votes | null>;
   /** Cierra la solicitud si sigue en curso. Devuelve si esta llamada la cerró. */
   close(id: UUID, state: RequestChatState): Promise<boolean>;
   getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null>;

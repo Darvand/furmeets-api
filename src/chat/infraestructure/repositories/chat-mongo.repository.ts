@@ -1,10 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, mongo } from 'mongoose';
-import {
-  RequestChatEntity,
-  type VoteType,
-} from 'src/chat/domain/entities/request-chat.entity';
+import { RequestChatEntity } from 'src/chat/domain/entities/request-chat.entity';
+import { Votes, type VoteType } from 'src/review/domain/vote';
 import {
   ChatRepository,
   DuplicateRequestChatError,
@@ -13,7 +11,6 @@ import {
   RequestChatListItem,
   RequestChatPage,
   RequestChatSummary,
-  VoteApplied,
 } from 'src/chat/domain/services/chat.repository';
 import { RequestChatState } from 'src/chat/domain/value-objects/request-chat-state.value-object';
 import { toUUIDString } from 'src/shared/infraestructure/mongo-uuid';
@@ -41,10 +38,10 @@ interface RequestChatSummaryDoc {
   lastMessage?: { author: User; content: string; createdAt: Date };
   approved: number;
   rejected: number;
-  viewerVote?: 'approve' | 'reject';
+  viewerVote?: VoteType;
 }
 
-function countVotes(type: 'approve' | 'reject') {
+function countVotes(type: VoteType) {
   return {
     $size: {
       $filter: {
@@ -95,7 +92,7 @@ export class ChatMongoRepository implements ChatRepository {
     voter: UUID,
     type: VoteType,
     at: Date,
-  ): Promise<VoteApplied | null> {
+  ): Promise<Votes | null> {
     // Los pipelines no pasan por los casts de Mongoose: el UUID va como `Binary`.
     const from = new mongo.UUID(voter.value);
     const votes = { $ifNull: ['$votes', []] };
@@ -104,7 +101,12 @@ export class ChatMongoRepository implements ChatRepository {
     // dos votos a la vez (del mismo o de distintos miembros) no se pisan.
     const doc = await this.requestChatModel
       .findOneAndUpdate(
-        { _id: id.value, state: RequestChatState.InProgress().props.value },
+        {
+          _id: id.value,
+          state: RequestChatState.InProgress().props.value,
+          // Nadie vota su propia solicitud (SPEC §3.3).
+          requester: { $ne: voter.value },
+        },
         [
           {
             $set: {
@@ -170,17 +172,19 @@ export class ChatMongoRepository implements ChatRepository {
         ],
         { new: true, projection: { votes: 1 } },
       )
-      .lean<{ votes: { from: UUIDValue; type: string }[] }>()
+      // Una lectura más, por `_id`: los miembros ven quién votó (RNF-PRI-01).
+      .populate<{ votes: { from: User; type: string }[] }>('votes.from')
+      .lean()
       .exec();
     if (!doc) {
       return null;
     }
-    const count = (t: VoteType) => doc.votes.filter((v) => v.type === t).length;
-    const own = doc.votes.find((v) => toUUIDString(v.from) === voter.value);
-    return {
-      votes: { approved: count('approve'), rejected: count('reject') },
-      voterVote: own?.type as VoteType | undefined,
-    };
+    return Votes.of(
+      doc.votes.map((vote) => ({
+        voter: UserMapper.fromDb(vote.from),
+        type: vote.type as VoteType,
+      })),
+    );
   }
 
   async close(id: UUID, state: RequestChatState): Promise<boolean> {
@@ -268,7 +272,7 @@ export class ChatMongoRepository implements ChatRepository {
             state: 1,
             createdAt: 1,
             lastMessage: { $first: '$lastMessage' },
-            // De los votos solo salen conteos y el voto propio (RNF-PRI-01).
+            // De los votos, solo conteos y el voto propio: el listado es liviano.
             approved: countVotes('approve'),
             rejected: countVotes('reject'),
             viewerVote: {

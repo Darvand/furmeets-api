@@ -1092,15 +1092,28 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Votar (`approve | reject`), cambiar y retirar mientras está en curso. Umbrales `APPROVE_THRESHOLD`/`REJECT_THRESHOLD`, los dos en 5; el voto que alcanza uno cierra en el acto (actualización condicional para evitar doble cierre). Para los miembros, las respuestas incluyen quién votó a favor y quién en contra, los conteos, los umbrales y el voto propio. Para el solicitante no incluyen votos (decidido el 2026-10-03: nada es anónimo dentro del grupo).
 
 **Acceptance criteria:**
-- [ ] Solicitante votando → 403; `vote` inválido → 400
-- [ ] Al alcanzar el umbral, la solicitud pasa a *Approved*/*Rejected* una sola vez
-- [ ] Un miembro recibe los nombres de los votos a favor y en contra, en `GET /request-chats/:id`, en la respuesta del voto y en el evento `request-chat-votes` (que hoy solo lleva conteos, T42)
-- [ ] Mientras no sea miembro, el solicitante no recibe votos ni en `GET` ni en `request-chat-update`
-- [ ] El valor por defecto de `REJECT_THRESHOLD` en el código pasa de 3 a 5 (`request-chat.entity.ts`); revisar el valor en Render de staging y producción (cambiarlo requiere aprobación, SPEC §12)
+- [x] Solicitante votando → 403; `vote` inválido → 400
+- [x] Al alcanzar el umbral, la solicitud pasa a *Approved*/*Rejected* una sola vez
+- [x] Un miembro recibe los nombres de los votos a favor y en contra, en `GET /request-chats/:id`, en la respuesta del voto y en el evento `request-chat-votes` (que hoy solo lleva conteos, T42)
+- [x] Mientras no sea miembro, el solicitante no recibe votos ni en `GET` ni en `request-chat-update`
+- [x] El valor por defecto de `REJECT_THRESHOLD` en el código pasa de 3 a 5 (ahora en `src/review/domain/vote.ts`)
+- [ ] Revisar `REJECT_THRESHOLD` en Render de staging y producción: debe ser 5 o no estar (cambiarlo requiere aprobación, SPEC §12)
 
 **Verification:**
-- [ ] Unitarias de dominio (umbrales, cambio, retiro, no votar la propia)
-- [ ] Prueba que serializa las salidas dirigidas al solicitante y no encuentra votos (criterio de éxito 10)
+- [x] Unitarias de dominio: umbrales y su lectura del entorno, "no votar la propia", solo en curso (`vote.spec.ts`, `request-chat.entity.spec.ts`). Cambiar y retirar el voto los aplica el pipeline atómico de Mongo, así que se prueban en e2e (`send-vote-background`)
+- [x] Prueba que serializa las salidas dirigidas al solicitante y no encuentra votos (criterio de éxito 10): unitaria del mapper y e2e de `GET`, `POST /applications` y `request-chat-update`
+- [x] `npm test` (250) y `npm run test:e2e` (170) completos
+
+**Notas de implementación:**
+- **Dominio en `src/review/domain/vote.ts`:** `Vote`, `Votes` (conteos, votantes por opción en el orden en que votaron, voto de un miembro, ganador) y los umbrales. Reemplaza a `RequestChatVoteEntity`. Quién puede votar y el estado al que pasa la solicitud siguen en `RequestChatEntity` (`assertAcceptsVoteFrom`, `outcomeFor`).
+- **Umbrales:** `ChatService` los lee al crearse, ya con el `.env` cargado. Antes se leían al importar la entidad, antes que el `.env`: en local valía el default, no el `.env`. Si falta uno, vale 5; si no es un entero positivo, la API no arranca. Las e2e fijan 5 y 5 aunque el `.env` local diga otra cosa.
+- **No votar la propia:** el filtro del voto atómico excluye al solicitante (`requester: { $ne: voter }`). Si el voto no se aplica, se lee la cabecera para responder 404 (no existe), 403 (es la propia, aunque ya sea miembro) o 409 (cerrada).
+- **Contrato (solo se agrega, la App actual sigue igual):**
+  - Miembros: `votes` (conteos, como antes), `voters: { approve, reject }` con `{ uuid, name, username?, avatarMediaId? }`, `thresholds: { approve, reject }` y `userVote`. Eso llega en `GET /request-chats/:id`, en la respuesta de `PUT …/vote/:type`, en `request-chat-votes`, en `new-request-chat` y en `request-chat-update` (estos tres sin `userVote`).
+  - Solicitante (no miembro): `GET /request-chats/:id`, `POST /applications` y su `request-chat-update` van sin `votes`, `voters`, `thresholds` ni `userVote`. El evento se emite por separado a `members` y a la sala de la solicitud (`except(members)`). La App del solicitante no lee `votes`, así que no se rompe; el tipo `RequestChat` de la App se ajusta en T24.
+  - Si el solicitante ya es miembro, ve la votación de su solicitud (SPEC §3.3).
+  - El listado sigue con conteos y voto propio, sin nombres, para seguir liviano. Los umbrales para "4/5 a favor" se agregan en T23.
+- **Costo:** votar suma una lectura por `_id` de los votantes (`populate`): autenticar + `findAndModify` + `find`, y `update` si cierra. Retirar el único voto se salta la lectura.
 
 **Dependencies:** T11, T06, T45
 

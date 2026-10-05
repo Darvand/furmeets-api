@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   forwardRef,
+  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -10,10 +11,16 @@ import {
 } from '@nestjs/common';
 import { CHAT_PROVIDERS } from '../chat.providers';
 import {
+  CannotVoteOwnRequestError,
+  RequestChatClosedError,
   RequestChatEntity,
-  type VoteTally,
-  type VoteType,
 } from '../domain/entities/request-chat.entity';
+import {
+  type VoteThresholds,
+  voteThresholdsFrom,
+  type Votes,
+  type VoteType,
+} from 'src/review/domain/vote';
 import {
   DuplicateRequestChatError,
   type ChatRepository,
@@ -55,13 +62,17 @@ export interface RequestChatView {
   messages: RequestChatMessageEntity[];
   /** Hay mensajes anteriores a `messages`: se piden con `before`. */
   hasOlder: boolean;
+  /** Los umbrales vigentes, para mostrar la votación a los miembros. */
+  thresholds: VoteThresholds;
 }
 
 /** Cómo quedó una solicitud tras el voto de un miembro. */
 export interface VoteResult {
   requestChatId: UUID;
   state: RequestChatStateType;
-  votes: VoteTally;
+  /** Los votos guardados, con sus votantes. */
+  votes: Votes;
+  thresholds: VoteThresholds;
   /** El voto que le quedó a quien votó; falta si lo retiró. */
   userVote?: VoteType;
 }
@@ -76,6 +87,11 @@ export class ChatService {
   private readonly logger = new Logger(ChatService.name);
   /** Fecha de cada mensaje: única y creciente, para que el orden sea el de llegada. */
   private readonly clock = new MonotonicClock();
+  /**
+   * `APPROVE_THRESHOLD` y `REJECT_THRESHOLD`, leídos al crear el servicio (ya con el `.env`
+   * cargado): uno inválido impide arrancar.
+   */
+  private readonly thresholds = voteThresholdsFrom(process.env);
 
   constructor(
     @Inject(CHAT_PROVIDERS.RequestChatRepository)
@@ -116,8 +132,13 @@ export class ChatService {
         ? this.alreadyApplied()
         : error;
     }
-    const view = { requestChat, messages: [], hasOlder: false };
-    this.chatGateway.emitNewRequestChat(view, requester);
+    const view: RequestChatView = {
+      requestChat,
+      messages: [],
+      hasOlder: false,
+      thresholds: this.thresholds,
+    };
+    this.chatGateway.emitNewRequestChat(view);
     this.notifyGroup(
       'aviso de solicitud nueva',
       requestChat.announceWelcomeMesssage(),
@@ -131,7 +152,12 @@ export class ChatService {
       this.findRequestChat(id),
       this.messageRepository.findLatest(id, LATEST_MESSAGES_LIMIT),
     ]);
-    return { requestChat, messages: page.items, hasOlder: page.hasMore };
+    return {
+      requestChat,
+      messages: page.items,
+      hasOlder: page.hasMore,
+      thresholds: this.thresholds,
+    };
   }
 
   /**
@@ -241,8 +267,9 @@ export class ChatService {
 
   /**
    * Guarda el voto con una operación atómica y, si cruza un umbral, cierra la solicitud
-   * con otra. El mensaje de cierre, el aviso por socket y los avisos de Telegram quedan
-   * en segundo plano: la respuesta solo lleva estado y conteos.
+   * con otra (condicional: se cierra una sola vez). El aviso por socket del cierre y los
+   * de Telegram quedan en segundo plano: la respuesta lleva estado y votación. Votar la
+   * propia solicitud → 403; una cerrada → 409.
    */
   async voteOnRequestChat(
     requestChatUUID: UUID,
@@ -252,37 +279,38 @@ export class ChatService {
     this.logger.debug(
       `User UUID: ${user.id.value} voting on request chat UUID: ${requestChatUUID.value} with type: ${type}`,
     );
-    const applied = await this.requestChatRepository.toggleVote(
+    const votes = await this.requestChatRepository.toggleVote(
       requestChatUUID,
       user.id,
       type,
       new Date(),
     );
-    if (!applied) {
-      // Fuera del camino feliz: distingue "no existe" (404) de "ya cerrada" (409).
-      await this.findRequestChat(requestChatUUID);
-      throw this.notInProgress();
+    if (!votes) {
+      throw await this.voteRejection(requestChatUUID, user);
     }
     let state = RequestChatState.InProgress().props.value;
-    // Si varios votos cruzan el umbral a la vez, solo uno cierra la solicitud: ese agrega
-    // el mensaje de cierre y avisa, una sola vez.
-    const outcome = RequestChatEntity.outcomeFor(applied.votes);
+    // Si varios votos cruzan el umbral a la vez, solo uno cierra la solicitud: ese avisa,
+    // una sola vez.
+    const outcome = RequestChatEntity.outcomeFor(votes, this.thresholds);
     if (outcome) {
       if (await this.requestChatRepository.close(requestChatUUID, outcome)) {
         state = outcome.props.value;
         this.afterClose(requestChatUUID);
       } else {
         // Otro voto la cerró entre medio (poco común): se informa su estado real.
-        state = (await this.findRequestChat(requestChatUUID)).state;
+        state =
+          (await this.requestChatRepository.findHeader(requestChatUUID))
+            ?.state ?? state;
       }
     }
     const result: VoteResult = {
       requestChatId: requestChatUUID,
       state,
-      votes: applied.votes,
-      userVote: applied.voterVote,
+      votes,
+      thresholds: this.thresholds,
+      userVote: votes.typeOf(user.id),
     };
-    // Los demás miembros ven los conteos en vivo, sin recargar (T42).
+    // Los demás miembros ven la votación en vivo, sin recargar (T42).
     this.chatGateway.emitVotes(result);
     return result;
   }
@@ -304,6 +332,7 @@ export class ChatService {
           requestChat,
           messages: page.items,
           hasOlder: page.hasMore,
+          thresholds: this.thresholds,
         });
         this.notifyClosed(requestChat);
       },
@@ -362,6 +391,32 @@ export class ChatService {
 
   private alreadyApplied(): ConflictException {
     return new ConflictException('The user already has a request chat');
+  }
+
+  /**
+   * Por qué no se aplicó un voto, fuera del camino feliz: la solicitud no existe (404), es
+   * de quien vota (403) o ya se cerró (409).
+   */
+  private async voteRejection(
+    id: UUID,
+    voter: UserEntity,
+  ): Promise<HttpException> {
+    const header = await this.requestChatRepository.findHeader(id);
+    if (!header) {
+      return this.notFound(id);
+    }
+    try {
+      RequestChatEntity.assertAcceptsVoteFrom(header, voter.id);
+    } catch (error) {
+      if (error instanceof CannotVoteOwnRequestError) {
+        return new ForbiddenException('Cannot vote on own request chat');
+      }
+      if (!(error instanceof RequestChatClosedError)) {
+        throw error;
+      }
+    }
+    // Cerrada, o cerrada justo después del intento: los estados finales no vuelven atrás.
+    return this.notInProgress();
   }
 
   private notInProgress(): ConflictException {

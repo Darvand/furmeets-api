@@ -19,7 +19,7 @@
  *   SEED_GROUP_TELEGRAM_ID: grupo al que se agregan los miembros sembrados. Si falta y en
  *   la base hay exactamente un grupo, se usa ese. Si no hay grupo, abre la App una vez en
  *   staging (lo crea GET /me) y vuelve a correr con --reset.
- *   APPROVE_THRESHOLD (5) · REJECT_THRESHOLD (3): deben coincidir con los de la API.
+ *   APPROVE_THRESHOLD (5) · REJECT_THRESHOLD (5): deben coincidir con los de la API.
  *
  * Los usuarios sembrados no pueden iniciar sesión (no tienen initData real). Para medir con
  * `npm run perf:baseline`, usa tu cuenta de prueba y como PERF_CHAT_ID una solicitud
