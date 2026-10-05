@@ -92,9 +92,10 @@ export class ChatService {
   ) {}
 
   /**
-   * Abre una solicitud nueva con su mensaje de bienvenida, avisa a los miembros por
-   * socket y anuncia en el grupo en segundo plano. Una por usuario, sin importar su
-   * estado (SPEC §3.1): si ya tiene una → 409, también si dos envíos llegan a la vez.
+   * Abre una solicitud nueva, sin mensajes (la bienvenida la muestra la App, SPEC §3.2),
+   * avisa a los miembros por socket y anuncia en el grupo en segundo plano. Una por
+   * usuario, sin importar su estado (SPEC §3.1): si ya tiene una → 409, también si dos
+   * envíos llegan a la vez.
    */
   async openRequestChat(
     requestChat: RequestChatEntity,
@@ -107,8 +108,6 @@ export class ChatService {
     ) {
       throw this.alreadyApplied();
     }
-    const bot = await this.userService.getBotUser();
-    const welcome = requestChat.welcomeMessage(bot, this.clock.now());
     try {
       await this.requestChatRepository.createRequestChat(requestChat);
     } catch (error) {
@@ -117,8 +116,7 @@ export class ChatService {
         ? this.alreadyApplied()
         : error;
     }
-    await this.messageRepository.insert(welcome);
-    const view = { requestChat, messages: [welcome], hasOlder: false };
+    const view = { requestChat, messages: [], hasOlder: false };
     this.chatGateway.emitNewRequestChat(view, requester);
     this.notifyGroup(
       'aviso de solicitud nueva',
@@ -144,7 +142,8 @@ export class ChatService {
    * Telegram queda en segundo plano.
    *
    * Con `clientMessageId`, un reenvío devuelve el mensaje ya guardado (`created: false`)
-   * y no vuelve a avisar. Un cuerpo inválido o imágenes ajenas → 400.
+   * y no vuelve a avisar. Un cuerpo inválido o imágenes ajenas → 400. Una solicitud
+   * cerrada → `RequestChatClosedError` (solo lectura, SPEC §3.2).
    */
   async addMessageToRequestChat(
     requestChatUUID: UUID,
@@ -163,11 +162,7 @@ export class ChatService {
     if (!header) {
       throw this.notFound(requestChatUUID);
     }
-    if (header.state !== RequestChatState.InProgress().props.value) {
-      throw new ConflictException(
-        `Cannot add messages to a request chat that is not in progress`,
-      );
-    }
+    RequestChatEntity.assertAcceptsMessages(header.id, header.state);
     let message: RequestChatMessageEntity;
     try {
       message = RequestChatMessageEntity.send(
@@ -293,27 +288,18 @@ export class ChatService {
   }
 
   /**
-   * Tras cerrar: mensaje de cierre, aviso por socket y avisos de Telegram. El mensaje no
-   * se reintenta, para no duplicarlo si la inserción llegó a guardarse.
+   * Tras cerrar: aviso por socket (el solicitante pasa a la pantalla del resultado) y
+   * avisos de Telegram. El chat no recibe ningún mensaje de cierre (SPEC §3.2). No se
+   * reintenta, para no repetir los avisos al grupo.
    */
   private afterClose(id: UUID): void {
     this.background.enqueue(
       'cierre de solicitud',
       async () => {
-        const [bot, requestChat] = await Promise.all([
-          this.userService.getBotUser(),
+        const [requestChat, page] = await Promise.all([
           this.findRequestChat(id),
+          this.messageRepository.findLatest(id, LATEST_MESSAGES_LIMIT),
         ]);
-        const at = this.clock.now();
-        await this.messageRepository.insert(
-          requestChat.isApproved()
-            ? requestChat.approvedMessage(bot, at)
-            : requestChat.rejectedMessage(bot, at),
-        );
-        const page = await this.messageRepository.findLatest(
-          id,
-          LATEST_MESSAGES_LIMIT,
-        );
         this.chatGateway.emitRequestChatUpdate({
           requestChat,
           messages: page.items,

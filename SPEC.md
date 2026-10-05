@@ -103,8 +103,9 @@ Reglas:
 
 Alcance de la v1:
 - Mensajes de texto.
-- **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram), hasta 10 por mensaje (un álbum de Telegram). Un mensaje lleva texto, imágenes o ambos. Las imágenes que manda un miembro también las ve el solicitante.- Mensajes de sistema o del bot: bienvenida, "X entró al chat de revisión" y resultado.
-- Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**.
+- **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram), hasta 10 por mensaje (un álbum de Telegram). Un mensaje lleva texto, imágenes o ambos. Las imágenes que manda un miembro también las ve el solicitante.
+- **El bot no escribe en el chat.** Todos los mensajes son del solicitante o de miembros. El chat empieza con un encabezado de bienvenida que muestra la App (no es un mensaje guardado). El resultado de la votación no se anuncia en el chat: el solicitante lo ve en la pantalla *Aprobado* o *No aprobado* (§3.6).
+- Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**: cualquier envío se rechaza.
 
 Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, responder (citar) un mensaje, reacciones, leídos y no leídos (ni "Leído por" ni contador). El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar. El doble check de los mensajes propios indica que la API guardó el mensaje (ack), no que alguien lo leyó.
 
@@ -558,3 +559,7 @@ No hay preguntas abiertas.
 - El formulario ya no avisa que el envío es definitivo ni que los mensajes del chat se comparten en el grupo; tampoco muestra el aviso de la etiqueta "Menor de edad" mientras se llena. La etiqueta sigue en la solicitud (§3.1).
 - Sin respuestas (citar un mensaje) en el chat de la MiniApp: agregan complejidad para poco valor, porque los chats son cortos (§3.2). Los *replies* de un miembro en el grupo de Telegram al mensaje republicado siguen creando un mensaje en el chat (§3.5, T28).
 - *No aprobado* no promete otra solicitud con un aval, aunque el diseño lo diga: rehabilitar sigue siendo manual (2026-10-03, §3.6).
+
+### Resueltas (2026-10-05)
+
+- Sin mensajes del bot en el chat (§3.2). La bienvenida pasa a ser un encabezado de la App al inicio del chat. El mensaje de resultado se quita porque la pantalla *Aprobado* o *No aprobado* ya lo comunica. "X entró al chat de revisión" tampoco se hace: solo informaría que alguien entró. Los mensajes del bot que ya existen se quitan con la migración 002 (T19).

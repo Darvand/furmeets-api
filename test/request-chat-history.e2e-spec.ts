@@ -21,7 +21,7 @@ const OTHER_APPLICANT = { id: 9303, first_name: 'Beto' };
 const BOT = { id: 999, is_bot: true, first_name: 'FurBot', username: 'furbot' };
 const TELEGRAM_GROUP = { id: Number(TEST_GROUP_ID), type: 'supergroup' };
 
-/** Mensajes sembrados además del de bienvenida: más de dos páginas de 50. */
+/** Mensajes sembrados: más de dos páginas de 50. */
 const SEEDED = 120;
 /** Cada tantos mensajes comparten `createdAt`, como los migrados sin fecha propia (T12). */
 const TIED = 3;
@@ -58,6 +58,8 @@ describe('Chat: historial paginado (e2e)', () => {
   let server: App;
   let requestChat: RequestChatDto;
   let otherRequestChat: RequestChatDto;
+  /** Un mensaje de la otra solicitud. */
+  let foreignMessageId: string;
 
   const authenticate = (user: TelegramInitDataUser): Promise<UserEntity> =>
     testApp.app
@@ -137,14 +139,22 @@ describe('Chat: historial paginado (e2e)', () => {
         ),
       );
     }
+    const foreign = RequestChatMessageEntity.send(
+      UUID.from(otherRequestChat.uuid),
+      await authenticate(OTHER_APPLICANT),
+      { content: 'de Beto' },
+      new Date(),
+    );
+    await repository.insert(foreign);
+    foreignMessageId = foreign.id.value;
   });
 
   afterAll(async () => {
     await testApp?.close();
   });
 
-  it('enviar la solicitud trae su único mensaje, sin anteriores', () => {
-    expect(requestChat.messages).toHaveLength(1);
+  it('enviar la solicitud la trae sin mensajes ni anteriores', () => {
+    expect(requestChat.messages).toEqual([]);
     expect(requestChat.hasOlderMessages).toBe(false);
   });
 
@@ -173,15 +183,14 @@ describe('Chat: historial paginado (e2e)', () => {
     async (limit) => {
       const contents = await walkBack(limit);
 
-      expect(contents).toHaveLength(SEEDED + 1);
-      expect(new Set(contents).size).toBe(SEEDED + 1);
+      expect(contents).toHaveLength(SEEDED);
+      expect(new Set(contents).size).toBe(SEEDED);
       expect(contents).toEqual(
         expect.arrayContaining(
           Array.from({ length: SEEDED }, (_, i) => `m${i}`),
         ),
       );
-      expect(contents[0]).not.toMatch(/^m\d+$/);
-      expectChronological(contents.slice(1));
+      expectChronological(contents);
     },
   );
 
@@ -194,13 +203,13 @@ describe('Chat: historial paginado (e2e)', () => {
       }).expect(200)
     ).body as MessagePageDto;
 
-    expect(page.items).toHaveLength(SEEDED + 1 - 50);
+    expect(page.items).toHaveLength(SEEDED - 50);
     expect(page.hasMore).toBe(false);
   });
 
   it('un before de otra solicitud → 400', async () => {
     await messages(MEMBER, {
-      before: otherRequestChat.messages[0].uuid,
+      before: foreignMessageId,
     }).expect(400);
   });
 
@@ -216,8 +225,9 @@ describe('Chat: historial paginado (e2e)', () => {
   });
 
   it('otro solicitante no lee el historial → 403', async () => {
+    const chat = await open(MEMBER);
     await messages(OTHER_APPLICANT, {
-      before: requestChat.messages[0].uuid,
+      before: chat.messages[0].uuid,
     }).expect(403);
   });
 });

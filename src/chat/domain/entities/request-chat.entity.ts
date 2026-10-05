@@ -1,5 +1,4 @@
 import { Entity } from 'src/shared/domain/entities/entity';
-import { RequestChatMessageEntity } from './request-chat-message.entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import {
@@ -15,12 +14,6 @@ const APPROVE_THRESHOLD = process.env.APPROVE_THRESHOLD || 5;
 const REJECT_THRESHOLD = process.env.REJECT_THRESHOLD || 3;
 const TELEGRAM_BOT_LINK =
   process.env.TELEGRAM_BOT_LINK || 't.me/furmeets_test_bot/furmeets_hub';
-const WELCOME_MESSAGE_CONTENT =
-  '¡Hola! En este chat podrás comunicarte con todos los miembros. Que tal si empiezas por presentarte y contarnos un poco sobre ti.';
-const REJECTED_MESSAGE_CONTENT =
-  'Lamentablemente tu solicitud ha sido rechazada. Si crees que se trata de un error, no dudes en contactarnos.';
-const APPROVED_MESSAGE_CONTENT =
-  '¡Felicidades! Tu solicitud ha sido aprobada. Te damos la bienvenida al grupo.';
 
 /**
  * Contenido máximo de un mensaje reenviado al grupo. Telegram acepta hasta 4096
@@ -36,6 +29,14 @@ function escapeMarkdown(text: string): string {
   return text.replace(/[_*`[]/g, '\\$&');
 }
 
+/** La solicitud ya se cerró: su chat es de solo lectura. */
+export class RequestChatClosedError extends Error {
+  constructor(readonly requestChatId: UUID) {
+    super(`Request chat ${requestChatId.value} is closed`);
+    this.name = RequestChatClosedError.name;
+  }
+}
+
 export type VoteType = 'approve' | 'reject';
 
 /** Conteos de votos de una solicitud. */
@@ -46,7 +47,8 @@ export interface VoteTally {
 
 /**
  * Solicitud de ingreso: solicitante, formulario, votos y estado. Los mensajes viven en su
- * propia colección (`RequestChatMessageEntity`); los de sistema los crea esta entidad.
+ * propia colección (`RequestChatMessageEntity`) y son todos del solicitante o de miembros:
+ * el bot no escribe en el chat (SPEC §3.2).
  */
 export interface RequestChatProps {
   requester: UserEntity;
@@ -81,31 +83,14 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     });
   }
 
-  /** Mensaje de bienvenida del bot con el que nace toda solicitud. */
-  welcomeMessage(bot: UserEntity, at: Date): RequestChatMessageEntity {
-    return this.systemMessage(bot, WELCOME_MESSAGE_CONTENT, at);
-  }
-
-  rejectedMessage(bot: UserEntity, at: Date): RequestChatMessageEntity {
-    return this.systemMessage(bot, REJECTED_MESSAGE_CONTENT, at);
-  }
-
-  approvedMessage(bot: UserEntity, at: Date): RequestChatMessageEntity {
-    return this.systemMessage(bot, APPROVED_MESSAGE_CONTENT, at);
-  }
-
-  /** Mensaje del bot en esta solicitud. */
-  private systemMessage(
-    bot: UserEntity,
-    content: string,
-    at: Date,
-  ): RequestChatMessageEntity {
-    return RequestChatMessageEntity.create({
-      requestChatId: this.id,
-      author: bot,
-      content,
-      createdAt: at,
-    });
+  /**
+   * Tras el cierre (aprobada o rechazada) el chat queda en solo lectura (SPEC §3.2):
+   * cualquier envío se rechaza.
+   */
+  static assertAcceptsMessages(id: UUID, state: RequestChatStateType): void {
+    if (state !== RequestChatState.InProgress().props.value) {
+      throw new RequestChatClosedError(id);
+    }
   }
 
   /**

@@ -62,7 +62,7 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
         ├─ T41 enviar/votar sin Telegram ───┴─ T42 App: en vivo y optimista (+T06)
         │
         ├─ T13 formulario API ─ T14 imágenes form ─ T15 App: formulario
-        ├─ T16 chat texto/ack ─ T17 imágenes ─ T18 historial paginado ─ T19 sistema/solo lectura
+        ├─ T16 chat texto/ack ─ T17 imágenes ─ T18 historial paginado ─ T19 sin bot/solo lectura
         │                                                   └─ T20 App: chats
         ├─ T45 equals ─ T21 votos ─ T22 avales/comentarios ─ T23 inicio (API + App) ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
@@ -86,7 +86,8 @@ La Fase 0 está en producción, junto con el formulario de la API (T13) y la mig
 **Pendiente del release:**
 - [ ] **REN-07:** enviar y votar cumplen p95 < 500 ms (medición del 2026-10-03, ver T37 en todo.md). Abrir chat quedaba en ~500 ms porque traía todo el historial; con T18 trae solo los últimos 50 (falta medirlo de nuevo). Para el dato exacto, revisar las líneas `Timing` en los logs de Render.
 - [ ] **REN-06 / T42:** prueba manual con dos cuentas y la red en "Slow 3G".
-- [ ] **Índice viejo de mensajes (T18):** borrar `requestChatId_1_createdAt_1` en staging y producción después del despliegue.
+- [x] **Índice viejo de mensajes (T18):** `requestChatId_1_createdAt_1` borrado en staging y producción (2026-10-05), después de crear el nuevo.
+- [ ] **Migración 002 (T19):** quitar del chat los mensajes del bot en staging y producción después de desplegar T19 (`npm run migrate:002`, ver T19 en todo.md).
 - [ ] **Copia de la migración:** borrar `requestchats_pre_001` en producción y en staging cuando ya no haga falta (se conserva por ahora, decisión del 2026-10-03).
 
 ## Lista de tareas
@@ -134,7 +135,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] T16: Chat: texto con idempotencia y recuperación
 - [x] T17: Chat: imágenes (las respuestas se quitaron el 2026-10-04)
 - [x] T18: Chat: historial paginado — falta la prueba manual de la App en staging
-- [ ] T19: Chat: mensajes de sistema y solo lectura
+- [x] T19: Chat: sin mensajes del bot y solo lectura (cambio de alcance del 2026-10-05) — falta correr la migración 002 y la prueba manual de la App
 - [ ] T20: App: chat del solicitante y chat de miembros
 
 #### Checkpoint C: Solicitud y chat

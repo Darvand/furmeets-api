@@ -924,9 +924,13 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - Los anteriores: `GET /request-chats/:id/messages?before=<primer mensaje>&limit=` (por defecto 50, máximo 100) → `{ items, hasMore }`, en orden cronológico.
   - La misma ruta sigue sirviendo `?after=` (recuperación, T16). Lleva uno de los dos: ambos o ninguno → 400. Un mensaje de otra solicitud → 400.
 - **Orden estable.** Los mensajes nuevos tienen `createdAt` único (reloj monótono), pero los migrados sin fecha propia (T12) comparten la de su solicitud. El orden es `createdAt` y después `_id`, y el cursor compara los dos: las páginas no repiten ni saltan mensajes aunque empaten. Aplica también a `after`.
-- **Índice.** `requestChatId + createdAt` pasa a `requestChatId + createdAt + _id`, que sirve los dos sentidos y el último mensaje del listado. Mongoose crea el nuevo al arrancar. El anterior queda redundante: borrarlo a mano en staging y producción después del despliegue (`db.requestchatmessages.dropIndex('requestChatId_1_createdAt_1')`).
+- **Índice.** `requestChatId + createdAt` pasa a `requestChatId + createdAt + _id`, que sirve los dos sentidos y el último mensaje del listado. Mongoose crea el nuevo al arrancar. El anterior quedó redundante y se borró en staging y producción el 2026-10-05, después de crear el nuevo.
 - **Cierre.** El `request-chat-update` del cierre ya no lee todo el historial: lleva la última página, igual que abrir el chat.
-- **App (mínimo, el chat completo es T20).** Botón "Ver mensajes anteriores" arriba del chat mientras haya `hasOlderMessages`. La vista no se mueve al agregarlos y solo baja con un mensaje nuevo. `request-chat-update` agrega los mensajes nuevos sin borrar las páginas ya cargadas. Si no se solapa con lo que hay, reemplaza todo.
+- **App (mínimo, el chat completo es T20).**
+  - Botón "Ver mensajes anteriores" arriba del chat mientras haya `hasOlderMessages`.
+  - La vista no se mueve al agregar mensajes anteriores.
+  - Desplazamiento: el chat abre mostrando lo último y baja al enviar un mensaje propio. Los mensajes que llegan de otros no mueven la vista; bajar con cada mensaje nuevo resultaba molesto.
+  - `request-chat-update` agrega los mensajes nuevos sin borrar las páginas ya cargadas. Si no se solapa con lo que hay, reemplaza todo.
 
 **Dependencies:** T16
 
@@ -940,25 +944,63 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 19: Chat: mensajes de sistema y solo lectura
+## Task 19: Chat: sin mensajes del bot y solo lectura
 
-**Repo:** API
+**Repo:** API + App
 
-**Description:** Mensajes de sistema (bienvenida, "X entró al chat de revisión", resultado). Tras el cierre, cualquier envío se rechaza.
+**Description:** El bot no escribe en el chat. El chat empieza con un encabezado de bienvenida de la App y el resultado se comunica en la pantalla *Aprobado* o *No aprobado*. Tras el cierre, cualquier envío se rechaza. (Cambio de alcance del 2026-10-05: antes eran mensajes de sistema del bot, de bienvenida y de resultado. "X entró al chat de revisión" también se quitó, porque solo informaría que alguien entró.)
 
 **Acceptance criteria:**
-- [ ] Enviar a una solicitud cerrada → error `RequestChatClosed`
-- [ ] Los mensajes de sistema se distinguen por tipo en el DTO
+- [x] Enviar a una solicitud cerrada → error `RequestChatClosed`
+- [x] Una solicitud nueva no tiene mensajes, y cerrarla no agrega ninguno
+- [x] La App muestra la bienvenida como encabezado al inicio del chat
+- [ ] Los mensajes del bot que ya existen se quitan en staging y producción (migración 002)
 
 **Verification:**
-- [ ] Unitarias de la entidad; e2e de envío a solicitud cerrada
+- [x] Unitarias de la entidad y del servicio
+- [x] e2e (`test/request-chat-read-only.e2e-spec.ts`):
+  - envío a solicitud cerrada, del solicitante y de un miembro;
+  - el historial se sigue leyendo;
+  - migración 002: modo lectura, aplicada con respaldo, idempotente y con un bot inexistente.
+- [x] e2e de solicitud nueva y de cierre por votos sin mensajes del bot
+- [x] Prueba de mutación: sin la regla de solo lectura fallan 3 casos
+- [ ] App: manual en staging (encabezado al abrir un chat nuevo y al llegar al principio del historial)
+
+**Notas de implementación:**
+- **Sin mensajes del bot.**
+  - `openRequestChat` crea la solicitud sin mensajes.
+  - Al cerrar, `afterClose` ya no inserta un mensaje: solo emite `request-chat-update`, con la última página como antes, y manda los avisos de Telegram.
+  - El usuario del bot (`getBotUser`, `refreshBotUser`, `UserEntity.registerBot`) existía solo para firmar esos mensajes y se quitó.
+  - El documento del bot que ya está en `users` no se toca.
+  - Los avisos al grupo de Telegram (solicitud nueva, aprobada, rechazada) siguen igual: no son mensajes del chat.
+- **Solo lectura.**
+  - `RequestChatEntity.assertAcceptsMessages` lanza `RequestChatClosedError` si la solicitud no está en curso.
+  - Por socket llega como `exception` con `message: 'request-chat-closed'` y el payload en `cause.data`, así la App marca el mensaje como no enviado con su `clientMessageId`.
+  - No se guarda, no se emite y no se avisa por Telegram. Leer el historial sigue funcionando.
+  - Antes respondía "Internal server error" en el socket (un `ConflictException` sin traducir).
+  - Un reenvío de un mensaje que sí se guardó antes del cierre (ack perdido) también recibe `request-chat-closed`. Al reconectar, el historial lo muestra.
+- **Migración 002 (`scripts/migrations/002-drop-bot-messages.ts`).**
+  - Quita del chat los mensajes del bot anteriores a T19, después de copiarlos en `requestchatmessages_bot_pre_002`.
+  - Correrla después de desplegar, primero sin `--apply` para revisar el bot y el conteo.
+  - `BOT_TELEGRAM_ID` es el número antes de `:` en el token del bot de esa base:
+    ```
+    DB_URI=... BOT_TELEGRAM_ID=<id> npm run migrate:002
+    DB_URI=... BOT_TELEGRAM_ID=<id> CONFIRM=<base> npm run migrate:002 -- --apply
+    ```
+  - Correrla de nuevo no cambia nada.
+  - Una solicitud que solo tenía la bienvenida queda sin mensajes, igual que una nueva. En el listado se ve sin último mensaje.
+- **App.**
+  - Encabezado de bienvenida al inicio del chat, cuando ya no hay mensajes anteriores por cargar (`!hasOlderMessages`). Lo ven el solicitante y los miembros.
+  - Un chat sin mensajes muestra solo el encabezado.
 
 **Dependencies:** T16
 
 **Files likely touched:**
-- `src/chat/domain/entities/request-chat.entity.ts`
-- `src/chat/domain/entities/request-chat-message.entity.ts`
-- `src/chat/application/chat.service.ts`
+- `src/chat/domain/entities/request-chat.entity.ts`, `request-chat-message.entity.ts` (+ `.spec.ts`)
+- `src/chat/application/chat.service.ts` (+ `.spec.ts`), `presentation/chat.gateway.ts`
+- `src/members/application/user.service.ts`, `groups.service.ts`, `domain/entities/user.entity.ts`
+- `scripts/migrations/002-drop-bot-messages.ts`
+- App: `src/pages/RequestChatPage/RequestChatPage.tsx`
 
 **Estimated scope:** S
 
@@ -968,7 +1010,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** REN-01, CAL-04, USA-01, USA-02
 
-**Description:** Chat con texto, imágenes (adjuntar), mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
+**Description:** Chat con texto, imágenes (adjuntar), estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
 
 **Acceptance criteria:**
 - [ ] Un mensaje enviado aparece en otro cliente conectado sin recargar

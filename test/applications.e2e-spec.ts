@@ -125,7 +125,8 @@ describe('Formulario de solicitud: POST /applications (e2e)', () => {
     const chat = res.body as RequestChatDto;
     expect(chat.requester.name).toBe('Ana');
     expect(chat.state).toBe('InProgress');
-    expect(chat.messages).toHaveLength(1);
+    // Sin mensajes: el bot no escribe en el chat, la bienvenida la muestra la App.
+    expect(chat.messages).toEqual([]);
     expect(chat.form).toEqual({
       age: 16,
       city: 'Bogotá',
