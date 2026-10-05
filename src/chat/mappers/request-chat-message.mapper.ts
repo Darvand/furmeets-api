@@ -14,8 +14,6 @@ export interface RequestChatMessageDoc {
   _id: UUIDValue;
   requestChatId: UUIDValue;
   authorId: User;
-  /** Falta en los mensajes de usuario. */
-  type?: 'system';
   /** Puede faltar en documentos viejos: se lee como vacío. */
   content?: string;
   imageIds?: UUIDValue[];
@@ -29,7 +27,6 @@ export class RequestChatMessageMapper {
     const dto: GetRequestChatMessageDto = {
       uuid: message.id.value,
       requestChatUUID: message.requestChatId.value,
-      type: message.type,
       content: message.content,
       user: UserMapper.toDto(message.author),
       sentAt: message.createdAt.toISOString(),
@@ -51,9 +48,6 @@ export class RequestChatMessageMapper {
       content: message.content,
       createdAt: message.createdAt,
     };
-    if (message.type === 'system') {
-      doc.type = 'system';
-    }
     if (message.imageIds.length) {
       doc.imageIds = [...message.imageIds];
     }
@@ -78,7 +72,6 @@ export class RequestChatMessageMapper {
     return RequestChatMessageEntity.create(
       {
         requestChatId: UUID.from(toUUIDString(doc.requestChatId)),
-        type: doc.type ?? 'user',
         author,
         content: doc.content ?? '',
         imageIds: doc.imageIds?.length

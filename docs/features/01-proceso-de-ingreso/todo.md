@@ -944,46 +944,63 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 19: Chat: mensajes de sistema y solo lectura
+## Task 19: Chat: sin mensajes del bot y solo lectura
 
-**Repo:** API
+**Repo:** API + App
 
-**Description:** Mensajes de sistema (bienvenida y resultado). Tras el cierre, cualquier envío se rechaza. ("X entró al chat de revisión" se quitó el 2026-10-05: solo informaría que alguien entró y no aporta valor.)
+**Description:** El bot no escribe en el chat. El chat empieza con un encabezado de bienvenida de la App y el resultado se comunica en la pantalla *Aprobado* o *No aprobado*. Tras el cierre, cualquier envío se rechaza. (Cambio de alcance del 2026-10-05: antes eran mensajes de sistema del bot, de bienvenida y de resultado. "X entró al chat de revisión" también se quitó, porque solo informaría que alguien entró.)
 
 **Acceptance criteria:**
 - [x] Enviar a una solicitud cerrada → error `RequestChatClosed`
-- [x] Los mensajes de sistema se distinguen por tipo en el DTO
+- [x] Una solicitud nueva no tiene mensajes, y cerrarla no agrega ninguno
+- [x] La App muestra la bienvenida como encabezado al inicio del chat
+- [ ] Los mensajes del bot que ya existen se quitan en staging y producción (migración 002)
 
 **Verification:**
-- [x] Unitarias de las entidades y del servicio; e2e (`test/request-chat-system-messages.e2e-spec.ts`): tipos en el DTO, envío a solicitud cerrada del solicitante y de un miembro, y migración 002
-- [x] Prueba de mutación: sin la regla de solo lectura fallan los 2 casos de envío a solicitud cerrada
-- [ ] Migración 002 corrida en staging y producción
+- [x] Unitarias de la entidad y del servicio
+- [x] e2e (`test/request-chat-read-only.e2e-spec.ts`):
+  - envío a solicitud cerrada, del solicitante y de un miembro;
+  - el historial se sigue leyendo;
+  - migración 002: modo lectura, aplicada con respaldo, idempotente y con un bot inexistente.
+- [x] e2e de solicitud nueva y de cierre por votos sin mensajes del bot
+- [x] Prueba de mutación: sin la regla de solo lectura fallan 3 casos
+- [ ] App: manual en staging (encabezado al abrir un chat nuevo y al llegar al principio del historial)
 
 **Notas de implementación:**
-- **Tipo de mensaje.**
-  - Cada mensaje trae `type: 'user' | 'system'` en el DTO (ack, evento, historial y recuperación).
-  - `system`: bienvenida, aprobada y rechazada, con el bot como autor (`RequestChatMessageEntity.system`).
-  - En la BD solo los de sistema guardan `type: 'system'`; sin el campo, el mensaje es de usuario.
+- **Sin mensajes del bot.**
+  - `openRequestChat` crea la solicitud sin mensajes.
+  - Al cerrar, `afterClose` ya no inserta un mensaje: solo emite `request-chat-update`, con la última página como antes, y manda los avisos de Telegram.
+  - El usuario del bot (`getBotUser`, `refreshBotUser`, `UserEntity.registerBot`) existía solo para firmar esos mensajes y se quitó.
+  - El documento del bot que ya está en `users` no se toca.
+  - Los avisos al grupo de Telegram (solicitud nueva, aprobada, rechazada) siguen igual: no son mensajes del chat.
 - **Solo lectura.**
   - `RequestChatEntity.assertAcceptsMessages` lanza `RequestChatClosedError` si la solicitud no está en curso.
   - Por socket llega como `exception` con `message: 'request-chat-closed'` y el payload en `cause.data`, así la App marca el mensaje como no enviado con su `clientMessageId`.
   - No se guarda, no se emite y no se avisa por Telegram. Leer el historial sigue funcionando.
-  - Antes respondía un error genérico (`ConflictException` sin traducir: "Internal server error" en el socket).
+  - Antes respondía "Internal server error" en el socket (un `ConflictException` sin traducir).
   - Un reenvío de un mensaje que sí se guardó antes del cierre (ack perdido) también recibe `request-chat-closed`. Al reconectar, el historial lo muestra.
-- **Migración 002.** Marca como sistema los mensajes del bot anteriores a T19, que sin ella se ven como de usuario. Correrla después de desplegar, primero sin `--apply` para revisar el bot y el conteo. `BOT_TELEGRAM_ID` es el número antes de `:` en el token del bot de esa base:
-  ```
-  DB_URI=... BOT_TELEGRAM_ID=<id> npm run migrate:002
-  DB_URI=... BOT_TELEGRAM_ID=<id> CONFIRM=<base> npm run migrate:002 -- --apply
-  ```
-  Solo toca mensajes sin `type`: correrla de nuevo no cambia nada.
+- **Migración 002 (`scripts/migrations/002-drop-bot-messages.ts`).**
+  - Quita del chat los mensajes del bot anteriores a T19, después de copiarlos en `requestchatmessages_bot_pre_002`.
+  - Correrla después de desplegar, primero sin `--apply` para revisar el bot y el conteo.
+  - `BOT_TELEGRAM_ID` es el número antes de `:` en el token del bot de esa base:
+    ```
+    DB_URI=... BOT_TELEGRAM_ID=<id> npm run migrate:002
+    DB_URI=... BOT_TELEGRAM_ID=<id> CONFIRM=<base> npm run migrate:002 -- --apply
+    ```
+  - Correrla de nuevo no cambia nada.
+  - Una solicitud que solo tenía la bienvenida queda sin mensajes, igual que una nueva. En el listado se ve sin último mensaje.
+- **App.**
+  - Encabezado de bienvenida al inicio del chat, cuando ya no hay mensajes anteriores por cargar (`!hasOlderMessages`). Lo ven el solicitante y los miembros.
+  - Un chat sin mensajes muestra solo el encabezado.
 
 **Dependencies:** T16
 
 **Files likely touched:**
 - `src/chat/domain/entities/request-chat.entity.ts`, `request-chat-message.entity.ts` (+ `.spec.ts`)
-- `src/chat/application/chat.service.ts` (+ `.spec.ts`), `presentation/chat.gateway.ts`, `presentation/dtos/get-request-chat-message.dto.ts`
-- `src/chat/mappers/request-chat-message.mapper.ts`, `infraestructure/schemas/request-chat-message.schema.ts`
-- `scripts/migrations/002-system-messages.ts`
+- `src/chat/application/chat.service.ts` (+ `.spec.ts`), `presentation/chat.gateway.ts`
+- `src/members/application/user.service.ts`, `groups.service.ts`, `domain/entities/user.entity.ts`
+- `scripts/migrations/002-drop-bot-messages.ts`
+- App: `src/pages/RequestChatPage/RequestChatPage.tsx`
 
 **Estimated scope:** S
 
@@ -993,7 +1010,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** REN-01, CAL-04, USA-01, USA-02
 
-**Description:** Chat con texto, imágenes (adjuntar), mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
+**Description:** Chat con texto, imágenes (adjuntar), estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
 
 **Acceptance criteria:**
 - [ ] Un mensaje enviado aparece en otro cliente conectado sin recargar

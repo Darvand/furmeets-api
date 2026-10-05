@@ -5,11 +5,6 @@ export class GetRequestChatMessageDto {
   /** Solicitud del mensaje: el cliente filtra los eventos por ella. */
   requestChatUUID: string;
   /**
-   * `user`: del solicitante o de un miembro. `system`: lo crea la API con el bot como
-   * autor (bienvenida y resultado); la App lo muestra distinto.
-   */
-  type: 'user' | 'system';
-  /**
    * El id que le puso el cliente a su envío, si lo envió. Viene en el ack, en el evento y
    * en el historial: tras reconectar, la App confirma con él sus mensajes pendientes.
    */

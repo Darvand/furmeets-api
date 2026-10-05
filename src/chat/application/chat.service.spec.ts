@@ -37,7 +37,6 @@ const user = (telegramId: number) =>
 
 const requester = user(1);
 const member = user(2);
-const bot = user(999);
 
 /** Una promesa que no termina hasta que la prueba la suelta: un Telegram lento. */
 function slowTelegram() {
@@ -100,7 +99,6 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     ),
   };
   const users = {
-    getBotUser: jest.fn(() => Promise.resolve(bot)),
     getUserByUUID: jest.fn(() => Promise.resolve(requester)),
   };
   const telegram = {
@@ -167,14 +165,16 @@ describe('ChatService', () => {
         }),
       );
 
-    it('abre la solicitud con su bienvenida, avisa a los miembros y anuncia después', async () => {
+    it('abre la solicitud sin mensajes, avisa a los miembros y anuncia después', async () => {
       const ctx = setup();
       const requestChat = application();
 
       const view = await ctx.service.openRequestChat(requestChat);
 
       expect(ctx.chats.createRequestChat).toHaveBeenCalledWith(requestChat);
-      expect(view.messages).toHaveLength(1);
+      // El bot no escribe en el chat: la bienvenida la muestra la App.
+      expect(view.messages).toEqual([]);
+      expect(ctx.messages.insert).not.toHaveBeenCalled();
       expect(ctx.gateway.emitNewRequestChat).toHaveBeenCalledWith(
         view,
         requester,
@@ -503,7 +503,8 @@ describe('ChatService', () => {
       resume();
       slow.release();
       await ctx.queue.drain();
-      expect(ctx.messages.insert).toHaveBeenCalledTimes(1);
+      // Sin mensaje de cierre en el chat: el solicitante ve la pantalla del resultado.
+      expect(ctx.messages.insert).not.toHaveBeenCalled();
       expect(ctx.gateway.emitRequestChatUpdate).toHaveBeenCalledTimes(1);
       expect(slow.call).toHaveBeenCalledTimes(1);
       expect(ctx.telegram.sendInviteLinkToUser).toHaveBeenCalledWith(
@@ -528,12 +529,13 @@ describe('ChatService', () => {
       await ctx.queue.drain();
 
       expect(result.state).toBe('Approved');
-      expect(ctx.messages.insert).toHaveBeenCalledTimes(1);
+      // Sin mensaje de cierre en el chat: el solicitante ve la pantalla del resultado.
+      expect(ctx.messages.insert).not.toHaveBeenCalled();
       expect(ctx.gateway.emitRequestChatUpdate).toHaveBeenCalledTimes(1);
       expect(ctx.queueLogger.error).toHaveBeenCalledTimes(2);
     });
 
-    it('si otro voto la cerró primero, no repite el mensaje ni los avisos', async () => {
+    it('si otro voto la cerró primero, no repite los avisos', async () => {
       const ctx = setup({ approves: 5 });
       ctx.chats.close.mockResolvedValue(false);
       ctx.requestChat.props.state = RequestChatState.Approved();

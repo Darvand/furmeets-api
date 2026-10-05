@@ -28,30 +28,6 @@ describe('RequestChatEntity', () => {
     expect(requestChat.countRejects()).toBe(0);
   });
 
-  it('los mensajes de sistema son del bot y de esta solicitud', () => {
-    const bot = user(999);
-    const at = new Date('2026-10-02T15:00:00.000Z');
-
-    const welcome = requestChat.welcomeMessage(bot, at);
-
-    expect(welcome.requestChatId.equals(requestChat.id)).toBe(true);
-    expect(welcome.author).toBe(bot);
-    expect(welcome.createdAt).toBe(at);
-  });
-
-  it('bienvenida y resultado son mensajes de tipo sistema', () => {
-    const bot = user(999);
-    const at = new Date();
-
-    expect(
-      [
-        requestChat.welcomeMessage(bot, at),
-        requestChat.approvedMessage(bot, at),
-        requestChat.rejectedMessage(bot, at),
-      ].map((message) => message.type),
-    ).toEqual(['system', 'system', 'system']);
-  });
-
   describe('assertAcceptsMessages', () => {
     it('en curso acepta mensajes', () => {
       expect(() =>

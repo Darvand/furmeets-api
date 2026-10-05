@@ -10,7 +10,6 @@ import { RequestChatEntity } from '../src/chat/domain/entities/request-chat.enti
 import { ApplicationForm } from '../src/applications/domain/application-form';
 import type { ChatRepository } from '../src/chat/domain/services/chat.repository';
 import type { RequestChatMessageRepository } from '../src/chat/domain/services/request-chat-message.repository';
-import { UserService } from '../src/members/application/user.service';
 import { UserEntity } from '../src/members/domain/entities/user.entity';
 import type { ChatMemberUpdate } from '../src/telegram-bot/telegram-bot.service';
 import {
@@ -63,18 +62,12 @@ describe('Autorización por rol (e2e)', () => {
   };
 
   const createRequestFor = async (user: TelegramInitDataUser) => {
-    // Como en producción: toda solicitud nace con el mensaje de bienvenida del bot.
+    // Como en producción: la solicitud nace sin mensajes.
     const requestChat = RequestChatEntity.apply(
       users.get(user.id)!,
       ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
     );
     await chats.createRequestChat(requestChat);
-    await messages.insert(
-      requestChat.welcomeMessage(
-        await testApp.app.get(UserService).getBotUser(),
-        new Date(),
-      ),
-    );
     return requestChat;
   };
 

@@ -139,7 +139,7 @@ describe('Votos atómicos y lecturas sin efectos (e2e)', () => {
     expect(responses.every((r) => r.status === 200 || r.status === 409)).toBe(
       true,
     );
-    // El mensaje de cierre y los avisos van en segundo plano.
+    // Los avisos van en segundo plano.
     await testApp.app.get(BackgroundQueue).drain();
     const chat = (
       await request(server)
@@ -148,8 +148,8 @@ describe('Votos atómicos y lecturas sin efectos (e2e)', () => {
         .expect(200)
     ).body as RequestChatDto;
     expect(chat.state).toBe('Approved');
-    const closing = chat.messages.filter((m) => m.content.includes('aprobada'));
-    expect(closing).toHaveLength(1);
+    // El chat no recibe mensaje de cierre: el resultado lo muestra la App.
+    expect(chat.messages).toEqual([]);
     const announcements = tg.sendMessageToGroup.mock.calls.filter(
       ([text]: [string]) => text.includes('ha sido aprobada'),
     );

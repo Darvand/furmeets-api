@@ -72,31 +72,6 @@ export class UserService {
     }
   }
 
-  /**
-   * Usuario del bot, autor de los mensajes de sistema. Sale de `botInfo` (sin llamar a
-   * Telegram tras el arranque); solo se registra la primera vez que hace falta.
-   */
-  async getBotUser(): Promise<UserEntity> {
-    const bot = await this.telegramBotService.getBotInfo();
-    const user = await this.userRepository.getByTelegramId(bot.id);
-    return (
-      user ??
-      this.register(this.botIdentity(bot), (id) => UserEntity.registerBot(id))
-    );
-  }
-
-  /** Refresca nombre, usuario y avatar del bot. Pensado para correr en segundo plano. */
-  async refreshBotUser(): Promise<void> {
-    const user = await this.getBotUser();
-    const identity = this.botIdentity(
-      await this.telegramBotService.getBotInfo(),
-    );
-    if (user.refreshFrom(identity)) {
-      await this.userRepository.updateTelegramProfile(user);
-    }
-    await this.refreshAvatar(user);
-  }
-
   /** Toma el avatar actual de Telegram y lo guarda solo si cambió. Pensado para segundo plano. */
   async refreshAvatar(user: UserEntity): Promise<void> {
     const photo = await this.telegramBotService.getProfilePhoto(
@@ -119,19 +94,5 @@ export class UserService {
     if (user.updateMembership(isMember)) {
       await this.userRepository.updateMembership(user);
     }
-  }
-
-  private botIdentity(bot: {
-    id: number;
-    first_name: string;
-    last_name?: string;
-    username?: string;
-  }): TelegramIdentity {
-    return TelegramIdentity.create({
-      telegramId: bot.id,
-      firstName: bot.first_name,
-      lastName: bot.last_name,
-      username: bot.username,
-    });
   }
 }

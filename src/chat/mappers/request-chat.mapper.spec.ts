@@ -12,13 +12,15 @@ const user = (telegramId: number) =>
 
 describe('RequestChatMapper', () => {
   const requester = user(1);
-  const bot = user(999);
+  const member = user(2);
   const requestChat = RequestChatEntity.apply(
     requester,
     ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
   );
-  const welcome = requestChat.welcomeMessage(
-    bot,
+  const first = RequestChatMessageEntity.send(
+    requestChat.id,
+    member,
+    { content: 'hola, Ana' },
     new Date('2026-10-02T15:00:00.000Z'),
   );
   const hello = RequestChatMessageEntity.send(
@@ -30,7 +32,7 @@ describe('RequestChatMapper', () => {
 
   it('las fechas de los mensajes van en ISO-8601 UTC, sin formato del servidor', () => {
     const dto = RequestChatMapper.toDto(
-      { requestChat, messages: [welcome, hello], hasOlder: false },
+      { requestChat, messages: [first, hello], hasOlder: false },
       requester,
     );
 

@@ -7,8 +7,15 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { io, Socket } from 'socket.io-client';
 import { InitDataAuthService } from '../src/auth/application/init-data-auth.service';
+import { CHAT_PROVIDERS } from '../src/chat/chat.providers';
+import { RequestChatMessageEntity } from '../src/chat/domain/entities/request-chat-message.entity';
+import type { RequestChatMessageRepository } from '../src/chat/domain/services/request-chat-message.repository';
 import { BackgroundQueue } from '../src/shared/async/background-queue';
-import { migrate } from '../scripts/migrations/002-system-messages';
+import { UUID } from '../src/shared/domain/value-objects/uuid.value-object';
+import {
+  BACKUP_COLLECTION,
+  migrate,
+} from '../scripts/migrations/002-drop-bot-messages';
 import {
   createTestApp,
   TEST_BOT_TOKEN,
@@ -29,9 +36,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface MessageDto {
   uuid: string;
-  type: 'user' | 'system';
   content: string;
-  clientMessageId?: string;
 }
 interface RequestChatDto {
   uuid: string;
@@ -42,13 +47,18 @@ interface WsError {
   cause?: { pattern?: string; data?: { clientMessageId?: string } };
 }
 
-describe('Chat: mensajes de sistema y solo lectura (e2e)', () => {
+describe('Chat: solo lectura y sin mensajes del bot (e2e)', () => {
   let testApp: TestApp;
   let server: App;
   let url: string;
   let db: mongo.Db;
   let requestChat: RequestChatDto;
   const sockets: Socket[] = [];
+
+  const authenticate = (user: TelegramInitDataUser) =>
+    testApp.app
+      .get(InitDataAuthService)
+      .authenticate(signInitData(user, TEST_BOT_TOKEN));
 
   const connect = async (user: TelegramInitDataUser): Promise<Socket> => {
     const socket = io(url, {
@@ -75,18 +85,15 @@ describe('Chat: mensajes de sistema y solo lectura (e2e)', () => {
       });
     });
 
-  const open = async () =>
+  const contents = async () =>
     (
-      await request(server)
-        .get(`/request-chats/${requestChat.uuid}`)
-        .set('Authorization', tmaAuth(MEMBER))
-        .expect(200)
-    ).body as RequestChatDto;
-
-  const messages = () =>
-    db.collection('requestchatmessages').find({
-      requestChatId: new mongo.UUID(requestChat.uuid),
-    });
+      (
+        await request(server)
+          .get(`/request-chats/${requestChat.uuid}`)
+          .set('Authorization', tmaAuth(MEMBER))
+          .expect(200)
+      ).body as RequestChatDto
+    ).messages.map((m) => m.content);
 
   beforeAll(async () => {
     testApp = await createTestApp();
@@ -102,9 +109,7 @@ describe('Chat: mensajes de sistema y solo lectura (e2e)', () => {
     url = `http://127.0.0.1:${port}`;
     db = testApp.app.get<Connection>(getConnectionToken()).db!;
 
-    await testApp.app
-      .get(InitDataAuthService)
-      .authenticate(signInitData(APPLICANT, TEST_BOT_TOKEN));
+    await authenticate(APPLICANT);
     requestChat = (
       await request(server)
         .post('/applications')
@@ -123,59 +128,70 @@ describe('Chat: mensajes de sistema y solo lectura (e2e)', () => {
     await testApp?.close();
   });
 
-  it('la bienvenida es de tipo sistema y un mensaje del solicitante, de usuario', async () => {
-    const ana = await connect(APPLICANT);
-    const ack = (await send(ana, {
-      requestChatUUID: requestChat.uuid,
-      content: 'hola',
-    })) as MessageDto;
-
-    expect(requestChat.messages.map((m) => m.type)).toEqual(['system']);
-    expect(ack.type).toBe('user');
-    expect((await open()).messages.map((m) => [m.type, m.content])).toEqual([
-      ['system', requestChat.messages[0].content],
-      ['user', 'hola'],
-    ]);
-  });
-
-  describe('mensajes del bot anteriores a T19 (migración 002)', () => {
-    it('se leen como de usuario hasta migrar; después, como de sistema', async () => {
-      // Como antes de T19: el mensaje del bot sin `type`.
-      await db
-        .collection('requestchatmessages')
-        .updateMany(
-          { requestChatId: new mongo.UUID(requestChat.uuid) },
-          { $unset: { type: '' } },
+  describe('migración 002: mensajes del bot anteriores a T19', () => {
+    beforeAll(async () => {
+      // Como antes de T19: bienvenida del bot, un mensaje de Ana y el resultado del bot.
+      const [bot, ana] = await Promise.all([
+        authenticate(BOT),
+        authenticate(APPLICANT),
+      ]);
+      const repository = testApp.app.get<RequestChatMessageRepository>(
+        CHAT_PROVIDERS.RequestChatMessageRepository,
+      );
+      const id = UUID.from(requestChat.uuid);
+      const at = Date.now();
+      for (const [author, content, offset] of [
+        [bot, '¡Hola! En este chat podrás comunicarte…', 0],
+        [ana, 'hola, soy Ana', 1],
+        [bot, '¡Felicidades! Tu solicitud ha sido aprobada.', 2],
+      ] as const) {
+        await repository.insert(
+          RequestChatMessageEntity.send(
+            id,
+            author,
+            { content },
+            new Date(at + offset),
+          ),
         );
-      expect((await open()).messages.map((m) => m.type)).toEqual([
-        'user',
-        'user',
-      ]);
-
-      const dryRun = await migrate(db, { botTelegramId: BOT.id, apply: false });
-      expect(dryRun).toMatchObject({ pending: 1, marked: 0 });
-      expect((await open()).messages[0].type).toBe('user');
-
-      const applied = await migrate(db, { botTelegramId: BOT.id, apply: true });
-      expect(applied).toMatchObject({
-        bot: { username: 'furbot' },
-        pending: 1,
-        marked: 1,
-      });
-      expect((await open()).messages.map((m) => m.type)).toEqual([
-        'system',
-        'user',
-      ]);
-
-      const again = await migrate(db, { botTelegramId: BOT.id, apply: true });
-      expect(again).toMatchObject({ pending: 0, marked: 0 });
+      }
     });
 
-    it('con un BOT_TELEGRAM_ID que no existe no marca nada', async () => {
+    it('sin --apply solo informa', async () => {
+      const report = await migrate(db, { botTelegramId: BOT.id, apply: false });
+
+      expect(report).toMatchObject({
+        bot: { username: 'furbot' },
+        found: 2,
+        deleted: 0,
+      });
+      expect(await contents()).toHaveLength(3);
+    });
+
+    it('con --apply quita los del bot, después de respaldarlos, y deja los demás', async () => {
+      const report = await migrate(db, { botTelegramId: BOT.id, apply: true });
+
+      expect(report).toMatchObject({ found: 2, backedUp: 2, deleted: 2 });
+      expect(await contents()).toEqual(['hola, soy Ana']);
+      const backup = await db.collection(BACKUP_COLLECTION).find().toArray();
+      expect(backup.map((doc) => doc.content as string).sort()).toEqual([
+        '¡Felicidades! Tu solicitud ha sido aprobada.',
+        '¡Hola! En este chat podrás comunicarte…',
+      ]);
+    });
+
+    it('correrla de nuevo no cambia nada', async () => {
+      const report = await migrate(db, { botTelegramId: BOT.id, apply: true });
+
+      expect(report).toMatchObject({ found: 0, deleted: 0 });
+      expect(await contents()).toEqual(['hola, soy Ana']);
+      expect(await db.collection(BACKUP_COLLECTION).countDocuments()).toBe(2);
+    });
+
+    it('con un BOT_TELEGRAM_ID que no existe no quita nada', async () => {
       const report = await migrate(db, { botTelegramId: 123, apply: true });
 
       expect(report.bot).toBeUndefined();
-      expect(report.marked).toBe(0);
+      expect(report.deleted).toBe(0);
     });
   });
 
@@ -201,7 +217,7 @@ describe('Chat: mensajes de sistema y solo lectura (e2e)', () => {
         ]);
         const received: MessageDto[] = [];
         other.on('request-chat', (m: MessageDto) => received.push(m));
-        const before = await messages().count();
+        const before = await contents();
         const clientMessageId = randomUUID();
 
         const error = (await send(sender, {
@@ -215,7 +231,7 @@ describe('Chat: mensajes de sistema y solo lectura (e2e)', () => {
         expect(error.cause?.data?.clientMessageId).toBe(clientMessageId);
         await sleep(SETTLE_MS);
         expect(received).toHaveLength(0);
-        expect(await messages().count()).toBe(before);
+        expect(await contents()).toEqual(before);
         expect(testApp.telegramBot.sendMessageToGroup).not.toHaveBeenCalledWith(
           expect.stringContaining('tarde'),
         );
@@ -223,7 +239,7 @@ describe('Chat: mensajes de sistema y solo lectura (e2e)', () => {
     );
 
     it('el historial se sigue leyendo', async () => {
-      expect((await open()).messages.length).toBeGreaterThan(0);
+      expect(await contents()).toEqual(['hola, soy Ana']);
     });
   });
 });

@@ -104,8 +104,8 @@ Reglas:
 Alcance de la v1:
 - Mensajes de texto.
 - **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram), hasta 10 por mensaje (un álbum de Telegram). Un mensaje lleva texto, imágenes o ambos. Las imágenes que manda un miembro también las ve el solicitante.
-- Mensajes de sistema del bot: bienvenida y resultado (aprobada o rechazada). Se distinguen por tipo de los mensajes de usuario.
-- Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**.
+- **El bot no escribe en el chat.** Todos los mensajes son del solicitante o de miembros. El chat empieza con un encabezado de bienvenida que muestra la App (no es un mensaje guardado). El resultado de la votación no se anuncia en el chat: el solicitante lo ve en la pantalla *Aprobado* o *No aprobado* (§3.6).
+- Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**: cualquier envío se rechaza.
 
 Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, responder (citar) un mensaje, reacciones, leídos y no leídos (ni "Leído por" ni contador). El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar. El doble check de los mensajes propios indica que la API guardó el mensaje (ack), no que alguien lo leyó.
 
@@ -562,4 +562,4 @@ No hay preguntas abiertas.
 
 ### Resueltas (2026-10-05)
 
-- Sin el mensaje de sistema "X entró al chat de revisión": solo informaría que alguien entró y no aporta valor (§3.2).
+- Sin mensajes del bot en el chat (§3.2). La bienvenida pasa a ser un encabezado de la App al inicio del chat. El mensaje de resultado se quita porque la pantalla *Aprobado* o *No aprobado* ya lo comunica. "X entró al chat de revisión" tampoco se hace: solo informaría que alguien entró. Los mensajes del bot que ya existen se quitan con la migración 002 (T19).
