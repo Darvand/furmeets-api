@@ -1139,12 +1139,24 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** "Lo conozco, lo avalo" (aval informativo, cualquier miembro, con opción de retirarlo). Los avales llevan el nombre de quien avala y la fecha, y los ven todos los miembros. El solicitante no los ve mientras no sea miembro. Los comentarios entre miembros se quitaron el 2026-10-05 (votación del grupo).
 
 **Acceptance criteria:**
-- [ ] Solicitante pidiendo o dando avales → 403
-- [ ] Los avales traen autor y fecha
-- [ ] Avalar dos veces no duplica; retirar el aval lo quita
+- [x] Solicitante pidiendo o dando avales → 403
+- [x] Los avales traen autor y fecha
+- [x] Avalar dos veces no duplica; retirar el aval lo quita
 
 **Verification:**
-- [ ] Unitarias; e2e por rol (criterios de éxito 9 y 10)
+- [x] Unitarias (`endorsement.service.spec.ts`, mapper, regla de la entidad); e2e por rol (`request-chat-endorsements.e2e-spec.ts`, criterios de éxito 9 y 10)
+- [x] `npm test` (259) y `npm run test:e2e` (180) completos
+
+**Notas de implementación:**
+- **Rutas:** `PUT /request-chats/:id/endorsement` avala y `DELETE /request-chats/:id/endorsement` retira el aval. Solo miembros (`@MembersOnly()`); un `:id` que no es UUID → 400. Las dos son idempotentes y responden `{ uuid, endorsements }`.
+- **Reglas** (las mismas que los votos, `RequestChatEntity.assertAcceptsReviewFrom`): nadie avala su propia solicitud, aunque ya sea miembro (403), y solo mientras está en curso (409). Cerrada, los avales quedan como estaban. La SPEC no fijaba estos dos puntos; se tomaron iguales a los votos (2026-10-05).
+- **Datos:** embebidos en la solicitud (`endorsements: [{ from, createdAt }]`), como los votos (SPEC §4.2). Avalar es un pipeline de actualización que agrega el aval solo si falta, así dos avales a la vez dejan uno. Retirar es un `$pull`. Cada uno es una operación atómica más un `find` de quién avaló. Las solicitudes anteriores no tienen el campo: equivale a ninguno, sin migración.
+- **Contrato:**
+  - Miembros: `GET /request-chats/:id`, `new-request-chat` y `request-chat-update` traen `endorsements: [{ endorser: { uuid, name, username?, avatarMediaId? }, at }]`, del más antiguo al más reciente. `at` va en ISO-8601 UTC.
+  - Nuevo evento `request-chat-endorsements` (`{ uuid, endorsements }`), solo a la sala `members`.
+  - Solicitante (no miembro): ni `GET` ni `request-chat-update` traen avales.
+  - El listado no los trae: la tarjeta "Resumen del solicitante" (T24) sale de `GET`.
+- **Rechazos compartidos:** `review-rejection.ts` decide entre 404, 403 y 409 cuando un voto o un aval no se aplicó. `CannotVoteOwnRequestError` pasa a llamarse `CannotReviewOwnRequestError`.
 
 **Dependencies:** T21
 

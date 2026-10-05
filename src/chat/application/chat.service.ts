@@ -3,18 +3,14 @@ import {
   ConflictException,
   ForbiddenException,
   forwardRef,
-  HttpException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CHAT_PROVIDERS } from '../chat.providers';
-import {
-  CannotVoteOwnRequestError,
-  RequestChatClosedError,
-  RequestChatEntity,
-} from '../domain/entities/request-chat.entity';
+import { RequestChatEntity } from '../domain/entities/request-chat.entity';
+import { reviewRejection } from './review-rejection';
 import {
   type VoteThresholds,
   voteThresholdsFrom,
@@ -284,7 +280,11 @@ export class ChatService {
       new Date(),
     );
     if (!votes) {
-      throw await this.voteRejection(requestChatUUID, user);
+      throw await reviewRejection(
+        this.requestChatRepository,
+        requestChatUUID,
+        user.id,
+      );
     }
     let state = RequestChatState.InProgress().props.value;
     // Si varios votos cruzan el umbral a la vez, solo uno cierra la solicitud: ese avisa,
@@ -389,38 +389,6 @@ export class ChatService {
 
   private alreadyApplied(): ConflictException {
     return new ConflictException('The user already has a request chat');
-  }
-
-  /**
-   * Por qué no se aplicó un voto, fuera del camino feliz: la solicitud no existe (404), es
-   * de quien vota (403) o ya se cerró (409).
-   */
-  private async voteRejection(
-    id: UUID,
-    voter: UserEntity,
-  ): Promise<HttpException> {
-    const header = await this.requestChatRepository.findHeader(id);
-    if (!header) {
-      return this.notFound(id);
-    }
-    try {
-      RequestChatEntity.assertAcceptsVoteFrom(header, voter.id);
-    } catch (error) {
-      if (error instanceof CannotVoteOwnRequestError) {
-        return new ForbiddenException('Cannot vote on own request chat');
-      }
-      if (!(error instanceof RequestChatClosedError)) {
-        throw error;
-      }
-    }
-    // Cerrada, o cerrada justo después del intento: los estados finales no vuelven atrás.
-    return this.notInProgress();
-  }
-
-  private notInProgress(): ConflictException {
-    return new ConflictException(
-      `Cannot vote on a request chat that is not in progress`,
-    );
   }
 
   private notFound(id: UUID): NotFoundException {

@@ -6,6 +6,7 @@ import {
   RequestChatStateType,
 } from '../value-objects/request-chat-state.value-object';
 import { type VoteThresholds, Votes } from 'src/review/domain/vote';
+import type { Endorsement } from 'src/review/domain/endorsement';
 import { DateTime } from 'luxon';
 import { ApplicationForm } from 'src/applications/domain/application-form';
 import type { LegacyApplication } from 'src/applications/domain/legacy-application';
@@ -35,11 +36,11 @@ export class RequestChatClosedError extends Error {
   }
 }
 
-/** Quien vota es el solicitante: nadie vota su propia solicitud (SPEC §3.3). */
-export class CannotVoteOwnRequestError extends Error {
+/** Quien vota o avala es el solicitante: nadie revisa su propia solicitud (SPEC §3.3). */
+export class CannotReviewOwnRequestError extends Error {
   constructor(readonly requestChatId: UUID) {
-    super(`Cannot vote on own request chat ${requestChatId.value}`);
-    this.name = CannotVoteOwnRequestError.name;
+    super(`Cannot review own request chat ${requestChatId.value}`);
+    this.name = CannotReviewOwnRequestError.name;
   }
 }
 
@@ -57,6 +58,8 @@ export interface RequestChatProps {
   state: RequestChatState;
   createdAt: DateTime;
   votes: Votes;
+  /** Uno por miembro, del más antiguo al más reciente. */
+  endorsements: Endorsement[];
 }
 
 export class RequestChatEntity extends Entity<RequestChatProps> {
@@ -78,6 +81,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
       state: RequestChatState.InProgress(),
       createdAt: DateTime.now(),
       votes: Votes.none(),
+      endorsements: [],
     });
   }
 
@@ -92,16 +96,17 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
   }
 
   /**
-   * Quién puede votar (SPEC §3.3): nadie vota su propia solicitud (`CannotVoteOwnRequestError`)
-   * y solo se vota mientras está en curso (`RequestChatClosedError`). Que el votante sea
-   * miembro lo decide la ruta (`@MembersOnly()`).
+   * Quién puede votar o avalar (SPEC §3.3): nadie revisa su propia solicitud
+   * (`CannotReviewOwnRequestError`), y solo mientras está en curso (`RequestChatClosedError`):
+   * cerrada, la revisión queda como estaba. Que sea miembro lo decide la ruta
+   * (`@MembersOnly()`).
    */
-  static assertAcceptsVoteFrom(
+  static assertAcceptsReviewFrom(
     requestChat: { id: UUID; requesterId: UUID; state: RequestChatStateType },
-    voter: UUID,
+    member: UUID,
   ): void {
-    if (voter.equals(requestChat.requesterId)) {
-      throw new CannotVoteOwnRequestError(requestChat.id);
+    if (member.equals(requestChat.requesterId)) {
+      throw new CannotReviewOwnRequestError(requestChat.id);
     }
     RequestChatEntity.assertAcceptsMessages(requestChat.id, requestChat.state);
   }
@@ -206,6 +211,10 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
   get votes(): Votes {
     return this.props.votes;
+  }
+
+  get endorsements(): readonly Endorsement[] {
+    return this.props.endorsements;
   }
 
   get state(): RequestChatStateType {

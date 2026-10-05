@@ -14,6 +14,7 @@ import {
   type RequestChatView,
   type VoteResult,
 } from '../application/chat.service';
+import type { EndorsementsResult } from '../application/endorsement.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper';
 import type { Server } from 'socket.io';
@@ -172,6 +173,16 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     this.server
       .to(MEMBERS_ROOM)
       .emit('request-chat-votes', RequestChatMapper.toVotesEvent(result));
+  }
+
+  /** Los avales tras avalar o retirar uno, solo a los miembros (RNF-PRI-03). */
+  emitEndorsements(result: EndorsementsResult): void {
+    this.server
+      .to(MEMBERS_ROOM)
+      .emit(
+        'request-chat-endorsements',
+        RequestChatMapper.toEndorsementsDto(result),
+      );
   }
 
   /** A los miembros, con la votación (vacía). */
