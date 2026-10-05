@@ -10,7 +10,10 @@ import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { BackgroundQueue } from 'src/shared/async/background-queue';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import type { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
-import { RequestChatEntity } from '../domain/entities/request-chat.entity';
+import {
+  RequestChatClosedError,
+  RequestChatEntity,
+} from '../domain/entities/request-chat.entity';
 import {
   DuplicateRequestChatError,
   type ChatRepository,
@@ -393,16 +396,21 @@ describe('ChatService', () => {
       expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
     });
 
-    it('en una solicitud cerrada → 409', async () => {
-      const ctx = setup({ state: 'Approved' });
+    it.each(['Approved', 'Rejected'] as const)(
+      'en una solicitud %s → RequestChatClosedError, sin guardar ni avisar',
+      async (state) => {
+        const ctx = setup({ state });
 
-      await expect(
-        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
-          content: 'x',
-        }),
-      ).rejects.toBeInstanceOf(ConflictException);
-      expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
-    });
+        await expect(
+          ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+            content: 'x',
+          }),
+        ).rejects.toBeInstanceOf(RequestChatClosedError);
+        expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
+        await ctx.queue.drain();
+        expect(ctx.telegram.sendMessageToGroup).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('getMessages', () => {

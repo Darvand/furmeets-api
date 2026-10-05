@@ -36,6 +36,14 @@ function escapeMarkdown(text: string): string {
   return text.replace(/[_*`[]/g, '\\$&');
 }
 
+/** La solicitud ya se cerró: su chat es de solo lectura. */
+export class RequestChatClosedError extends Error {
+  constructor(readonly requestChatId: UUID) {
+    super(`Request chat ${requestChatId.value} is closed`);
+    this.name = RequestChatClosedError.name;
+  }
+}
+
 export type VoteType = 'approve' | 'reject';
 
 /** Conteos de votos de una solicitud. */
@@ -94,18 +102,23 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
     return this.systemMessage(bot, APPROVED_MESSAGE_CONTENT, at);
   }
 
-  /** Mensaje del bot en esta solicitud. */
+  /** Mensaje de sistema del bot en esta solicitud. */
   private systemMessage(
     bot: UserEntity,
     content: string,
     at: Date,
   ): RequestChatMessageEntity {
-    return RequestChatMessageEntity.create({
-      requestChatId: this.id,
-      author: bot,
-      content,
-      createdAt: at,
-    });
+    return RequestChatMessageEntity.system(this.id, bot, content, at);
+  }
+
+  /**
+   * Tras el cierre (aprobada o rechazada) el chat queda en solo lectura (SPEC §3.2):
+   * cualquier envío se rechaza.
+   */
+  static assertAcceptsMessages(id: UUID, state: RequestChatStateType): void {
+    if (state !== RequestChatState.InProgress().props.value) {
+      throw new RequestChatClosedError(id);
+    }
   }
 
   /**

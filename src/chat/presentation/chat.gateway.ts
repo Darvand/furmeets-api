@@ -19,6 +19,7 @@ import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper
 import type { Server } from 'socket.io';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
+import { RequestChatClosedError } from '../domain/entities/request-chat.entity';
 import {
   BadRequestException,
   ForbiddenException,
@@ -128,6 +129,10 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
       // Igual que un payload mal formado: la App lo marca como no enviado.
       if (error instanceof BadRequestException) {
         throw new WsException('invalid-payload');
+      }
+      // Solo lectura tras el cierre. Lleva el payload en `cause`, como los demás.
+      if (error instanceof RequestChatClosedError) {
+        throw new WsException('request-chat-closed');
       }
       throw error;
     }

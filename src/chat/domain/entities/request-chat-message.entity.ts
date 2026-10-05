@@ -12,8 +12,15 @@ export interface MessageBody {
   imageIds?: readonly string[];
 }
 
+/**
+ * `user`: lo escribió el solicitante o un miembro. `system`: lo crea la API con el bot
+ * como autor (bienvenida y resultado, SPEC §3.2).
+ */
+export type MessageType = 'user' | 'system';
+
 export interface RequestChatMessageProps {
   requestChatId: UUID;
+  type: MessageType;
   author: UserEntity;
   /** Vacío si el mensaje es solo imágenes. */
   content: string;
@@ -75,11 +82,28 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
     }
     return new RequestChatMessageEntity({
       requestChatId,
+      type: 'user',
       author,
       content,
       imageIds: imageIds.length ? Object.freeze([...imageIds]) : undefined,
       createdAt: at,
       clientMessageId,
+    });
+  }
+
+  /** Mensaje de sistema: texto fijo de la API, con el bot como autor. */
+  static system(
+    requestChatId: UUID,
+    bot: UserEntity,
+    content: string,
+    at: Date,
+  ): RequestChatMessageEntity {
+    return new RequestChatMessageEntity({
+      requestChatId,
+      type: 'system',
+      author: bot,
+      content,
+      createdAt: at,
     });
   }
 
@@ -105,6 +129,10 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
 
   get requestChatId(): UUID {
     return this.props.requestChatId;
+  }
+
+  get type(): MessageType {
+    return this.props.type;
   }
 
   get author(): UserEntity {

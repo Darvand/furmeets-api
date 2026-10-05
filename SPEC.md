@@ -103,7 +103,8 @@ Reglas:
 
 Alcance de la v1:
 - Mensajes de texto.
-- **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram), hasta 10 por mensaje (un álbum de Telegram). Un mensaje lleva texto, imágenes o ambos. Las imágenes que manda un miembro también las ve el solicitante.- Mensajes de sistema o del bot: bienvenida, "X entró al chat de revisión" y resultado.
+- **Imágenes sin límite de cantidad** en el chat (cada una ≤10 MB, que es el límite de subida de Telegram), hasta 10 por mensaje (un álbum de Telegram). Un mensaje lleva texto, imágenes o ambos. Las imágenes que manda un miembro también las ve el solicitante.
+- Mensajes de sistema del bot: bienvenida y resultado (aprobada o rechazada). Se distinguen por tipo de los mensajes de usuario.
 - Tras el cierre (aprobada o rechazada), el chat queda en **solo lectura**.
 
 Fuera de alcance en la v1: notas de voz, stickers y selector de emojis, editar o borrar mensajes, responder (citar) un mensaje, reacciones, leídos y no leídos (ni "Leído por" ni contador). El diseño muestra los botones de emoji y micrófono; en la v1 solo se implementa el de adjuntar. El doble check de los mensajes propios indica que la API guardó el mensaje (ack), no que alguien lo leyó.
@@ -558,3 +559,7 @@ No hay preguntas abiertas.
 - El formulario ya no avisa que el envío es definitivo ni que los mensajes del chat se comparten en el grupo; tampoco muestra el aviso de la etiqueta "Menor de edad" mientras se llena. La etiqueta sigue en la solicitud (§3.1).
 - Sin respuestas (citar un mensaje) en el chat de la MiniApp: agregan complejidad para poco valor, porque los chats son cortos (§3.2). Los *replies* de un miembro en el grupo de Telegram al mensaje republicado siguen creando un mensaje en el chat (§3.5, T28).
 - *No aprobado* no promete otra solicitud con un aval, aunque el diseño lo diga: rehabilitar sigue siendo manual (2026-10-03, §3.6).
+
+### Resueltas (2026-10-05)
+
+- Sin el mensaje de sistema "X entró al chat de revisión": solo informaría que alguien entró y no aporta valor (§3.2).

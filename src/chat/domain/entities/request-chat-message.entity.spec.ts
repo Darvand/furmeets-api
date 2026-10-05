@@ -23,8 +23,19 @@ describe('RequestChatMessageEntity', () => {
     );
 
     expect(message.createdAt).toBe(at);
+    expect(message.type).toBe('user');
     expect(message.fromUser(author)).toBe(true);
     expect(message.fromUser(user(2))).toBe(false);
+  });
+
+  it('un mensaje de sistema es del bot y de tipo sistema', () => {
+    const bot = user(999);
+
+    const message = RequestChatMessageEntity.system(chatId, bot, 'hola', at);
+
+    expect(message.type).toBe('system');
+    expect(message.author).toBe(bot);
+    expect(message.content).toBe('hola');
   });
 
   it('puede llevar solo imágenes, sin texto', () => {

@@ -144,7 +144,8 @@ export class ChatService {
    * Telegram queda en segundo plano.
    *
    * Con `clientMessageId`, un reenvío devuelve el mensaje ya guardado (`created: false`)
-   * y no vuelve a avisar. Un cuerpo inválido o imágenes ajenas → 400.
+   * y no vuelve a avisar. Un cuerpo inválido o imágenes ajenas → 400. Una solicitud
+   * cerrada → `RequestChatClosedError` (solo lectura, SPEC §3.2).
    */
   async addMessageToRequestChat(
     requestChatUUID: UUID,
@@ -163,11 +164,7 @@ export class ChatService {
     if (!header) {
       throw this.notFound(requestChatUUID);
     }
-    if (header.state !== RequestChatState.InProgress().props.value) {
-      throw new ConflictException(
-        `Cannot add messages to a request chat that is not in progress`,
-      );
-    }
+    RequestChatEntity.assertAcceptsMessages(header.id, header.state);
     let message: RequestChatMessageEntity;
     try {
       message = RequestChatMessageEntity.send(

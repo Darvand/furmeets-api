@@ -1,5 +1,8 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
-import { RequestChatEntity } from './request-chat.entity';
+import {
+  RequestChatClosedError,
+  RequestChatEntity,
+} from './request-chat.entity';
 import { ApplicationForm } from 'src/applications/domain/application-form';
 import { DateTime } from 'luxon';
 import { RequestChatState } from '../value-objects/request-chat-state.value-object';
@@ -34,6 +37,36 @@ describe('RequestChatEntity', () => {
     expect(welcome.requestChatId.equals(requestChat.id)).toBe(true);
     expect(welcome.author).toBe(bot);
     expect(welcome.createdAt).toBe(at);
+  });
+
+  it('bienvenida y resultado son mensajes de tipo sistema', () => {
+    const bot = user(999);
+    const at = new Date();
+
+    expect(
+      [
+        requestChat.welcomeMessage(bot, at),
+        requestChat.approvedMessage(bot, at),
+        requestChat.rejectedMessage(bot, at),
+      ].map((message) => message.type),
+    ).toEqual(['system', 'system', 'system']);
+  });
+
+  describe('assertAcceptsMessages', () => {
+    it('en curso acepta mensajes', () => {
+      expect(() =>
+        RequestChatEntity.assertAcceptsMessages(requestChat.id, 'InProgress'),
+      ).not.toThrow();
+    });
+
+    it.each(['Approved', 'Rejected'] as const)(
+      '%s es de solo lectura → RequestChatClosedError',
+      (state) => {
+        expect(() =>
+          RequestChatEntity.assertAcceptsMessages(requestChat.id, state),
+        ).toThrow(RequestChatClosedError);
+      },
+    );
   });
 
   describe('outcomeFor', () => {

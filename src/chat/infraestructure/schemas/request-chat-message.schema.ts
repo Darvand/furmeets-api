@@ -20,6 +20,13 @@ export class RequestChatMessage {
   @Prop({ type: mongoose.Schema.Types.UUID, ref: User.name, required: true })
   authorId: string;
 
+  /**
+   * Solo en los mensajes de sistema (`'system'`); falta en los de usuario. Los del bot
+   * anteriores a T19 los marca la migración 002.
+   */
+  @Prop({ type: String, enum: ['system'] })
+  type?: 'system';
+
   /** Vacío si el mensaje es solo imágenes. */
   @Prop({ default: '' })
   content: string;
