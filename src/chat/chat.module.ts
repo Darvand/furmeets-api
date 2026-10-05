@@ -16,6 +16,7 @@ import { AuthModule } from 'src/auth/auth.module';
 import { MembershipModule } from 'src/membership/membership.module';
 import { MediaModule } from 'src/media/media.module';
 import { RequestChatAccessService } from './application/request-chat-access.service';
+import { EndorsementService } from './application/endorsement.service';
 import { RequestChatMessageMongoRepository } from './infraestructure/repositories/request-chat-message-mongo.repository';
 import {
   RequestChatMessage,
@@ -26,6 +27,7 @@ import { BackgroundQueue } from 'src/shared/async/background-queue';
 @Module({
   providers: [
     ChatService,
+    EndorsementService,
     ChatGateway,
     RequestChatAccessService,
     {

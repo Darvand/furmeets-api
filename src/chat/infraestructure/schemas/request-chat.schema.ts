@@ -6,6 +6,10 @@ import {
   RequestChatVoteSchema,
 } from './request-chat-vote.schema';
 import {
+  RequestChatEndorsement,
+  RequestChatEndorsementSchema,
+} from './request-chat-endorsement.schema';
+import {
   ApplicationFormDoc,
   ApplicationFormSchema,
 } from 'src/applications/infraestructure/application-form.schema';
@@ -38,6 +42,10 @@ export class RequestChat {
 
   @Prop({ type: [RequestChatVoteSchema] })
   votes: RequestChatVote[];
+
+  /** Falta en las solicitudes anteriores a T22: equivale a ninguno. */
+  @Prop({ type: [RequestChatEndorsementSchema], default: undefined })
+  endorsements?: RequestChatEndorsement[];
 
   @Prop()
   state: string;
