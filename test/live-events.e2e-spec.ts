@@ -34,16 +34,10 @@ interface MessageEvent {
   content: string;
 }
 
-interface Voter {
-  uuid: string;
-  name: string;
-}
-
 interface VotesEvent {
   uuid: string;
   state: string;
   votes: { approved: number; rejected: number };
-  voters: { approve: Voter[]; reject: Voter[] };
   thresholds: { approve: number; reject: number };
 }
 
@@ -181,7 +175,7 @@ describe('Eventos en vivo para la App (e2e)', () => {
     },
   );
 
-  it('cada voto llega en vivo a los miembros con quién votó y los umbrales; el solicitante no lo recibe', async () => {
+  it('cada voto llega en vivo a los miembros con conteos y umbrales, sin quién votó; el solicitante no lo recibe', async () => {
     const member = await connect(OTHER_MEMBER);
     const ana = await connect(APPLICANT);
     const memberVotes = inbox<VotesEvent>(member, 'request-chat-votes');
@@ -195,19 +189,16 @@ describe('Eventos en vivo para la App (e2e)', () => {
         uuid: requestChatId,
         state: 'InProgress',
         votes: { approved: 0, rejected: 1 },
-        voters: {
-          approve: [],
-          reject: [expect.objectContaining({ name: MEMBER.first_name })],
-        },
         thresholds: { approve: 5, reject: 5 },
       },
     ]);
-    // Es para todos los miembros: sin el voto de nadie en particular.
+    // Anónimo: ni el voto de nadie en particular ni quién votó (RNF-PRI-01).
     expect(memberVotes[0]).not.toHaveProperty('userVote');
+    expect(JSON.stringify(memberVotes)).not.toContain(MEMBER.first_name);
     expect(anaVotes).toHaveLength(0);
   });
 
-  it('request-chat-update: los miembros lo reciben con quién votó; el solicitante, sin votos', async () => {
+  it('request-chat-update: los miembros lo reciben con conteos, sin quién votó; el solicitante, sin votos', async () => {
     const ana = await connect(APPLICANT);
     const member = await connect(OTHER_MEMBER);
     const updated = new Promise<Record<string, unknown>>((resolve) =>
@@ -230,19 +221,20 @@ describe('Eventos en vivo para la App (e2e)', () => {
       votes: { approved: 0, rejected: 5 },
       thresholds: { approve: 5, reject: 5 },
     });
-    expect(
-      (update.voters as VotesEvent['voters']).reject.map((v) => v.name),
-    ).toEqual(MEMBERS.map((m) => m.first_name));
     expect(update).not.toHaveProperty('userVote');
+    // En este chat solo escribe Ana: ningún nombre de miembro tiene por qué llegar.
+    const memberRaw = JSON.stringify(update);
+    for (const m of MEMBERS) {
+      expect(memberRaw).not.toContain(m.first_name);
+    }
 
     await sleep(SETTLE_MS);
-    // Una sola vez, y sin nada de la votación (criterio de éxito 10). En este chat solo
-    // escribe Ana: ningún nombre de miembro tiene por qué llegarle.
+    // Una sola vez, y sin nada de la votación (criterio de éxito 10).
     expect(anaUpdates).toHaveLength(1);
     const [anaUpdate] = anaUpdates;
     expect(anaUpdate).toMatchObject({ uuid: requestChatId, state: 'Rejected' });
     const raw = JSON.stringify(anaUpdate);
-    for (const key of ['votes', 'voters', 'userVote', 'thresholds']) {
+    for (const key of ['votes', 'userVote', 'thresholds']) {
       expect(raw).not.toContain(`"${key}"`);
     }
     for (const m of MEMBERS) {

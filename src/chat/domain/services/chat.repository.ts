@@ -36,7 +36,7 @@ export interface RequestChatCursor {
 
 /**
  * Una solicitud tal como sale en el listado: resumen, sin mensajes. De los votos solo
- * hay conteos y el voto de quien mira; quién votó viene al abrir la solicitud.
+ * hay conteos y el voto de quien mira (RNF-PRI-01).
  */
 export interface RequestChatListItem {
   id: UUID;
@@ -66,8 +66,8 @@ export interface ChatRepository {
   /**
    * Aplica el voto de un miembro con una sola operación atómica, si la solicitud sigue
    * en curso y no es suya: repetir el mismo voto lo retira y uno distinto reemplaza al
-   * anterior. Devuelve los votos guardados con sus votantes (incluidos los de otros
-   * miembros que votaron al mismo tiempo), o `null` si la solicitud no existe, ya no
+   * anterior. Devuelve los votos guardados (incluidos los de otros miembros que
+   * votaron al mismo tiempo), o `null` si la solicitud no existe, ya no
    * está en curso o es de `voter`.
    */
   toggleVote(

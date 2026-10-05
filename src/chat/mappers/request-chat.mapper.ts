@@ -17,7 +17,7 @@ import {
 } from 'src/review/domain/vote';
 import { DateTime } from 'luxon';
 import { User } from 'src/members/infraestructure/schemas/user.schema';
-import { uuidRef } from 'src/shared/infraestructure/mongo-uuid';
+import { toUUIDString, uuidRef } from 'src/shared/infraestructure/mongo-uuid';
 import type { RequestChatPage } from '../domain/services/chat.repository';
 import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
 import { ApplicationFormMapper } from 'src/applications/mappers/application-form.mapper';
@@ -26,7 +26,6 @@ import {
   RequestChatVotesEventDto,
   RequestChatVotingDto,
   VoteRequestChatDto,
-  VoterDto,
 } from '../presentation/dtos/vote-request-chat.dto';
 
 export class RequestChatMapper {
@@ -35,7 +34,7 @@ export class RequestChatMapper {
       _id: requestChat.id.value,
       requester: uuidRef<User>(requestChat.props.requester.id.value),
       votes: requestChat.votes.all().map((vote) => ({
-        from: uuidRef<User>(vote.voter.id.value),
+        from: vote.voterId.value,
         type: vote.type,
       })),
       state: requestChat.state,
@@ -54,7 +53,7 @@ export class RequestChatMapper {
         state: RequestChatState.create(dbRequestChat.state),
         votes: Votes.of(
           dbRequestChat.votes.map((vote) => ({
-            voter: UserMapper.fromDb(vote.from),
+            voterId: UUID.from(toUUIDString(vote.from)),
             type: vote.type as VoteType,
           })),
         ),
@@ -95,7 +94,7 @@ export class RequestChatMapper {
     };
   }
 
-  /** La solicitud para un miembro: con la votación, nominal (RNF-PRI-01). */
+  /** La solicitud para un miembro: con la votación, anónima (RNF-PRI-01). */
   static toMemberDto(
     view: RequestChatView,
     /** Sin `viewer` (eventos que reciben todos) no se incluye `userVote`. */
@@ -125,35 +124,17 @@ export class RequestChatMapper {
     };
   }
 
+  /** Solo conteos y umbrales: nunca quién votó (RNF-PRI-01). */
   private static toVotingDto(
     votes: Votes,
     thresholds: VoteThresholds,
   ): RequestChatVotingDto {
-    const voters = votes.voters();
-    return {
-      votes: votes.tally(),
-      voters: {
-        approve: voters.approve.map((voter) =>
-          RequestChatMapper.toVoter(voter),
-        ),
-        reject: voters.reject.map((voter) => RequestChatMapper.toVoter(voter)),
-      },
-      thresholds: { ...thresholds },
-    };
-  }
-
-  private static toVoter(voter: UserEntity): VoterDto {
-    return {
-      uuid: voter.id.value,
-      name: voter.name,
-      username: voter.username,
-      avatarMediaId: voter.avatarMediaId,
-    };
+    return { votes: votes.tally(), thresholds: { ...thresholds } };
   }
 
   /**
    * Una página del listado. Fechas en ISO-8601 UTC; de los votos, solo conteos y el voto
-   * propio: quién votó viene al abrir la solicitud.
+   * propio (RNF-PRI-01).
    */
   static toDtoList(page: RequestChatPage): ListRequestChatDto {
     return {

@@ -38,7 +38,6 @@ interface VoteDto {
   uuid: string;
   state: string;
   votes: { approved: number; rejected: number };
-  voters: { approve: { name: string }[]; reject: { name: string }[] };
   thresholds: { approve: number; reject: number };
   userVote?: string;
 }
@@ -242,35 +241,29 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
     expect(stored.messages.at(-1)!.content).toBe('hola, Beto');
   });
 
-  it('votar alterna el voto y responde estado y votación, con quién votó', async () => {
+  it('votar alterna el voto y responde estado, conteos y umbrales, sin quién votó', async () => {
     const id = await createRequestChat(APPLICANT_3);
 
     const { result: approved, commands } = await mongoCommandsDuring(() =>
       vote(MEMBER, id, 'approve'),
     );
-    // Autenticar (find del usuario) + guardar el voto (findAndModify) + los votantes (find).
-    expect(commands).toEqual(['find', 'findAndModify', 'find']);
+    // Autenticar (find del usuario) + guardar el voto (findAndModify).
+    expect(commands).toEqual(['find', 'findAndModify']);
     expect(approved).toEqual({
       uuid: id,
       state: 'InProgress',
       votes: { approved: 1, rejected: 0 },
-      voters: {
-        approve: [expect.objectContaining({ name: MEMBER.first_name })],
-        reject: [],
-      },
       thresholds: { approve: 5, reject: 5 },
       userVote: 'approve',
     });
     // Un voto distinto reemplaza al anterior.
     expect(await vote(MEMBER, id, 'reject')).toMatchObject({
       votes: { approved: 0, rejected: 1 },
-      voters: { approve: [], reject: [{ name: MEMBER.first_name }] },
       userVote: 'reject',
     });
     // El mismo voto otra vez lo retira.
     const removed = await vote(MEMBER, id, 'reject');
     expect(removed.votes).toEqual({ approved: 0, rejected: 0 });
-    expect(removed.voters).toEqual({ approve: [], reject: [] });
     expect(removed.userVote).toBeUndefined();
   });
 
@@ -292,9 +285,8 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
 
     expect(closing.state).toBe('Approved');
     expect(elapsed).toBeLessThan(FAST_MS);
-    // Autenticar (find) + guardar el voto (findAndModify) + los votantes (find) + cerrar
-    // (update).
-    expect(commands).toEqual(['find', 'findAndModify', 'find', 'update']);
+    // Autenticar (find) + guardar el voto (findAndModify) + cerrar (update).
+    expect(commands).toEqual(['find', 'findAndModify', 'update']);
     expect((await updated).state).toBe('Approved');
     await drain();
     expect(testApp.telegramBot.sendMessageToGroup).toHaveBeenCalledWith(

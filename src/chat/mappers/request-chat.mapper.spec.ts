@@ -61,7 +61,7 @@ describe('RequestChatMapper', () => {
       telegramId: 8,
       isMember: true,
     });
-    // Ninguno escribió en el chat: su nombre solo podría salir de la votación.
+    // Ninguno escribió en el chat: si su nombre o su id salen, es por la votación.
     const nala = UserEntity.create({
       name: 'Nala',
       telegramId: 9,
@@ -72,9 +72,9 @@ describe('RequestChatMapper', () => {
         ...requestChat.props,
         state: RequestChatState.InProgress(),
         votes: Votes.of([
-          { voter: approver, type: 'approve' },
-          { voter: rejecter, type: 'reject' },
-          { voter: nala, type: 'approve' },
+          { voterId: approver.id, type: 'approve' },
+          { voterId: rejecter.id, type: 'reject' },
+          { voterId: nala.id, type: 'approve' },
         ]),
       },
       requestChat.id,
@@ -88,24 +88,26 @@ describe('RequestChatMapper', () => {
     const voterNames = [approver.name, rejecter.name, nala.name];
     const voterIds = [approver, rejecter, nala].map((u) => u.id.value);
 
-    it('un miembro ve quién votó cada opción, los conteos, los umbrales y su voto', () => {
+    /** Nada en `raw` permite saber quién votó. */
+    const expectAnonymous = (raw: string) => {
+      expect(raw).not.toContain('"voters"');
+      for (const leaked of [...voterNames, ...voterIds]) {
+        expect(raw).not.toContain(leaked);
+      }
+    };
+
+    it('un miembro ve los conteos, los umbrales y su propio voto, pero no quién votó', () => {
       const dto = RequestChatMapper.toMemberDto(view, nala);
 
       expect(dto.votes).toEqual({ approved: 2, rejected: 1 });
-      expect(dto.voters).toEqual({
-        approve: [
-          { uuid: approver.id.value, name: 'Zelev07', username: 'zelev' },
-          { uuid: nala.id.value, name: 'Nala' },
-        ],
-        reject: [{ uuid: rejecter.id.value, name: 'Sombra' }],
-      });
       expect(dto.thresholds).toEqual({ approve: 5, reject: 5 });
       expect(dto.userVote).toBe('approve');
+      expectAnonymous(JSON.stringify(dto));
       // Sin `viewer` (eventos para todos), sin voto propio.
       expect(RequestChatMapper.toMemberDto(view).userVote).toBeUndefined();
     });
 
-    it('la respuesta del voto y el evento llevan la votación con nombres', () => {
+    it('la respuesta del voto y el evento llevan solo conteos y umbrales', () => {
       const result: VoteResult = {
         requestChatId: voted.id,
         state: 'InProgress',
@@ -119,26 +121,22 @@ describe('RequestChatMapper', () => {
         uuid: voted.id.value,
         state: 'InProgress',
         votes: { approved: 2, rejected: 1 },
-        voters: expect.objectContaining({
-          reject: [{ uuid: rejecter.id.value, name: 'Sombra' }],
-        }) as unknown,
         thresholds,
       });
       expect(RequestChatMapper.toVoteDto(result)).toEqual({
         ...event,
         userVote: 'approve',
       });
+      expectAnonymous(JSON.stringify(RequestChatMapper.toVoteDto(result)));
     });
 
-    it('la salida para el solicitante, serializada, no contiene votos ni votantes (criterio 10)', () => {
+    it('la salida para el solicitante, serializada, no contiene votos (criterio 10)', () => {
       const raw = JSON.stringify(RequestChatMapper.toRequesterDto(view));
 
-      for (const key of ['votes', 'voters', 'userVote', 'thresholds']) {
+      for (const key of ['votes', 'userVote', 'thresholds']) {
         expect(raw).not.toContain(`"${key}"`);
       }
-      for (const leaked of [...voterNames, ...voterIds]) {
-        expect(raw).not.toContain(leaked);
-      }
+      expectAnonymous(raw);
       // Lo suyo sí: el chat con sus mensajes.
       expect(raw).toContain('hola, Ana');
     });

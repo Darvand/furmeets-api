@@ -70,7 +70,7 @@ export interface RequestChatView {
 export interface VoteResult {
   requestChatId: UUID;
   state: RequestChatStateType;
-  /** Los votos guardados, con sus votantes. */
+  /** Los votos guardados. Hacia afuera solo salen conteos. */
   votes: Votes;
   thresholds: VoteThresholds;
   /** El voto que le quedó a quien votó; falta si lo retiró. */
@@ -276,9 +276,7 @@ export class ChatService {
     user: UserEntity,
     type: VoteType,
   ): Promise<VoteResult> {
-    this.logger.debug(
-      `User UUID: ${user.id.value} voting on request chat UUID: ${requestChatUUID.value} with type: ${type}`,
-    );
+    // Sin log de quién vota ni de qué: los votos son anónimos (RNF-PRI-01).
     const votes = await this.requestChatRepository.toggleVote(
       requestChatUUID,
       user.id,

@@ -23,7 +23,7 @@ Es un proyecto sin ánimo de lucro. **Toda decisión técnica debe buscar costo 
 
 | Actor | Quién es | Qué puede hacer |
 |---|---|---|
-| **Miembro** | Usuario cuyo estado en el grupo es `creator`, `administrator`, `member` o `restricted` con `is_member=true`. Se verifica contra Telegram, no contra la BD. | Ver todas las solicitudes, conversar en cualquier chat, votar, avalar y comentar. |
+| **Miembro** | Usuario cuyo estado en el grupo es `creator`, `administrator`, `member` o `restricted` con `is_member=true`. Se verifica contra Telegram, no contra la BD. | Ver todas las solicitudes, conversar en cualquier chat, votar y avalar. |
 | **Solicitante** | Cualquier usuario de Telegram que no es miembro. | Crear **una** solicitud (no editable una vez enviada) y conversar en **su** chat. |
 | **Bot** | `@furmeets_bot` (prod) / `@furmeets_test_bot` (staging). | Anunciar, reenviar mensajes, notificar, almacenar imágenes y aprobar o rechazar las solicitudes de unión. |
 
@@ -35,7 +35,7 @@ Los administradores del grupo **no tienen permisos distintos** a los de un miemb
 Usuario abre la MiniApp
         │
         ├─ ¿Es miembro? ──sí──► Inicio: solicitudes en curso, estadísticas e historial
-        │                          └─► Chat de una solicitud (conversar, votar, avalar, comentar)
+        │                          └─► Chat de una solicitud (conversar, votar, avalar)
         │
         └─ no ─► ¿Tiene solicitud?
                    ├─ no ──► Bienvenida ─► Formulario (paso 1 de 3)
@@ -63,7 +63,7 @@ Por su tamaño, el proyecto se divide en módulos. Cada uno puede tener después
 | `media` | Guardar imágenes en Telegram (canal de almacenamiento) y servirlas por proxy autorizado | `auth`, `membership` |
 | `applications` | Formulario, ciclo de vida de la solicitud y reglas de edición y unicidad | `membership`, `media` |
 | `request-chat` | Mensajería en tiempo real e imágenes | `applications`, `media` |
-| `review` | Votos, umbrales, avales y comentarios, todos con nombre | `applications` |
+| `review` | Votos anónimos, umbrales y avales con nombre | `applications` |
 | `admission` | Enlace con solicitud de unión, aprobación o rechazo automático de uniones | `review` |
 | `telegram-bridge` | Anuncios, republicación en el grupo, respuestas desde el grupo y DMs | `request-chat`, `review`, `admission` |
 | `platform` | Ambientes, despliegue, webhook, keep-alive y CI | — |
@@ -119,20 +119,19 @@ Requisitos técnicos:
 
 ### 3.3 Revisión (`review`)
 
-- **Nada es anónimo dentro del grupo** (decidido el 2026-10-03; reemplaza los votos en contra y comentarios anónimos). Votos, avales y comentarios llevan el nombre de su autor y los ven todos los miembros.
-- **Votos nominales:**
-  - Todos los miembros ven quién votó **a favor** y quién votó **en contra**, agrupados por opción ("Aceptar: Zelev07, Nala…" · "Rechazar: Sombra"), además de los conteos.
-  - El texto del panel es "tu voto lo ve todo el grupo" (como en el diseño).
+- **Votos anónimos** (decidido por el grupo el 2026-10-05; reemplaza los votos nominales del 2026-10-03):
+  - Nadie ve quién votó a favor ni quién votó en contra, tampoco los admins. Los miembros ven solo los conteos contra los umbrales.
+  - Cada miembro ve su propio voto.
+  - Ni la API, ni los eventos de socket, ni el bot, ni los logs dicen quién votó ni qué. La BD guarda el votante solo para que cada miembro tenga un voto y pueda cambiarlo o retirarlo.
   - No se lista a quién le falta votar; cada miembro ve la etiqueta personal "Falta tu voto".
-  - El solicitante, al ingresar al grupo, ve su propia revisión como cualquier miembro.
-- **El solicitante no ve la revisión mientras no sea miembro:** ni el panel de votación ("Votación · no la ve <solicitante>"), ni los avales, ni los comentarios. Esto se aplica en el backend: nada de eso viaja en las respuestas ni en los eventos de socket que recibe.
+  - El solicitante, al ingresar al grupo, ve su propia revisión como cualquier miembro: los conteos, nunca quién votó.
+- **El solicitante no ve la revisión mientras no sea miembro:** ni el panel de votación ("Votación · no la ve <solicitante>") ni los avales. Esto se aplica en el backend: nada de eso viaja en las respuestas ni en los eventos de socket que recibe.
 - Mientras la solicitud está en curso, un miembro puede **cambiar o retirar** su voto.
 - **Umbrales fijos, sin vencimiento:** se aprueba con `APPROVE_THRESHOLD` aprobaciones y se rechaza con `REJECT_THRESHOLD` rechazos; los dos valen **5** (por defecto y en los ambientes). Gana la primera opción que llegue a su umbral, y el voto que lo alcanza cierra la solicitud en el acto.
   - La votación se muestra plegada con dos barras, una por opción, con tantos segmentos como su umbral. No existe el estado *Vencida*.
 - El solicitante no puede votar; el backend lo impide.
 - **Avales:** cualquier miembro puede marcar "Lo conozco, lo avalo" en el resumen de una solicitud, lo haya nombrado el solicitante o no, y retirarlo. Llevan el nombre de quien avala y son **solo informativos**: no afectan la votación.
-- **Comentarios:** notas entre miembros en el resumen de la solicitud ("Comentario para el grupo"). Muestran a su autor y la hora; los ve todo el grupo, no el solicitante.
-- Fuera de alcance en la v1: *Reportar solicitud*.
+- Fuera de alcance en la v1: *Reportar solicitud*. Sin comentarios entre miembros: se quitaron el 2026-10-05; para conversar está el chat.
 
 ### 3.4 Admisión (`admission`)
 
@@ -168,8 +167,8 @@ Las pantallas siguen el diseño de referencia:
 - **Aprobado** (paso 3 de 3), con el enlace. **Se ajusta:** no enlaza a reglas de convivencia; solo invita a presentarse en el chat al entrar.
 - **No aprobado.** Su texto **se ajusta**: no debe prometer un reintento tras conseguir un aval, porque rehabilitar es manual.
 - **Inicio de miembros:** en curso, con la etiqueta "Falta tu voto"; estadísticas de total, aceptadas y no aprobadas; historial.
-- **Chat de miembros:** la votación viene plegada con las dos barras de umbral; al abrirla muestra quién votó qué.
-- **Resumen del solicitante:** fursona, datos, respuestas, avales, comentarios y votación.
+- **Chat de miembros:** la votación viene plegada con las dos barras de umbral; al abrirla muestra los conteos y el voto propio, nunca quién votó.
+- **Resumen del solicitante:** fursona, datos, respuestas, avales y votación.
 
 Las **solicitudes migradas** (sin formulario nuevo) muestran en el *Resumen* la leyenda "Solicitud anterior al formulario actual" y sus campos legados (§9.1).
 
@@ -186,7 +185,7 @@ La autorización se decide **en el backend**. El frontend solo refleja el rol qu
 3. **Autorización por rol en cada endpoint y evento de socket:**
    - Solicitante: solo su solicitud, sus mensajes y su formulario.
    - Miembro: todo lo demás.
-   - Solo miembros votan, avalan y comentan.
+   - Solo miembros votan y avalan.
 4. **Validación de entrada** en todos los DTOs (tipos, longitudes, `vote` ∈ {approve, reject}, tamaño y MIME de las imágenes).
 5. **CORS** restringido a los orígenes de la MiniApp de cada ambiente (sin `*` con credenciales).
 6. **Webhook** protegido con `secret_token` (header `X-Telegram-Bot-Api-Secret-Token`).
@@ -230,8 +229,8 @@ Alternativas documentadas (precios de referencia, verificar antes de usar):
 
 ### 4.4 Privacidad
 
-- Los datos del formulario, los votos, los avales y los comentarios solo son visibles para los miembros.
-- **Dentro del grupo no hay nada privado:** votos (a favor y en contra), avales y comentarios muestran a su autor (§3.3).
+- Los datos del formulario, los votos y los avales solo son visibles para los miembros.
+- **Los votos son anónimos para todos**, admins incluidos: solo se ven los conteos y el voto propio (§3.3). Los avales sí muestran a su autor.
 - El solicitante ve su formulario y su chat. Al ingresar se vuelve miembro y ve lo mismo que cualquier miembro, incluida su propia revisión.
 - Los mensajes del solicitante se republican en el grupo (§3.5).
 - **Retención: indefinida.** No se borran solicitudes, mensajes ni imágenes. Las imágenes son de fursonas (personajes), no fotos de las personas.
@@ -374,7 +373,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 4. Corregir la pérdida de datos: mensajes en su propia colección, operaciones atómicas y `createdAt` persistido, **junto con la migración de los datos existentes** (§9.1).
 5. Bajar la latencia de las interacciones con el servidor despierto: medir una línea base, sacar a Telegram del camino crítico, índices, listado liviano, actualización en vivo sin recargas y UI optimista. El arranque en frío se resuelve en la Fase 2.
 
-**Fase 1: v1 funcional:** formulario nuevo, chat con imágenes, revisión (votos, avales y comentarios, todos con nombre), admisión por solicitud de unión, puente con el grupo.
+**Fase 1: v1 funcional:** formulario nuevo, chat con imágenes, revisión (votos anónimos y avales con nombre), admisión por solicitud de unión, puente con el grupo.
 
 **Fase 2: rendimiento e infraestructura:** webhook, keep-alive condicional, `GET /me`, caché de membresía, ambientes formalizados.
 
@@ -389,7 +388,7 @@ Las solicitudes actuales (colección `requestchats`, con mensajes y votos embebi
 | `interests` | → campo legado `legacy.interests`, que se muestra en el *Resumen* |
 | Campos nuevos del formulario (fursona, edad, etc.) | Vacíos (sin `form`). La solicitud lleva el bloque `legacy`, que equivale a `legacy: true`. Toda solicitud sin `form` se marca así, también las creadas con el formulario anterior hasta T15 |
 | `messages[]` embebidos | → colección de mensajes, conservando solo `_id`, autor, contenido y `createdAt`. `createdAt` se toma de lo que haya en BD (puede estar alterado por el bug de la deuda #5; se acepta) |
-| `votes[]` | → votos, con su votante. Se muestran según la regla vigente de §3.3 (hoy, todos nominales para los miembros) |
+| `votes[]` | → votos, con su votante. Se muestran según la regla vigente de §3.3 (hoy, anónimos: solo conteos) |
 | `users.avatarUrl` (`file_path` caducable) | Se descarta; el avatar se resincroniza como `file_id` en la siguiente sincronización del usuario |
 | `users.species` (enum) | → texto libre (el dato ya es texto; el código dejó de exigir el enum) |
 
@@ -444,7 +443,7 @@ Hoy **no existe ninguna prueba**.
 
 | Nivel | Qué cubre | Herramienta |
 |---|---|---|
-| Unitarias (API) | Entidades de dominio (umbrales, cambio o retiro de voto, cierre, "no votar la propia", formulario no editable, máximo 3 imágenes, etiqueta de menor); **ninguna salida dirigida al solicitante incluye votos, avales ni comentarios**; validación de `initData`; activación y desactivación del keep-alive; script de migración (idempotencia) | Jest (ya configurado), `src/**/*.spec.ts` |
+| Unitarias (API) | Entidades de dominio (umbrales, cambio o retiro de voto, cierre, "no votar la propia", formulario no editable, máximo 3 imágenes, etiqueta de menor); **ninguna salida dirigida al solicitante incluye votos ni avales; ninguna salida identifica a quien votó**; validación de `initData`; activación y desactivación del keep-alive; script de migración (idempotencia) | Jest (ya configurado), `src/**/*.spec.ts` |
 | Integración/e2e (API) | Autorización por rol en cada endpoint y evento; envíos concurrentes sin pérdida; flujo de *join request* con el bot simulado | Jest + supertest (ya instalados). Una BD en memoria (`mongodb-memory-server`) requiere aprobación como dependencia nueva |
 | MiniApp | Por definir. Sugerido: Vitest + Testing Library para la lógica de rutas por rol (requiere aprobar dependencias) | — |
 | Manual | Flujo completo en staging con el bot y el grupo de prueba antes de cada merge a `main` | — |
@@ -473,7 +472,8 @@ Cobertura mínima esperada: 80 % en `domain/` y en `auth`.
 - Poner secretos en variables `VITE_*` ni en el repo (`.env` está en `.gitignore`).
 - Confiar en ids de usuario que envía el cliente.
 - Hacer broadcast global por socket.
-- Mostrarle al solicitante, mientras no sea miembro, los votos, avales o comentarios de su solicitud (API o socket).
+- Mostrarle al solicitante, mientras no sea miembro, los votos o avales de su solicitud (API o socket).
+- Revelar quién votó o qué votó, a cualquier persona (API, socket, bot o logs).
 - Desactivar la autenticación "para probar" en producción.
 - Borrar datos de producción.
 - Hacer push directo a `main`.
@@ -490,8 +490,8 @@ Cobertura mínima esperada: 80 % en `domain/` y en `auth`.
 6. Al llegar a `APPROVE_THRESHOLD` aprobaciones, la solicitud pasa a *Approved*, se genera un enlace con `creates_join_request` y solo el usuario aprobado es aceptado; otra cuenta con el mismo enlace es rechazada.
 7. Cada mensaje del solicitante aparece en el grupo principal. Un *reply* de un miembro a ese mensaje aparece en el chat de la MiniApp.
 8. Si falla el DM al solicitante (sin permiso), el mensaje igual se entrega por socket.
-9. Los miembros ven los avales y los comentarios con su autor, y quién votó a favor y quién en contra.
-10. Mientras el solicitante no sea miembro, ninguna respuesta de la API ni evento de socket que recibe contiene votos, avales ni comentarios de su solicitud.
+9. Los miembros ven los avales con su autor y los conteos de votos, pero nunca quién votó; cada uno ve su propio voto.
+10. Mientras el solicitante no sea miembro, ninguna respuesta de la API ni evento de socket que recibe contiene votos ni avales de su solicitud.
 11. El formulario rechaza más de 3 imágenes y no acepta modificaciones una vez enviado.
 12. Con el servidor despierto, la entrega de un mensaje tiene p95 < 1 s, enviar, votar y abrir un chat tienen p95 < 500 ms en la API, el mensaje y el voto propios se ven al instante y la carga inicial tarda < 2 s.
 13. Con al menos una solicitud en curso, la API de producción no se duerme. Sin solicitudes en curso, deja de hacerse ping.
@@ -535,8 +535,8 @@ No hay preguntas abiertas.
 ### Resueltas (2026-09-29)
 
 - Campos obligatorios: solo edad y ciudad. La fursona es opcional.
-- ~~Los comentarios privados son anónimos. En la fila de avatares solo aparecen quienes aprobaron.~~ Reemplazado el 2026-10-03: nada es anónimo dentro del grupo.
-- La revisión de la propia solicitud **no se oculta** al ingresar (§3.3). ~~Los votos en contra son anónimos para todos.~~ Reemplazado el 2026-10-03.
+- ~~Los comentarios privados son anónimos. En la fila de avatares solo aparecen quienes aprobaron.~~ Reemplazado el 2026-10-03 y quitado el 2026-10-05: no hay comentarios.
+- La revisión de la propia solicitud **no se oculta** al ingresar (§3.3). ~~Los votos en contra son anónimos para todos.~~ Reemplazado el 2026-10-03; desde el 2026-10-05 todos los votos son anónimos.
 - Imágenes: máximo 3 en el formulario y sin límite en el chat.
 - El formulario no se puede editar una vez enviado.
 - Retención de datos indefinida. Las imágenes son de fursonas, no de personas.
@@ -548,7 +548,7 @@ No hay preguntas abiertas.
 
 - El formulario ya no pide aceptar las reglas de convivencia ni enlaza a ellas: no hay enlace de reglas (2026-10-03).
 - Se quitan los leídos: ni "Leído por" (quién vio cada mensaje y cuándo) ni contador de no leídos. Aportan poco y complican el modelo (§3.2).
-- **Nada es anónimo dentro del grupo** (2026-10-03): votos a favor y en contra, avales y comentarios muestran a su autor a todos los miembros. El solicitante sigue sin ver la revisión mientras no sea miembro (§3.3, §4.4).
+- ~~**Nada es anónimo dentro del grupo** (2026-10-03): votos a favor y en contra, avales y comentarios muestran a su autor a todos los miembros.~~ Reemplazado el 2026-10-05 (votos anónimos, sin comentarios). El solicitante sigue sin ver la revisión mientras no sea miembro (§3.3, §4.4).
 - Umbrales: `APPROVE_THRESHOLD` y `REJECT_THRESHOLD` siguen separados y los dos valen 5 (2026-10-03).
 - No se piden pronombres en el formulario (2026-10-03).
 - Las reglas de convivencia tampoco aparecen en *Aprobado* ni en *Carga* (2026-10-03).
@@ -561,5 +561,8 @@ No hay preguntas abiertas.
 - *No aprobado* no promete otra solicitud con un aval, aunque el diseño lo diga: rehabilitar sigue siendo manual (2026-10-03, §3.6).
 
 ### Resueltas (2026-10-05)
+
+- **Votos anónimos** (votación del grupo): nadie ve quién votó a favor ni en contra, tampoco los admins, que hoy no tienen ningún rol distinto. Cada miembro ve solo los conteos y su propio voto. Tampoco hay logs de quién vota (§3.3, §4.4). Es la aprobación que pide §12 para cambiar la visibilidad.
+- **Sin comentarios entre miembros** (votación del grupo): se quita la función, que no llegó a implementarse (§3.3). Los avales siguen con el nombre de quien avala.
 
 - Sin mensajes del bot en el chat (§3.2). La bienvenida pasa a ser un encabezado de la App al inicio del chat. El mensaje de resultado se quita porque la pantalla *Aprobado* o *No aprobado* ya lo comunica. "X entró al chat de revisión" tampoco se hace: solo informaría que alguien entró. Los mensajes del bot que ya existen se quitan con la migración 002 (T19).

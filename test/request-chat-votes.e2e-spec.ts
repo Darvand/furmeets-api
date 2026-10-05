@@ -30,14 +30,13 @@ interface RequestChatDto {
   uuid: string;
   state: string;
   votes: { approved: number; rejected: number };
-  voters: { approve: { name: string }[]; reject: { name: string }[] };
   thresholds: { approve: number; reject: number };
   userVote?: string;
   messages: { content: string }[];
 }
 
 /** Lo que es de la votación: nada de esto llega al solicitante (RNF-PRI-03). */
-const VOTING_KEYS = ['votes', 'voters', 'userVote', 'thresholds'];
+const VOTING_KEYS = ['votes', 'userVote', 'thresholds'];
 
 describe('Votos atómicos y lecturas sin efectos (e2e)', () => {
   let testApp: TestApp;
@@ -173,7 +172,7 @@ describe('Votos atómicos y lecturas sin efectos (e2e)', () => {
     expect(tg.sendInviteLinkToUser).toHaveBeenCalledTimes(1);
   });
 
-  it('un miembro ve quién votó cada opción, los umbrales y su voto; el solicitante, nada de eso', async () => {
+  it('un miembro ve conteos, umbrales y su propio voto, nunca quién votó; el solicitante, nada de eso', async () => {
     const created = await createRequestChat(APPLICANT_C);
     // La respuesta de enviar el formulario ya va sin votación.
     for (const key of VOTING_KEYS) {
@@ -185,11 +184,11 @@ describe('Votos atómicos y lecturas sin efectos (e2e)', () => {
 
     const seen = await getRequestChat(MEMBERS[1], created.uuid);
     expect(seen.votes).toEqual({ approved: 2, rejected: 1 });
-    expect(seen.voters.approve.map((v) => v.name)).toEqual([
-      'Miembro 1',
-      'Miembro 3',
-    ]);
-    expect(seen.voters.reject.map((v) => v.name)).toEqual(['Miembro 2']);
+    // Anónimo (RNF-PRI-01): en el chat no escribió nadie, así que ningún miembro aparece.
+    const seenRaw = JSON.stringify(seen);
+    for (const name of ['Miembro 1', 'Miembro 2', 'Miembro 3']) {
+      expect(seenRaw).not.toContain(name);
+    }
     expect(seen.thresholds).toEqual({ approve: 5, reject: 5 });
     expect(seen.userVote).toBe('reject');
     expect((await getRequestChat(MEMBERS[7], created.uuid)).userVote).toBe(

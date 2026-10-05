@@ -28,7 +28,7 @@ export class GetRequestChatDto {
   legacy?: { howDidYouFindUs?: string; interests?: string };
 }
 
-/** Una solicitud tal como la ve un miembro: con la votación y su propio voto. */
+/** Una solicitud tal como la ve un miembro: con conteos, umbrales y su propio voto. */
 export type MemberRequestChatDto = GetRequestChatDto &
   RequestChatVotingDto & {
     /** El voto de quien pide la solicitud; falta si no votó o en eventos para todos. */

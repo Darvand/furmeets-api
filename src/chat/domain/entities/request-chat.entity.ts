@@ -108,7 +108,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
   /**
    * Anuncio de la solicitud en el grupo. Solo lleva las líneas con valor. La etiqueta
-   * "Menor de edad" no va aquí: se muestra en señales y comentarios de la App.
+   * "Menor de edad" no va aquí: se muestra en el Resumen de la App.
    */
   announceWelcomeMesssage(): string {
     const form = this.props.form?.props;

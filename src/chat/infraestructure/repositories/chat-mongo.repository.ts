@@ -172,16 +172,14 @@ export class ChatMongoRepository implements ChatRepository {
         ],
         { new: true, projection: { votes: 1 } },
       )
-      // Una lectura más, por `_id`: los miembros ven quién votó (RNF-PRI-01).
-      .populate<{ votes: { from: User; type: string }[] }>('votes.from')
-      .lean()
+      .lean<{ votes: { from: UUIDValue; type: string }[] }>()
       .exec();
     if (!doc) {
       return null;
     }
     return Votes.of(
       doc.votes.map((vote) => ({
-        voter: UserMapper.fromDb(vote.from),
+        voterId: UUID.from(toUUIDString(vote.from)),
         type: vote.type as VoteType,
       })),
     );
@@ -199,7 +197,6 @@ export class ChatMongoRepository implements ChatRepository {
     const dbRequestChat = await this.requestChatModel
       .findOne({ _id: id.value })
       .populate('requester')
-      .populate('votes.from')
       .exec();
     if (!dbRequestChat) {
       return null;
@@ -272,7 +269,7 @@ export class ChatMongoRepository implements ChatRepository {
             state: 1,
             createdAt: 1,
             lastMessage: { $first: '$lastMessage' },
-            // De los votos, solo conteos y el voto propio: el listado es liviano.
+            // De los votos, solo conteos y el voto propio: son anónimos (RNF-PRI-01).
             approved: countVotes('approve'),
             rejected: countVotes('reject'),
             viewerVote: {

@@ -90,7 +90,7 @@ describe('RequestChatEntity', () => {
         [
           ...Array<VoteType>(approves).fill('approve'),
           ...Array<VoteType>(rejects).fill('reject'),
-        ].map((type, i) => ({ voter: user(100 + i), type })),
+        ].map((type) => ({ voterId: UUID.generate(), type })),
       );
 
     it('sin umbral alcanzado no hay resultado', () => {

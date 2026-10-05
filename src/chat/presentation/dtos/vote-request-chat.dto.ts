@@ -1,27 +1,14 @@
 import type { VoteType } from 'src/review/domain/vote';
 
-/** Quien votó: lo ven todos los miembros (RNF-PRI-01). */
-export class VoterDto {
-  uuid: string;
-  name: string;
-  username?: string;
-  /** Se pide a `GET /media/:id`. */
-  avatarMediaId?: string;
-}
-
 /**
- * La votación de una solicitud. Solo la reciben los miembros: ninguna salida dirigida al
- * solicitante la incluye mientras no sea miembro (RNF-PRI-03).
+ * La votación de una solicitud: anónima, sin quién votó (RNF-PRI-01). Solo la reciben los
+ * miembros: ninguna salida dirigida al solicitante la incluye mientras no sea miembro
+ * (RNF-PRI-03).
  */
 export class RequestChatVotingDto {
   votes: {
     approved: number;
     rejected: number;
-  };
-  /** Quién votó cada opción, en el orden en que votaron. */
-  voters: {
-    approve: VoterDto[];
-    reject: VoterDto[];
   };
   /** Votos que cierran la solicitud: al llegar a uno, se aprueba o se rechaza. */
   thresholds: {

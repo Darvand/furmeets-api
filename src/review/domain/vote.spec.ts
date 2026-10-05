@@ -1,4 +1,3 @@
-import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import {
   DEFAULT_VOTE_THRESHOLDS,
@@ -8,13 +7,10 @@ import {
   type VoteType,
 } from './vote';
 
-const user = (telegramId: number) =>
-  UserEntity.create({ name: `User ${telegramId}`, telegramId, isMember: true });
+const [ana, beto, caro, dani] = [1, 2, 3, 4].map(() => UUID.generate());
 
-const [ana, beto, caro, dani] = [1, 2, 3, 4].map(user);
-
-const votes = (...list: [UserEntity, VoteType][]) =>
-  Votes.of(list.map(([voter, type]) => ({ voter, type })));
+const votes = (...list: [UUID, VoteType][]) =>
+  Votes.of(list.map(([voterId, type]) => ({ voterId, type })));
 
 describe('voteThresholdsFrom', () => {
   it('sin variables, los dos umbrales valen 5', () => {
@@ -43,26 +39,24 @@ describe('voteThresholdsFrom', () => {
 });
 
 describe('Votes', () => {
-  it('cuenta cada opción y agrupa a los votantes en el orden en que votaron', () => {
+  it('cuenta cada opción', () => {
     const cast = votes([caro, 'reject'], [ana, 'approve'], [beto, 'approve']);
 
     expect(cast.tally()).toEqual({ approved: 2, rejected: 1 });
-    expect(cast.voters()).toEqual({ approve: [ana, beto], reject: [caro] });
   });
 
   it('da el voto de cada miembro, por valor de su id', () => {
     const cast = votes([ana, 'approve'], [beto, 'reject']);
 
-    expect(cast.typeOf(UUID.from(ana.id.value))).toBe('approve');
-    expect(cast.typeOf(beto.id)).toBe('reject');
-    expect(cast.typeOf(dani.id)).toBeUndefined();
+    expect(cast.typeOf(UUID.from(ana.value))).toBe('approve');
+    expect(cast.typeOf(beto)).toBe('reject');
+    expect(cast.typeOf(dani)).toBeUndefined();
   });
 
-  it('sin votos no hay conteos, votantes ni ganador', () => {
+  it('sin votos no hay conteos ni ganador', () => {
     const none = Votes.none();
 
     expect(none.tally()).toEqual({ approved: 0, rejected: 0 });
-    expect(none.voters()).toEqual({ approve: [], reject: [] });
     expect(none.winner(DEFAULT_VOTE_THRESHOLDS)).toBeUndefined();
   });
 

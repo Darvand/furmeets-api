@@ -40,7 +40,7 @@ class RequestChatItemDto {
     at: string;
   };
   state: string;
-  /** Solo conteos: quién votó viene en `GET /request-chats/:id`. */
+  /** Solo conteos: nunca quién votó (RNF-PRI-01). */
   votes: {
     approved: number;
     rejected: number;

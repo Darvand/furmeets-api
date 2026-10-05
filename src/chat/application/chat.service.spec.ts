@@ -74,7 +74,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
   const voted = (approved: number): Votes =>
     Votes.of(
       Array.from({ length: approved }, (_, i) => ({
-        voter: i === 0 ? member : user(100 + i),
+        voterId: i === 0 ? member.id : UUID.generate(),
         type: 'approve' as const,
       })),
     );
@@ -476,7 +476,7 @@ describe('ChatService', () => {
         thresholds: THRESHOLDS,
         userVote: 'approve',
       });
-      expect(result.votes.voters()).toEqual({ approve: [member], reject: [] });
+      expect(result.votes.tally()).toEqual({ approved: 1, rejected: 0 });
       // La votación sale en vivo a los miembros, en cuanto se guarda el voto.
       expect(ctx.gateway.emitVotes).toHaveBeenCalledWith(result);
       await ctx.queue.drain();

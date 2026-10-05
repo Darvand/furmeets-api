@@ -150,7 +150,7 @@ describe('Listado liviano de solicitudes (e2e)', () => {
     }
   });
 
-  it('de los votos solo trae conteos y el voto propio: quién votó viene al abrir la solicitud', async () => {
+  it('de los votos solo expone conteos y el voto propio, nunca quién votó (RNF-PRI-01)', async () => {
     const [newest] = created.slice(-1);
     const voters = [MEMBERS[0], MEMBERS[1], MEMBERS[2]].map(
       (m) => users.get(m.id)!.id.value,

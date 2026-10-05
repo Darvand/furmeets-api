@@ -1,12 +1,14 @@
-import type { UserEntity } from 'src/members/domain/entities/user.entity';
 import type { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 
 export const VOTE_TYPES = ['approve', 'reject'] as const;
 export type VoteType = (typeof VOTE_TYPES)[number];
 
-/** El voto de un miembro. Nada es anónimo dentro del grupo (SPEC §3.3). */
+/**
+ * El voto de un miembro. Se guarda quién votó para que cada miembro tenga un solo voto y
+ * pueda cambiarlo o retirarlo, pero nadie más lo ve: los votos son anónimos (SPEC §3.3).
+ */
 export interface Vote {
-  voter: UserEntity;
+  voterId: UUID;
   type: VoteType;
 }
 
@@ -14,12 +16,6 @@ export interface Vote {
 export interface VoteTally {
   approved: number;
   rejected: number;
-}
-
-/** Quién votó cada opción, en el orden en que votaron. */
-export interface VotersByOption {
-  approve: UserEntity[];
-  reject: UserEntity[];
 }
 
 /** Votos que hacen falta para aprobar o rechazar una solicitud (SPEC §3.3). */
@@ -65,7 +61,7 @@ export function voteThresholdsFrom(
   };
 }
 
-/** Los votos de una solicitud, uno por miembro, en el orden en que votaron. */
+/** Los votos de una solicitud, uno por miembro. Hacia afuera solo salen conteos. */
 export class Votes {
   private constructor(private readonly list: readonly Vote[]) {}
 
@@ -88,16 +84,9 @@ export class Votes {
     };
   }
 
-  voters(): VotersByOption {
-    return {
-      approve: this.votersOf('approve'),
-      reject: this.votersOf('reject'),
-    };
-  }
-
-  /** El voto de `voter`, si votó. */
+  /** El voto de `voter`, si votó: cada miembro conoce solo el suyo. */
   typeOf(voter: UUID): VoteType | undefined {
-    return this.list.find((vote) => vote.voter.id.equals(voter))?.type;
+    return this.list.find((vote) => vote.voterId.equals(voter))?.type;
   }
 
   /**
@@ -118,11 +107,5 @@ export class Votes {
 
   private count(type: VoteType): number {
     return this.list.filter((vote) => vote.type === type).length;
-  }
-
-  private votersOf(type: VoteType): UserEntity[] {
-    return this.list
-      .filter((vote) => vote.type === type)
-      .map((vote) => vote.voter);
   }
 }

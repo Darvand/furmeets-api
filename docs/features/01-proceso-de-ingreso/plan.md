@@ -64,7 +64,7 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
         ├─ T13 formulario API ─ T14 imágenes form ─ T15 App: formulario
         ├─ T16 chat texto/ack ─ T17 imágenes ─ T18 historial paginado ─ T19 sin bot/solo lectura
         │                                                   └─ T20 App: chats
-        ├─ T45 equals ─ T21 votos ─ T22 avales/comentarios ─ T23 inicio (API + App) ─ T24 App: votación y resumen
+        ├─ T45 equals ─ T21 votos ─ T22 avales ─ T23 inicio (API + App) ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
         └─ T27 anuncios/republicación ─ T28 replies desde grupo ─ T29 DMs y resultados
 T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambientes · T35 rendimiento · T36 limpieza App · T44 App: carga
@@ -145,13 +145,13 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 
 - [x] T45: Corregir `ValueObject.equals`
 - [x] T21: Revisión: votos y umbrales — falta revisar `REJECT_THRESHOLD` en Render
-- [ ] T22: Revisión: avales y comentarios
+- [ ] T22: Revisión: avales
 - [ ] T23: App: inicio de miembros
 - [ ] T24: App: votación y resumen del solicitante
 
 #### Checkpoint D: Revisión
 - [ ] Criterios de éxito 9 y 10
-- [ ] Revisión humana: el solicitante no recibe votos, avales ni comentarios mientras no sea miembro
+- [ ] Revisión humana: el solicitante no recibe votos ni avales mientras no sea miembro, y nadie ve quién votó
 
 - [ ] T25: Admisión por solicitud de unión
 - [ ] T26: App: pantallas Aprobado y No aprobado
@@ -189,7 +189,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-SEG-01 | Toda petición HTTP y conexión de socket se autentica con `initData` válido (HMAC-SHA256, `auth_date` < 24 h). Sin él: 401 / conexión rechazada. | Unitarias del validador; e2e de endpoints y handshake | T03, T04 |
 | RNF-SEG-02 | La identidad del usuario sale solo del `initData`. Ningún `userUUID`, `requesterUUID` ni autor viaja desde el cliente. | e2e: un id falso en body/payload se ignora | T03, T04, T13, T16 |
 | RNF-SEG-03 | El token del bot nunca llega al cliente: ni `VITE_TELEGRAM_BOT_TOKEN` ni URLs `api.telegram.org/file/bot…` en el bundle. | `grep` sobre el build de producción | T01, T09 |
-| RNF-SEG-04 | Autorización por rol en cada endpoint y evento: el solicitante solo accede a lo suyo; solo miembros votan, avalan y comentan. | e2e: 403 en cada caso cruzado | T06, T21, T22 |
+| RNF-SEG-04 | Autorización por rol en cada endpoint y evento: el solicitante solo accede a lo suyo; solo miembros votan y avalan. | e2e: 403 en cada caso cruzado | T06, T21, T22 |
 | RNF-SEG-05 | Validación de entrada en todos los DTOs con `class-validator` (tipos, longitudes, enums, MIME y tamaño de imagen); campos no declarados se rechazan. | Unitarias/e2e con payloads inválidos → 400 | T02, T13, T14, T16, T17, T21 |
 | RNF-SEG-06 | CORS restringido a los orígenes de la App de cada ambiente; sin `*` con credenciales. | e2e: origen no permitido rechazado | T32 |
 | RNF-SEG-07 | Webhook protegido con `X-Telegram-Bot-Api-Secret-Token`. | e2e: sin secreto → 401 | T30 |
@@ -201,9 +201,9 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-PRI-01 | Votos (a favor y en contra), avales y comentarios llevan el nombre de su autor y los ven todos los miembros (decidido el 2026-10-03; reemplaza el anonimato). | e2e por rol sobre la forma de las respuestas | T21, T22, T24 |
+| RNF-PRI-01 | Los votos son anónimos para todos, admins incluidos: nadie ve quién votó a favor ni en contra, solo los conteos y su propio voto. Ni API, ni socket, ni bot, ni logs dicen quién votó. Los avales sí llevan el nombre de su autor (decidido por el grupo el 2026-10-05). | Unitarias y e2e que serializan las salidas de los miembros y no encuentran a los votantes; revisión de logs | T21, T22, T24, T29 |
 | RNF-PRI-02 | No se listan por nombre los miembros que faltan por votar. Solo la etiqueta personal "Falta tu voto". | e2e sobre la respuesta del listado | T21, T23 |
-| RNF-PRI-03 | Formulario, votos, avales y comentarios solo visibles para miembros; el solicitante ve su formulario y su chat. Nada de la revisión viaja en las respuestas ni en los eventos de socket que recibe el solicitante (incluido `request-chat-update`, que va a la sala de su solicitud). | e2e por rol; prueba que serializa las salidas al solicitante (criterio de éxito 10) | T06, T21, T22 |
+| RNF-PRI-03 | Formulario, votos y avales solo visibles para miembros; el solicitante ve su formulario y su chat. Nada de la revisión viaja en las respuestas ni en los eventos de socket que recibe el solicitante (incluido `request-chat-update`, que va a la sala de su solicitud). | e2e por rol; prueba que serializa las salidas al solicitante (criterio de éxito 10) | T06, T21, T22 |
 | ~~RNF-PRI-04~~ | ~~El formulario advierte que los mensajes se comparten en el grupo y que el envío es definitivo.~~ Retirado el 2026-10-04: el formulario no muestra esos avisos. | — | — |
 | RNF-PRI-05 | Retención indefinida: no se borran solicitudes, mensajes ni imágenes. La migración conserva la colección original. | Revisión del script de migración | T12 |
 
@@ -272,7 +272,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 |---|---|---|
 | El token actual ya está publicado en el bundle | Alto | T01 va primero, antes de cualquier otra tarea |
 | La migración corrompe o pierde datos de producción | Alto | Script idempotente, ensayo en staging con copia, respaldo previo, colección original conservada, aprobación humana |
-| Fuga de la revisión al solicitante (p. ej. votos con nombre en `request-chat-update`, que también le llega) | Alto | DTO del solicitante sin votos, avales ni comentarios; prueba que serializa todo lo que recibe y no los encuentra |
+| Fuga de la revisión al solicitante (p. ej. votos en `request-chat-update`, que también le llega) o de quién votó a cualquiera | Alto | DTO del solicitante sin votos ni avales; DTO de miembros solo con conteos; pruebas que serializan las salidas y no encuentran votos ni votantes |
 | El auto-ping no evita que Render duerma el servicio | Medio | Verificar en staging; alternativa cron-job.org (gratis) |
 | Keep-alive se considere abuso en los términos de Render | Medio | Solo con solicitudes en curso; plan B Render Starter (~$7/mes) |
 | La UI optimista muestra un mensaje o voto que luego falla | Medio | Estado "no enviado" con reintento; se reconcilia con el ack por `clientMessageId` |
@@ -294,7 +294,8 @@ No hay preguntas abiertas.
 ### Resueltas
 
 - 2026-10-03: "Contactar a un admin" en la pantalla de carga abre `https://t.me/DarvandFrovonwill` (T44).
-- 2026-10-03: nada es anónimo dentro del grupo. Votos, avales y comentarios muestran a su autor a todos los miembros (RNF-PRI-01). Afecta a T21, T22, T24 y T29.
+- 2026-10-05 (votación del grupo): los votos son anónimos para todos, admins incluidos. Cada miembro ve solo los conteos y su propio voto, y no hay logs de quién vota (RNF-PRI-01). Se quitan los comentarios entre miembros. Los avales siguen con nombre. Afecta a T21, T22, T24 y T29.
+- ~~2026-10-03: nada es anónimo dentro del grupo. Votos, avales y comentarios muestran a su autor a todos los miembros.~~ Reemplazado el 2026-10-05.
 - 2026-10-03: `REJECT_THRESHOLD` pasa a 5, igual que `APPROVE_THRESHOLD`; siguen siendo dos variables (T21).
 - 2026-10-03: el formulario no pide pronombres. La API de T13 ya los acepta: se quitan en T14.
 - 2026-10-03: sin reglas de convivencia también en *Aprobado* y en la pantalla de carga (T26, T44).
