@@ -1178,13 +1178,22 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **API:** hoy `GET /request-chats` está paginado por cursor (T40) y no trae totales, así que la App no puede calcular las estadísticas ni separar "en curso" del historial. Agregar los totales por estado y un filtro por estado (o la lista de en curso aparte), con agregaciones sobre índices.
 
 **Acceptance criteria:**
-- [ ] Las estadísticas coinciden con los conteos por estado en la BD, aunque el historial esté paginado
+- [x] Las estadísticas coinciden con los conteos por estado en la BD, aunque el historial esté paginado (API; falta mostrarlas en la App)
 - [ ] Un mensaje o voto nuevo actualiza la lista sin recargar; no se lista quién falta por votar
 - [ ] `startapp=<id>` abre esa solicitud (si el usuario puede verla; si no, el inicio)
 
 **Verification:**
-- [ ] e2e de la forma de la respuesta y de los totales (API)
+- [x] e2e de la forma de la respuesta y de los totales (API): `test/request-chat-home.e2e-spec.ts`
 - [ ] `npm run lint` y `npm run build` en la App; manual en staging
+
+**Notas de implementación (API):**
+- **Contrato.** `GET /request-chats?scope=&limit=&cursor=`, solo miembros. `scope=open` trae las que siguen en curso, `scope=closed` el historial (aprobadas y rechazadas) y sin `scope` trae todas, así la App actual sigue funcionando. Otro valor → 400.
+- **Respuesta.** Además de `items` y `nextCursor`, trae `totals: { total, inProgress, approved, rejected }` y `thresholds: { approve, reject }`. Los totales son de toda la BD: no dependen de la página ni de `scope`. Cada solicitud sigue trayendo solo conteos y el voto propio (RNF-PRI-01).
+- **Orden.** Por fecha de creación, también en el historial: una solicitud que se cierra no sube al principio.
+- **Índice nuevo:** `{ state: 1, createdAt: -1, _id: -1 }`. Sirve al filtro y a los totales. Los totales necesitan un `$sort` por `state` antes del `$group`: sin él, Mongo recorre la colección. Medido con `explain` sobre 3000 solicitudes: los totales leen 0 documentos (antes 3000) y cada página de 51 lee hasta 56, también con cursor.
+- **Para la App.**
+  - "Falta tu voto" se calcula en la App: la solicitud está en curso, no trae `userVote` y no es del propio miembro.
+  - En vivo no hace falta nada nuevo en la API: `new-request-chat`, `request-chat` (mensajes), `request-chat-votes` y `request-chat-update` (cierre) ya llegan a los miembros. Los eventos no traen `totals`: la App los ajusta o vuelve a pedir el listado.
 
 **Dependencies:** T18, T21
 

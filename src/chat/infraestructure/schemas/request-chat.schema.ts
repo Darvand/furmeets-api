@@ -61,3 +61,6 @@ export const RequestChatSchema = SchemaFactory.createForClass(RequestChat);
 
 // El listado: de la más reciente a la más antigua, paginado por `createdAt` + `_id`.
 RequestChatSchema.index({ createdAt: -1, _id: -1 });
+// El mismo orden dentro de cada estado (`scope`), y los totales por estado sin leer las
+// solicitudes.
+RequestChatSchema.index({ state: 1, createdAt: -1, _id: -1 });

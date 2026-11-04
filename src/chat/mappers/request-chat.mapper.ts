@@ -18,10 +18,13 @@ import {
 import { DateTime } from 'luxon';
 import { User } from 'src/members/infraestructure/schemas/user.schema';
 import { toUUIDString, uuidRef } from 'src/shared/infraestructure/mongo-uuid';
-import type { RequestChatPage } from '../domain/services/chat.repository';
 import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
 import { ApplicationFormMapper } from 'src/applications/mappers/application-form.mapper';
-import type { RequestChatView, VoteResult } from '../application/chat.service';
+import type {
+  RequestChatListing,
+  RequestChatView,
+  VoteResult,
+} from '../application/chat.service';
 import type { EndorsementsResult } from '../application/endorsement.service';
 import type { Endorsement } from 'src/review/domain/endorsement';
 import {
@@ -181,9 +184,9 @@ export class RequestChatMapper {
    * Una página del listado. Fechas en ISO-8601 UTC; de los votos, solo conteos y el voto
    * propio (RNF-PRI-01).
    */
-  static toDtoList(page: RequestChatPage): ListRequestChatDto {
+  static toDtoList(listing: RequestChatListing): ListRequestChatDto {
     return {
-      items: page.items.map((item) => ({
+      items: listing.items.map((item) => ({
         uuid: item.id.value,
         requester: UserMapper.toDto(item.requester),
         // Una solicitud sin mensajes (antes de migrarla, T12) no tiene último mensaje.
@@ -197,7 +200,9 @@ export class RequestChatMapper {
         userVote: item.viewerVote,
         createdAt: item.createdAt.toISOString(),
       })),
-      nextCursor: page.next && RequestChatCursorCodec.encode(page.next),
+      nextCursor: listing.next && RequestChatCursorCodec.encode(listing.next),
+      totals: { ...listing.totals },
+      thresholds: { ...listing.thresholds },
     };
   }
 }

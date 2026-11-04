@@ -11,7 +11,9 @@ import {
   RequestChatHeader,
   RequestChatListItem,
   RequestChatPage,
+  RequestChatScope,
   RequestChatSummary,
+  RequestChatTotals,
 } from 'src/chat/domain/services/chat.repository';
 import { RequestChatState } from 'src/chat/domain/value-objects/request-chat-state.value-object';
 import { toUUIDString } from 'src/shared/infraestructure/mongo-uuid';
@@ -51,6 +53,15 @@ function countVotes(type: VoteType) {
       },
     },
   };
+}
+
+function statesOf(scope: RequestChatScope): string[] {
+  return scope === 'open'
+    ? [RequestChatState.InProgress().props.value]
+    : [
+        RequestChatState.Approved().props.value,
+        RequestChatState.Rejected().props.value,
+      ];
 }
 
 function toListItem(doc: RequestChatSummaryDoc): RequestChatListItem {
@@ -283,12 +294,17 @@ export class ChatMongoRepository implements ChatRepository {
 
   async listSummaries(
     viewer: UUID,
-    { limit, after }: { limit: number; after?: RequestChatCursor },
+    {
+      limit,
+      after,
+      scope,
+    }: { limit: number; after?: RequestChatCursor; scope?: RequestChatScope },
   ): Promise<RequestChatPage> {
     // Las agregaciones no pasan por los casts de Mongoose: los UUID van como `Binary`.
     const viewerId = new mongo.UUID(viewer.value);
     const docs = await this.requestChatModel
       .aggregate<RequestChatSummaryDoc>([
+        ...(scope ? [{ $match: { state: { $in: statesOf(scope) } } }] : []),
         ...(after
           ? [
               {
@@ -373,6 +389,24 @@ export class ChatMongoRepository implements ChatRepository {
         docs.length > limit && last
           ? { createdAt: last.createdAt, id: last.id }
           : undefined,
+    };
+  }
+
+  async countByState(): Promise<RequestChatTotals> {
+    const groups = await this.requestChatModel
+      .aggregate<{ _id: string; count: number }>([
+        // Sin este `$sort`, Mongo recorre la colección en vez del índice de `state`.
+        { $sort: { state: 1 } },
+        { $group: { _id: '$state', count: { $sum: 1 } } },
+      ])
+      .exec();
+    const countOf = (state: RequestChatState) =>
+      groups.find((group) => group._id === state.props.value)?.count ?? 0;
+    return {
+      total: groups.reduce((sum, group) => sum + group.count, 0),
+      inProgress: countOf(RequestChatState.InProgress()),
+      approved: countOf(RequestChatState.Approved()),
+      rejected: countOf(RequestChatState.Rejected()),
     };
   }
 
