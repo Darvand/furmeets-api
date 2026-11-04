@@ -23,7 +23,9 @@ import {
   type RequestChatCursor,
   type RequestChatHeader,
   type RequestChatPage,
+  type RequestChatScope,
   type RequestChatSummary,
+  type RequestChatTotals,
 } from '../domain/services/chat.repository';
 import type {
   InsertedMessage,
@@ -59,6 +61,13 @@ export interface RequestChatView {
   /** Hay mensajes anteriores a `messages`: se piden con `before`. */
   hasOlder: boolean;
   /** Los umbrales vigentes, para mostrar la votación a los miembros. */
+  thresholds: VoteThresholds;
+}
+
+/** Una página del listado, con lo que el inicio de miembros muestra junto a ella. */
+export interface RequestChatListing extends RequestChatPage {
+  /** De toda la BD: no dependen de la página ni del filtro. */
+  totals: RequestChatTotals;
   thresholds: VoteThresholds;
 }
 
@@ -256,9 +265,17 @@ export class ChatService {
   /** Una página del listado, con el resumen de cada solicitud para `viewer`. */
   async listRequestChats(
     viewer: UserEntity,
-    page: { limit: number; after?: RequestChatCursor },
-  ): Promise<RequestChatPage> {
-    return this.requestChatRepository.listSummaries(viewer.id, page);
+    page: {
+      limit: number;
+      after?: RequestChatCursor;
+      scope?: RequestChatScope;
+    },
+  ): Promise<RequestChatListing> {
+    const [listed, totals] = await Promise.all([
+      this.requestChatRepository.listSummaries(viewer.id, page),
+      this.requestChatRepository.countByState(),
+    ]);
+    return { ...listed, totals, thresholds: this.thresholds };
   }
 
   /**

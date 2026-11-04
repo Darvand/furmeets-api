@@ -97,14 +97,15 @@ export class RequestChatController {
   @Get()
   @MembersOnly()
   async listRequestChats(
-    @Query() { limit, cursor }: ListRequestChatQueryDto,
+    @Query() { scope, limit, cursor }: ListRequestChatQueryDto,
     @Req() req: CustomRequest,
   ): Promise<ListRequestChatDto> {
-    const page = await this.chatService.listRequestChats(req.user, {
+    const listing = await this.chatService.listRequestChats(req.user, {
+      scope,
       limit: limit ?? DEFAULT_LIST_LIMIT,
       after: cursor ? RequestChatCursorCodec.decode(cursor) : undefined,
     });
-    return RequestChatMapper.toDtoList(page);
+    return RequestChatMapper.toDtoList(listing);
   }
 
   @Put('/:id/vote/:type')

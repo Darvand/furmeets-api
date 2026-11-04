@@ -57,6 +57,17 @@ export interface RequestChatPage {
   next?: RequestChatCursor;
 }
 
+/** Parte del listado: las que siguen en curso, o el historial de las ya cerradas. */
+export type RequestChatScope = 'open' | 'closed';
+
+/** Cuántas solicitudes hay por estado, en toda la BD. */
+export interface RequestChatTotals {
+  total: number;
+  inProgress: number;
+  approved: number;
+  rejected: number;
+}
+
 /**
  * Ningún método reescribe la solicitud completa: cada cambio es una operación atómica
  * y filtrada (ADR-001, regla 2), así los cambios concurrentes no se pisan.
@@ -102,6 +113,12 @@ export interface ChatRepository {
    */
   listSummaries(
     viewer: UUID,
-    page: { limit: number; after?: RequestChatCursor },
+    page: {
+      limit: number;
+      after?: RequestChatCursor;
+      scope?: RequestChatScope;
+    },
   ): Promise<RequestChatPage>;
+  /** Los conteos por estado, sin importar la página que esté viendo el miembro. */
+  countByState(): Promise<RequestChatTotals>;
 }

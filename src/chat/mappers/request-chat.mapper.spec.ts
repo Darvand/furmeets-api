@@ -214,9 +214,23 @@ describe('RequestChatMapper', () => {
       votes: { approved: 1, rejected: 2 },
       viewerVote: 'approve',
     };
+    const summary = {
+      totals: { total: 6, inProgress: 3, approved: 2, rejected: 1 },
+      thresholds: { approve: 5, reject: 4 },
+    };
+
+    it('da los totales y los umbrales junto a la página', () => {
+      const dto = RequestChatMapper.toDtoList({ items: [], ...summary });
+
+      expect(dto.totals).toEqual(summary.totals);
+      expect(dto.thresholds).toEqual(summary.thresholds);
+    });
 
     it('da el último mensaje y las fechas en ISO UTC, y los conteos de votos tal cual', () => {
-      const [dto] = RequestChatMapper.toDtoList({ items: [item] }).items;
+      const [dto] = RequestChatMapper.toDtoList({
+        items: [item],
+        ...summary,
+      }).items;
 
       expect(dto).toMatchObject({
         uuid: requestChat.id.value,
@@ -230,6 +244,7 @@ describe('RequestChatMapper', () => {
     it('una solicitud sin mensajes (sin migrar) sale sin último mensaje', () => {
       const [dto] = RequestChatMapper.toDtoList({
         items: [{ ...item, lastMessage: undefined }],
+        ...summary,
       }).items;
 
       expect(dto.lastMessage).toBeUndefined();
@@ -240,12 +255,13 @@ describe('RequestChatMapper', () => {
       const { nextCursor } = RequestChatMapper.toDtoList({
         items: [item],
         next,
+        ...summary,
       });
 
       expect(nextCursor).toMatch(/^[A-Za-z0-9_-]+$/);
       expect(RequestChatCursorCodec.decode(nextCursor!)).toEqual(next);
       expect(
-        RequestChatMapper.toDtoList({ items: [item] }).nextCursor,
+        RequestChatMapper.toDtoList({ items: [item], ...summary }).nextCursor,
       ).toBeUndefined();
     });
 
