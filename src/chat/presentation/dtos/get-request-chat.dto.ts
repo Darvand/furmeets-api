@@ -3,6 +3,7 @@ import { GetRequestChatMessageDto } from './get-request-chat-message.dto';
 import { GetApplicationFormDto } from 'src/applications/presentation/dtos/get-application-form.dto';
 import type { VoteType } from 'src/review/domain/vote';
 import type { RequestChatVotingDto } from './vote-request-chat.dto';
+import type { EndorsementDto } from './endorsement.dto';
 
 /**
  * Una solicitud tal como la ve su solicitante mientras no sea miembro: sin votos
@@ -28,9 +29,14 @@ export class GetRequestChatDto {
   legacy?: { howDidYouFindUs?: string; interests?: string };
 }
 
-/** Una solicitud tal como la ve un miembro: con conteos, umbrales y su propio voto. */
+/**
+ * Una solicitud tal como la ve un miembro: con conteos, umbrales, su propio voto y los
+ * avales con quién avaló.
+ */
 export type MemberRequestChatDto = GetRequestChatDto &
   RequestChatVotingDto & {
     /** El voto de quien pide la solicitud; falta si no votó o en eventos para todos. */
     userVote?: VoteType;
+    /** Del más antiguo al más reciente. */
+    endorsements: EndorsementDto[];
   };

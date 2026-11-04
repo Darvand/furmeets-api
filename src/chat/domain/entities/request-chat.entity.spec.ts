@@ -1,6 +1,6 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import {
-  CannotVoteOwnRequestError,
+  CannotReviewOwnRequestError,
   RequestChatClosedError,
   RequestChatEntity,
 } from './request-chat.entity';
@@ -24,10 +24,11 @@ describe('RequestChatEntity', () => {
     );
   });
 
-  it('una solicitud nueva queda en curso y sin votos', () => {
+  it('una solicitud nueva queda en curso, sin votos ni avales', () => {
     expect(requestChat.isInProgress()).toBe(true);
     expect(requestChat.state).toBe('InProgress');
     expect(requestChat.votes.tally()).toEqual({ approved: 0, rejected: 0 });
+    expect(requestChat.endorsements).toEqual([]);
   });
 
   describe('assertAcceptsMessages', () => {
@@ -47,7 +48,7 @@ describe('RequestChatEntity', () => {
     );
   });
 
-  describe('assertAcceptsVoteFrom', () => {
+  describe('assertAcceptsReviewFrom', () => {
     const member = user(2);
     const header = (state: 'InProgress' | 'Approved' | 'Rejected') => ({
       id: requestChat.id,
@@ -55,29 +56,29 @@ describe('RequestChatEntity', () => {
       state,
     });
 
-    it('un miembro vota una solicitud en curso', () => {
+    it('un miembro vota o avala una solicitud en curso', () => {
       expect(() =>
-        RequestChatEntity.assertAcceptsVoteFrom(
+        RequestChatEntity.assertAcceptsReviewFrom(
           header('InProgress'),
           member.id,
         ),
       ).not.toThrow();
     });
 
-    it('nadie vota su propia solicitud, aunque ya sea miembro', () => {
+    it('nadie vota ni avala su propia solicitud, aunque ya sea miembro', () => {
       expect(() =>
-        RequestChatEntity.assertAcceptsVoteFrom(
+        RequestChatEntity.assertAcceptsReviewFrom(
           header('InProgress'),
           UUID.from(requester.id.value),
         ),
-      ).toThrow(CannotVoteOwnRequestError);
+      ).toThrow(CannotReviewOwnRequestError);
     });
 
     it.each(['Approved', 'Rejected'] as const)(
-      '%s ya no acepta votos → RequestChatClosedError',
+      '%s ya no acepta votos ni avales → RequestChatClosedError',
       (state) => {
         expect(() =>
-          RequestChatEntity.assertAcceptsVoteFrom(header(state), member.id),
+          RequestChatEntity.assertAcceptsReviewFrom(header(state), member.id),
         ).toThrow(RequestChatClosedError);
       },
     );
@@ -121,6 +122,7 @@ describe('RequestChatEntity', () => {
         state: RequestChatState.InProgress(),
         createdAt: DateTime.now(),
         votes: Votes.none(),
+        endorsements: [],
       }).announceWelcomeMesssage();
 
       expect(text).toContain('*¿Cómo conoció FurMeets?* Instagram');

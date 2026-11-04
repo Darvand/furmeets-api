@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   Controller,
+  Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Put,
   Query,
   Req,
@@ -33,6 +35,8 @@ import type { CustomRequest } from 'src/shared/types/custom-request.interface';
 import { MembersOnly } from 'src/auth/presentation/roles.guard';
 import { OwnerOrMember } from './owner-or-member.guard';
 import { RequestChatAccessService } from '../application/request-chat-access.service';
+import { EndorsementService } from '../application/endorsement.service';
+import { RequestChatEndorsementsDto } from './dtos/endorsement.dto';
 
 @Controller('request-chats')
 export class RequestChatController {
@@ -40,6 +44,7 @@ export class RequestChatController {
     private readonly chatService: ChatService,
     private readonly userService: UserService,
     private readonly access: RequestChatAccessService,
+    private readonly endorsements: EndorsementService,
   ) {}
 
   /**
@@ -114,5 +119,29 @@ export class RequestChatController {
       type,
     );
     return RequestChatMapper.toVoteDto(result);
+  }
+
+  /** "Lo conozco, lo avalo". Avalar dos veces no duplica. */
+  @Put('/:id/endorsement')
+  @MembersOnly()
+  async endorse(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: CustomRequest,
+  ): Promise<RequestChatEndorsementsDto> {
+    return RequestChatMapper.toEndorsementsDto(
+      await this.endorsements.endorse(UUID.from(id), req.user),
+    );
+  }
+
+  /** Retira el aval propio; sin aval previo no cambia nada. */
+  @Delete('/:id/endorsement')
+  @MembersOnly()
+  async withdrawEndorsement(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: CustomRequest,
+  ): Promise<RequestChatEndorsementsDto> {
+    return RequestChatMapper.toEndorsementsDto(
+      await this.endorsements.withdraw(UUID.from(id), req.user),
+    );
   }
 }

@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, mongo } from 'mongoose';
 import { RequestChatEntity } from 'src/chat/domain/entities/request-chat.entity';
 import { Votes, type VoteType } from 'src/review/domain/vote';
+import type { Endorsement } from 'src/review/domain/endorsement';
 import {
   ChatRepository,
   DuplicateRequestChatError,
@@ -185,6 +186,80 @@ export class ChatMongoRepository implements ChatRepository {
     );
   }
 
+  async endorse(
+    id: UUID,
+    endorser: UUID,
+    at: Date,
+  ): Promise<Endorsement[] | null> {
+    // Los pipelines no pasan por los casts de Mongoose: el UUID va como `Binary`.
+    const from = new mongo.UUID(endorser.value);
+    const endorsements = { $ifNull: ['$endorsements', []] };
+    // Decide y escribe en la misma operación: dos avales a la vez del mismo miembro dejan
+    // uno solo.
+    return this.endorsementsAfter(
+      this.requestChatModel.findOneAndUpdate(
+        this.reviewableBy(id, endorser),
+        [
+          {
+            $set: {
+              endorsements: {
+                $cond: [
+                  { $in: [from, { $ifNull: ['$endorsements.from', []] }] },
+                  endorsements,
+                  {
+                    $concatArrays: [endorsements, [{ from, createdAt: at }]],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        { new: true, projection: { endorsements: 1 } },
+      ),
+    );
+  }
+
+  async withdrawEndorsement(
+    id: UUID,
+    endorser: UUID,
+  ): Promise<Endorsement[] | null> {
+    return this.endorsementsAfter(
+      this.requestChatModel.findOneAndUpdate(
+        this.reviewableBy(id, endorser),
+        { $pull: { endorsements: { from: endorser.value } } },
+        { new: true, projection: { endorsements: 1 } },
+      ),
+    );
+  }
+
+  /** Una solicitud en curso que `member` puede revisar: nadie revisa la propia (SPEC §3.3). */
+  private reviewableBy(id: UUID, member: UUID) {
+    return {
+      _id: id.value,
+      state: RequestChatState.InProgress().props.value,
+      requester: { $ne: member.value },
+    };
+  }
+
+  /** Los avales que dejó la actualización, con quién avaló (una lectura más, por `_id`). */
+  private async endorsementsAfter(
+    update: ReturnType<Model<RequestChat>['findOneAndUpdate']>,
+  ): Promise<Endorsement[] | null> {
+    const doc = await update
+      .populate<{
+        endorsements?: { from: User; createdAt: Date }[];
+      }>('endorsements.from')
+      .lean()
+      .exec();
+    if (!doc) {
+      return null;
+    }
+    return (doc.endorsements ?? []).map((endorsement) => ({
+      endorser: UserMapper.fromDb(endorsement.from),
+      at: endorsement.createdAt,
+    }));
+  }
+
   async close(id: UUID, state: RequestChatState): Promise<boolean> {
     const result = await this.requestChatModel.updateOne(
       { _id: id.value, state: RequestChatState.InProgress().props.value },
@@ -197,6 +272,7 @@ export class ChatMongoRepository implements ChatRepository {
     const dbRequestChat = await this.requestChatModel
       .findOne({ _id: id.value })
       .populate('requester')
+      .populate('endorsements.from')
       .exec();
     if (!dbRequestChat) {
       return null;

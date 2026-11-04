@@ -145,7 +145,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 
 - [x] T45: Corregir `ValueObject.equals`
 - [x] T21: Revisión: votos y umbrales — falta revisar `REJECT_THRESHOLD` en Render
-- [ ] T22: Revisión: avales
+- [x] T22: Revisión: avales
 - [ ] T23: App: inicio de miembros
 - [ ] T24: App: votación y resumen del solicitante
 

@@ -130,7 +130,7 @@ Requisitos técnicos:
 - **Umbrales fijos, sin vencimiento:** se aprueba con `APPROVE_THRESHOLD` aprobaciones y se rechaza con `REJECT_THRESHOLD` rechazos; los dos valen **5** (por defecto y en los ambientes). Gana la primera opción que llegue a su umbral, y el voto que lo alcanza cierra la solicitud en el acto.
   - La votación se muestra plegada con dos barras, una por opción, con tantos segmentos como su umbral. No existe el estado *Vencida*.
 - El solicitante no puede votar; el backend lo impide.
-- **Avales:** cualquier miembro puede marcar "Lo conozco, lo avalo" en el resumen de una solicitud, lo haya nombrado el solicitante o no, y retirarlo. Llevan el nombre de quien avala y son **solo informativos**: no afectan la votación.
+- **Avales:** cualquier miembro puede marcar "Lo conozco, lo avalo" en el resumen de una solicitud, lo haya nombrado el solicitante o no, y retirarlo. Llevan el nombre de quien avala y la fecha, y son **solo informativos**: no afectan la votación. Uno por miembro; nadie avala su propia solicitud, y solo se avala o se retira mientras está en curso (como los votos).
 - Fuera de alcance en la v1: *Reportar solicitud*. Sin comentarios entre miembros: se quitaron el 2026-10-05; para conversar está el chat.
 
 ### 3.4 Admisión (`admission`)

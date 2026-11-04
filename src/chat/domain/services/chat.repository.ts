@@ -2,6 +2,7 @@ import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { RequestChatEntity } from '../entities/request-chat.entity';
 import type { Votes, VoteType } from 'src/review/domain/vote';
+import type { Endorsement } from 'src/review/domain/endorsement';
 import {
   RequestChatState,
   RequestChatStateType,
@@ -76,6 +77,15 @@ export interface ChatRepository {
     type: VoteType,
     at: Date,
   ): Promise<Votes | null>;
+  /**
+   * Agrega el aval de `endorser` con una sola operación atómica, si la solicitud sigue en
+   * curso y no es suya; si ya la avaló, no cambia nada. Devuelve los avales guardados con
+   * quién avaló, o `null` si la solicitud no existe, ya no está en curso o es de
+   * `endorser`.
+   */
+  endorse(id: UUID, endorser: UUID, at: Date): Promise<Endorsement[] | null>;
+  /** Retira el aval de `endorser`; si no había avalado, no cambia nada. Igual que `endorse`. */
+  withdrawEndorsement(id: UUID, endorser: UUID): Promise<Endorsement[] | null>;
   /** Cierra la solicitud si sigue en curso. Devuelve si esta llamada la cerró. */
   close(id: UUID, state: RequestChatState): Promise<boolean>;
   getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null>;

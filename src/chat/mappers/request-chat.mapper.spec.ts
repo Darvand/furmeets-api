@@ -142,6 +142,64 @@ describe('RequestChatMapper', () => {
     });
   });
 
+  describe('avales', () => {
+    // No escribió en el chat: si su nombre o su id salen, es por el aval.
+    const kira = UserEntity.create({
+      name: 'Kira',
+      username: 'kira',
+      telegramId: 10,
+      isMember: true,
+    });
+    const endorsed = RequestChatEntity.create(
+      {
+        ...requestChat.props,
+        endorsements: [
+          { endorser: kira, at: new Date('2026-10-05T12:00:00.000Z') },
+        ],
+      },
+      requestChat.id,
+    );
+    const view: RequestChatView = {
+      requestChat: endorsed,
+      messages: [first, hello],
+      hasOlder: false,
+      thresholds,
+    };
+
+    it('un miembro ve cada aval con quién avaló y cuándo (ISO UTC)', () => {
+      expect(RequestChatMapper.toMemberDto(view).endorsements).toEqual([
+        {
+          endorser: { uuid: kira.id.value, name: 'Kira', username: 'kira' },
+          at: '2026-10-05T12:00:00.000Z',
+        },
+      ]);
+    });
+
+    it('la respuesta y el evento de un aval llevan todos los avales', () => {
+      expect(
+        RequestChatMapper.toEndorsementsDto({
+          requestChatId: endorsed.id,
+          endorsements: [...endorsed.endorsements],
+        }),
+      ).toEqual({
+        uuid: endorsed.id.value,
+        endorsements: [
+          expect.objectContaining({
+            endorser: expect.objectContaining({ name: 'Kira' }) as unknown,
+          }),
+        ],
+      });
+    });
+
+    it('la salida para el solicitante, serializada, no contiene avales (criterio 10)', () => {
+      const raw = JSON.stringify(RequestChatMapper.toRequesterDto(view));
+
+      expect(raw).not.toContain('"endorsements"');
+      expect(raw).not.toContain('Kira');
+      expect(raw).not.toContain(kira.id.value);
+    });
+  });
+
   describe('listado', () => {
     const item: RequestChatListItem = {
       id: requestChat.id,

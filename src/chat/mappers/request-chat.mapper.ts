@@ -22,6 +22,12 @@ import type { RequestChatPage } from '../domain/services/chat.repository';
 import { RequestChatCursorCodec } from '../presentation/request-chat-cursor';
 import { ApplicationFormMapper } from 'src/applications/mappers/application-form.mapper';
 import type { RequestChatView, VoteResult } from '../application/chat.service';
+import type { EndorsementsResult } from '../application/endorsement.service';
+import type { Endorsement } from 'src/review/domain/endorsement';
+import {
+  EndorsementDto,
+  RequestChatEndorsementsDto,
+} from '../presentation/dtos/endorsement.dto';
 import {
   RequestChatVotesEventDto,
   RequestChatVotingDto,
@@ -37,6 +43,10 @@ export class RequestChatMapper {
         from: vote.voterId.value,
         type: vote.type,
       })),
+      endorsements: requestChat.endorsements.map((endorsement) => ({
+        from: uuidRef<User>(endorsement.endorser.id.value),
+        createdAt: endorsement.at,
+      })),
       state: requestChat.state,
       form:
         requestChat.props.form &&
@@ -51,6 +61,10 @@ export class RequestChatMapper {
         requester: UserMapper.fromDb(dbRequestChat.requester),
         createdAt: DateTime.fromJSDate(dbRequestChat.createdAt!),
         state: RequestChatState.create(dbRequestChat.state),
+        endorsements: (dbRequestChat.endorsements ?? []).map((endorsement) => ({
+          endorser: UserMapper.fromDb(endorsement.from),
+          at: endorsement.createdAt,
+        })),
         votes: Votes.of(
           dbRequestChat.votes.map((vote) => ({
             voterId: UUID.from(toUUIDString(vote.from)),
@@ -105,6 +119,37 @@ export class RequestChatMapper {
       ...RequestChatMapper.toRequesterDto(view),
       ...RequestChatMapper.toVotingDto(votes, view.thresholds),
       userVote: viewer && votes.typeOf(viewer.id),
+      endorsements: view.requestChat.endorsements.map((endorsement) =>
+        RequestChatMapper.toEndorsementDto(endorsement),
+      ),
+    };
+  }
+
+  /** Respuesta de avalar o retirar el aval, y evento `request-chat-endorsements`. */
+  static toEndorsementsDto(
+    result: EndorsementsResult,
+  ): RequestChatEndorsementsDto {
+    return {
+      uuid: result.requestChatId.value,
+      endorsements: result.endorsements.map((endorsement) =>
+        RequestChatMapper.toEndorsementDto(endorsement),
+      ),
+    };
+  }
+
+  /** Con nombre: los avales no son anónimos (SPEC §3.3). */
+  private static toEndorsementDto({
+    endorser,
+    at,
+  }: Endorsement): EndorsementDto {
+    return {
+      endorser: {
+        uuid: endorser.id.value,
+        name: endorser.name,
+        username: endorser.username,
+        avatarMediaId: endorser.avatarMediaId,
+      },
+      at: at.toISOString(),
     };
   }
 
