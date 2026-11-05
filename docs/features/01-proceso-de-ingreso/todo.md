@@ -1178,13 +1178,14 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **API:** hoy `GET /request-chats` está paginado por cursor (T40) y no trae totales, así que la App no puede calcular las estadísticas ni separar "en curso" del historial. Agregar los totales por estado y un filtro por estado (o la lista de en curso aparte), con agregaciones sobre índices.
 
 **Acceptance criteria:**
-- [x] Las estadísticas coinciden con los conteos por estado en la BD, aunque el historial esté paginado (API; falta mostrarlas en la App)
-- [ ] Un mensaje o voto nuevo actualiza la lista sin recargar; no se lista quién falta por votar
-- [ ] `startapp=<id>` abre esa solicitud (si el usuario puede verla; si no, el inicio)
+- [x] Las estadísticas coinciden con los conteos por estado en la BD, aunque el historial esté paginado
+- [x] Un mensaje o voto nuevo actualiza la lista sin recargar; no se lista quién falta por votar
+- [x] `startapp=<id>` abre esa solicitud (si el usuario puede verla; si no, el inicio)
 
 **Verification:**
 - [x] e2e de la forma de la respuesta y de los totales (API): `test/request-chat-home.e2e-spec.ts`
-- [ ] `npm run lint` y `npm run build` en la App; manual en staging
+- [x] `npm run lint` y `npm run build` en la App. Probado en Chrome contra un API simulado con eventos de socket (App PR #17).
+- [ ] Manual en staging
 
 **Notas de implementación (API):**
 - **Contrato.** `GET /request-chats?scope=&limit=&cursor=`, solo miembros. `scope=open` trae las que siguen en curso, `scope=closed` el historial (aprobadas y rechazadas) y sin `scope` trae todas, así la App actual sigue funcionando. Otro valor → 400.
@@ -1194,6 +1195,11 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - **Para la App.**
   - "Falta tu voto" se calcula en la App: la solicitud está en curso, no trae `userVote` y no es del propio miembro.
   - En vivo no hace falta nada nuevo en la API: `new-request-chat`, `request-chat` (mensajes), `request-chat-votes` y `request-chat-update` (cierre) ya llegan a los miembros. Los eventos no traen `totals`: la App los ajusta o vuelve a pedir el listado.
+
+**Notas de implementación (App):**
+- **Dos listados** en caché, `open` (50 por página) y `closed` (5), con "Ver más". Mensajes, votos y solicitudes nuevas se parchean sin pedir nada. Un cierre (`request-chat-update`) vuelve a pedir los dos: los totales siempre son los de la BD, y el historial vuelve a la primera página.
+- **Sin "en conversación" ni "sin actividad hace N días"** del diseño: la SPEC no los define.
+- **`startapp`:** el inicio abre la solicitud encima, así volver lleva al inicio. Un id inexistente o ajeno (400, 403, 404) lleva al inicio; antes el chat se quedaba cargando para siempre.
 
 **Dependencies:** T18, T21
 
@@ -1214,13 +1220,21 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad · ciudad · avales) abre el Resumen. El Resumen muestra la etiqueta "Menor de edad" cuando corresponde y las imágenes del formulario por `/media/:id`.
 
 **Acceptance criteria:**
-- [ ] El solicitante no ve el panel de votación
-- [ ] La votación muestra conteos contra los umbrales y el voto propio, sin nombres; el texto del panel no dice que el voto lo ve el grupo
-- [ ] Cambiar y retirar el voto funciona desde la UI
-- [ ] Solicitudes `legacy` muestran "Solicitud anterior al formulario actual"
+- [x] El solicitante no ve el panel de votación
+- [x] La votación muestra conteos contra los umbrales y el voto propio, sin nombres; el texto del panel no dice que el voto lo ve el grupo
+- [x] Cambiar y retirar el voto funciona desde la UI
+- [x] Solicitudes `legacy` muestran "Solicitud anterior al formulario actual"
 
 **Verification:**
+- [x] `npm run lint` y `npm run build` en la App. Probado en Chrome contra un API simulado, en tema claro y oscuro, como miembro y como solicitante.
 - [ ] Manual en staging
+
+**Notas de implementación:**
+- **API:** `GET /request-chats/:id` y los eventos para miembros traen `createdAt` (ISO-8601 UTC), para la fecha del Resumen. El solicitante no la recibe.
+- **Panel de votación** sobre la caja de texto: plegado, las dos barras y "Falta tu voto" o "Ya votaste"; abierto, votar, "Cambiar a …" y "Retirar voto". Solo pide confirmar el voto que alcanzaría un umbral, porque cierra la solicitud y ya no se puede cambiar.
+- **Se quitaron del diseño** los nombres de quién votó, "tu voto lo ve todo el grupo", *Reportar*, pronombres, "Señales y comentarios" y la etiqueta "+18". Solo queda "Menor de edad" (SPEC §3.1).
+- **Quien ya es miembro** ve su propia solicitud como miembro: conteos sin poder votar ni avalar (SPEC §3.3).
+- **El historial del inicio** abre el Resumen; "Ver el chat" lleva al chat.
 
 **Dependencies:** T22, T23
 
