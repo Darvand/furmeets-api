@@ -27,7 +27,7 @@ const BOT = { id: 999, is_bot: true, first_name: 'FurBot', username: 'furbot' };
 const TELEGRAM_GROUP = { id: Number(TEST_GROUP_ID), type: 'supergroup' };
 
 interface ListDto {
-  items: { uuid: string; state: string }[];
+  items: { uuid: string; state: string; createdAt: string }[];
   nextCursor?: string;
   totals: {
     total: number;
@@ -211,6 +211,19 @@ describe('Inicio de miembros: totales y filtro del listado (e2e)', () => {
       approved: 2,
       rejected: 2,
     });
+  });
+
+  it('un miembro recibe la fecha de la solicitud, la misma del listado (T24)', async () => {
+    const [listed] = (await list({ scope: 'open' })).items;
+
+    const res = await request(server)
+      .get(`/request-chats/${listed.uuid}`)
+      .set('Authorization', tmaAuth(MEMBERS[0]))
+      .expect(200);
+
+    expect((res.body as { createdAt: string }).createdAt).toBe(
+      listed.createdAt,
+    );
   });
 
   it('rechaza un scope desconocido con 400', async () => {

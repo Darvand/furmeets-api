@@ -121,6 +121,7 @@ export class RequestChatMapper {
     return {
       ...RequestChatMapper.toRequesterDto(view),
       ...RequestChatMapper.toVotingDto(votes, view.thresholds),
+      createdAt: view.requestChat.props.createdAt.toJSDate().toISOString(),
       userVote: viewer && votes.typeOf(viewer.id),
       endorsements: view.requestChat.endorsements.map((endorsement) =>
         RequestChatMapper.toEndorsementDto(endorsement),
