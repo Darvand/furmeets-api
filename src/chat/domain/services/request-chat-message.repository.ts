@@ -27,11 +27,6 @@ export interface RequestChatMessageRepository {
    * solicitud: un reenvío, aunque llegue a la vez, devuelve el mensaje ya guardado.
    */
   insertOnce(message: RequestChatMessageEntity): Promise<InsertedMessage>;
-  /** Guarda los `message_id` que el mensaje tiene en el grupo (puente, T27). */
-  setGroupMessageIds(
-    id: UUID,
-    groupMessageIds: readonly number[],
-  ): Promise<void>;
   /** Los últimos `limit` mensajes de una solicitud (al abrir el chat). */
   findLatest(requestChatId: UUID, limit: number): Promise<MessagesPage>;
   /**

@@ -66,7 +66,7 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
         │                                                   └─ T20 App: chats
         ├─ T45 equals ─ T21 votos ─ T22 avales ─ T23 inicio (API + App) ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
-        └─ T27 anuncios/republicación ─ T28 replies desde grupo ─ T29 DMs y resultados
+        └─ T27 anuncios/republicación ─ T29 DMs y resultados
 T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambientes · T35 rendimiento · T36 limpieza App · T44 App: carga
 ```
 
@@ -156,7 +156,6 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] T25: Admisión por solicitud de unión — falta revocar a mano los enlaces viejos y la prueba en staging
 - [x] T26: App: pantallas Aprobado y No aprobado — falta la prueba manual en staging
 - [x] T27: Puente: anuncios y republicación en el grupo — falta la prueba manual en staging
-- [ ] T28: Puente: respuestas desde el grupo
 - [ ] T29: Puente: DMs, resultados y `/faq`
 
 #### Checkpoint E: v1 funcional
@@ -298,6 +297,7 @@ No hay preguntas abiertas.
 - ~~2026-10-03: nada es anónimo dentro del grupo. Votos, avales y comentarios muestran a su autor a todos los miembros.~~ Reemplazado el 2026-10-05.
 - 2026-10-03: `REJECT_THRESHOLD` pasa a 5, igual que `APPROVE_THRESHOLD`; siguen siendo dos variables (T21).
 - 2026-10-03: el formulario no pide pronombres. La API de T13 ya los acepta: se quitan en T14.
+- 2026-11-17: se quita T28 (respuestas desde el grupo al chat de la solicitud). T27 además fija el aviso de solicitud nueva mientras esté en curso y ningún mensaje del bot al grupo lleva vista previa.
 - 2026-10-03: sin reglas de convivencia también en *Aprobado* y en la pantalla de carga (T26, T44).
 
 - 2026-09-29: se aprueba `mongodb-memory-server` como dependencia de desarrollo para las pruebas e2e (T02).

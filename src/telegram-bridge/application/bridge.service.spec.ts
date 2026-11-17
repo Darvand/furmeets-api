@@ -6,9 +6,11 @@ const CHAT_ID = '3f2b8a4e-0000-4000-8000-000000000001';
 
 function setup(fileIds: string[] = []) {
   const telegram = {
-    sendTextToGroup: jest.fn((text: string) => Promise.resolve(text.length)),
-    sendPhotosToGroup: jest.fn((ids: string[]) =>
-      Promise.resolve(ids.map((_, i) => 100 + i)),
+    sendTextToGroup: jest.fn<Promise<void>, [string, unknown]>(() =>
+      Promise.resolve(),
+    ),
+    sendPhotosToGroup: jest.fn<Promise<void>, [string[], string, unknown]>(() =>
+      Promise.resolve(),
     ),
   };
   const media = { fileIdsOf: jest.fn(() => Promise.resolve(fileIds)) };
@@ -30,9 +32,8 @@ describe('BridgeService', () => {
   it('republica un texto con el encabezado y el enlace a la solicitud', async () => {
     const { service, telegram } = setup();
 
-    const ids = await service.republish(message('hola'));
+    await service.republish(message('hola'));
 
-    expect(ids).toEqual(['Ana · solicitud\nhola'.length]);
     expect(telegram.sendTextToGroup).toHaveBeenCalledWith(
       'Ana · solicitud\nhola',
       expect.arrayContaining([
@@ -48,7 +49,7 @@ describe('BridgeService', () => {
   it('republica las imágenes con su file_id, con el texto de pie', async () => {
     const { service, telegram, media } = setup(['f1', 'f2']);
 
-    const ids = await service.republish(message('mira', ['m1', 'm2']));
+    await service.republish(message('mira', ['m1', 'm2']));
 
     expect(media.fileIdsOf).toHaveBeenCalledWith(['m1', 'm2']);
     expect(telegram.sendPhotosToGroup).toHaveBeenCalledWith(
@@ -57,14 +58,13 @@ describe('BridgeService', () => {
       expect.any(Array),
     );
     expect(telegram.sendTextToGroup).not.toHaveBeenCalled();
-    expect(ids).toEqual([100, 101]);
   });
 
-  it('si el texto no cabe en el pie, lo manda aparte y devuelve todos los ids', async () => {
+  it('si el texto no cabe en el pie, lo manda aparte', async () => {
     const { service, telegram } = setup(['f1']);
     const long = 'a'.repeat(1_500);
 
-    const ids = await service.republish(message(long, ['m1']));
+    await service.republish(message(long, ['m1']));
 
     expect(telegram.sendPhotosToGroup).toHaveBeenCalledWith(
       ['f1'],
@@ -72,7 +72,6 @@ describe('BridgeService', () => {
       expect.any(Array),
     );
     expect(telegram.sendTextToGroup).toHaveBeenCalledWith(long, []);
-    expect(ids).toEqual([100, 1_500]);
   });
 
   it('si Telegram falla, el error sube a quien lo llamó', async () => {

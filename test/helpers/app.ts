@@ -77,6 +77,9 @@ export async function createTestApp(
   );
   // Ids de mensaje del grupo, crecientes, como los que devuelve Telegram (T27).
   let groupMessageId = 1_000;
+  telegramBot.sendMessageToGroup.mockImplementation(() =>
+    Promise.resolve(groupMessageId++),
+  );
   telegramBot.sendTextToGroup.mockImplementation(() =>
     Promise.resolve(groupMessageId++),
   );

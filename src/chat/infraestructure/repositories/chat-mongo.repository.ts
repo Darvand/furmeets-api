@@ -279,6 +279,21 @@ export class ChatMongoRepository implements ChatRepository {
     return result.modifiedCount === 1;
   }
 
+  async setAnnouncementMessageId(id: UUID, messageId: number): Promise<void> {
+    await this.requestChatModel.updateOne(
+      { _id: id.value },
+      { $set: { announcementMessageId: messageId } },
+    );
+  }
+
+  async getAnnouncementMessageId(id: UUID): Promise<number | undefined> {
+    const doc = await this.requestChatModel
+      .findOne({ _id: id.value }, { announcementMessageId: 1 })
+      .lean<{ announcementMessageId?: number }>()
+      .exec();
+    return doc?.announcementMessageId;
+  }
+
   async getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null> {
     const dbRequestChat = await this.requestChatModel
       .findOne({ _id: id.value })

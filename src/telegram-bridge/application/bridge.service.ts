@@ -26,8 +26,7 @@ export class BridgeService {
     private readonly media: MediaService,
   ) {}
 
-  /** Devuelve los `message_id` que el mensaje tiene en el grupo, en orden de envío. */
-  async republish(message: MessageToRepublish): Promise<number[]> {
+  async republish(message: MessageToRepublish): Promise<void> {
     const fileIds = await this.media.fileIdsOf(message.imageIds);
     const { head, overflow } = republicationOf({
       requesterName: message.requesterName,
@@ -35,14 +34,13 @@ export class BridgeService {
       content: message.content,
       hasImages: fileIds.length > 0,
     });
-    const sent = fileIds.length
-      ? await this.telegram.sendPhotosToGroup(fileIds, head.text, head.entities)
-      : [await this.telegram.sendTextToGroup(head.text, head.entities)];
-    if (overflow) {
-      sent.push(
-        await this.telegram.sendTextToGroup(overflow.text, overflow.entities),
-      );
+    if (fileIds.length) {
+      await this.telegram.sendPhotosToGroup(fileIds, head.text, head.entities);
+    } else {
+      await this.telegram.sendTextToGroup(head.text, head.entities);
     }
-    return sent;
+    if (overflow) {
+      await this.telegram.sendTextToGroup(overflow.text, overflow.entities);
+    }
   }
 }

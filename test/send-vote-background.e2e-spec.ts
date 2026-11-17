@@ -164,7 +164,10 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
   beforeEach(() => {
     const tg = testApp.telegramBot;
     // Telegram lento en todo lo que avisa.
-    tg.sendMessageToGroup.mockReset().mockImplementation(slow);
+    tg.sendMessageToGroup.mockReset().mockImplementation(async () => {
+      await slow();
+      return 900;
+    });
     tg.sendTextToGroup.mockReset().mockImplementation(async () => {
       await slow();
       return 1;

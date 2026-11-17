@@ -257,21 +257,56 @@ describe('TelegramBotService', () => {
   describe('republicación en el grupo', () => {
     const entities = [{ type: 'bold' as const, offset: 0, length: 3 }];
 
-    it('manda el texto sin parse_mode, con entidades, y devuelve su message_id', async () => {
+    it('manda el texto sin parse_mode ni vista previa, con entidades', async () => {
       const { service, sendMessage } = createService();
 
-      await expect(service.sendTextToGroup('Ana_', entities)).resolves.toBe(7);
+      await service.sendTextToGroup('Ana_', entities);
 
-      expect(sendMessage).toHaveBeenCalledWith('-100', 'Ana_', { entities });
+      expect(sendMessage).toHaveBeenCalledWith('-100', 'Ana_', {
+        entities,
+        link_preview_options: { is_disabled: true },
+      });
+    });
+
+    it('los avisos en Markdown van sin vista previa y devuelven su message_id', async () => {
+      const { service, sendMessage } = createService();
+
+      await expect(service.sendMessageToGroup('*hola*')).resolves.toBe(7);
+
+      expect(sendMessage).toHaveBeenCalledWith('-100', '*hola*', {
+        parse_mode: 'Markdown',
+        link_preview_options: { is_disabled: true },
+      });
+    });
+
+    it('fija y desfija un mensaje del grupo, sin notificar al fijar', async () => {
+      const { service } = createService();
+      const pin = jest
+        .spyOn(
+          (service as unknown as { bot: { api: Api } }).bot.api,
+          'pinChatMessage',
+        )
+        .mockResolvedValue(true);
+      const unpin = jest
+        .spyOn(
+          (service as unknown as { bot: { api: Api } }).bot.api,
+          'unpinChatMessage',
+        )
+        .mockResolvedValue(true);
+
+      await service.pinGroupMessage(7);
+      await service.unpinGroupMessage(7);
+
+      expect(pin).toHaveBeenCalledWith('-100', 7, {
+        disable_notification: true,
+      });
+      expect(unpin).toHaveBeenCalledWith('-100', 7);
     });
 
     it('una foto va por file_id con el pie y sus entidades', async () => {
       const { service, sendPhoto } = createService();
-      sendPhoto.mockResolvedValue({ message_id: 11 } as never);
 
-      await expect(
-        service.sendPhotosToGroup(['f1'], 'pie', entities),
-      ).resolves.toEqual([11]);
+      await service.sendPhotosToGroup(['f1'], 'pie', entities);
 
       expect(sendPhoto).toHaveBeenCalledWith('-100', 'f1', {
         caption: 'pie',
@@ -282,9 +317,7 @@ describe('TelegramBotService', () => {
     it('varias fotos van como álbum, con el pie solo en la primera', async () => {
       const { service, sendMediaGroup } = createService();
 
-      await expect(
-        service.sendPhotosToGroup(['f1', 'f2'], 'pie', entities),
-      ).resolves.toEqual([8, 9]);
+      await service.sendPhotosToGroup(['f1', 'f2'], 'pie', entities);
 
       expect(sendMediaGroup).toHaveBeenCalledWith('-100', [
         {

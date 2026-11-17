@@ -20,6 +20,9 @@ import { TtlCache } from '../shared/cache/ttl-cache';
 export const TELEGRAM_CACHE_TTL_MS = 10 * 60 * 1000;
 const TELEGRAM_CACHE_MAX_ENTRIES = 1_000;
 
+/** Los avisos del bot al grupo llevan enlaces a la App: sin tarjeta de vista previa. */
+const NO_LINK_PREVIEW = { is_disabled: true } as const;
+
 /** Lado mínimo de la foto de avatar: la App los muestra a 48–96 px. */
 export const AVATAR_MIN_SIZE_PX = 160;
 
@@ -208,45 +211,57 @@ export class TelegramBotService {
     );
   }
 
-  async sendMessageToGroup(text: string): Promise<void> {
-    await this.bot.api.sendMessage(this.config.mainChatId, text, {
-      parse_mode: 'Markdown',
-    });
-  }
-
-  /**
-   * Texto plano con entidades (sin `parse_mode`) para republicar lo que escribe un
-   * usuario. Devuelve el `message_id` en el grupo.
-   */
-  async sendTextToGroup(
-    text: string,
-    entities: MessageEntity[],
-  ): Promise<number> {
+  /** Aviso en Markdown, sin vista previa de enlaces. Devuelve su `message_id` en el grupo. */
+  async sendMessageToGroup(text: string): Promise<number> {
     const sent = await this.bot.api.sendMessage(this.config.mainChatId, text, {
-      entities,
+      parse_mode: 'Markdown',
+      link_preview_options: NO_LINK_PREVIEW,
     });
     return sent.message_id;
   }
 
+  /** Fija un mensaje del grupo, sin notificar a nadie. El bot necesita poder fijar mensajes. */
+  async pinGroupMessage(messageId: number): Promise<void> {
+    await this.bot.api.pinChatMessage(this.config.mainChatId, messageId, {
+      disable_notification: true,
+    });
+  }
+
+  async unpinGroupMessage(messageId: number): Promise<void> {
+    await this.bot.api.unpinChatMessage(this.config.mainChatId, messageId);
+  }
+
+  /**
+   * Texto plano con entidades (sin `parse_mode`) para republicar lo que escribe un
+   * usuario, sin vista previa de enlaces.
+   */
+  async sendTextToGroup(
+    text: string,
+    entities: MessageEntity[],
+  ): Promise<void> {
+    await this.bot.api.sendMessage(this.config.mainChatId, text, {
+      entities,
+      link_preview_options: NO_LINK_PREVIEW,
+    });
+  }
+
   /**
    * Fotos que ya están en Telegram, por `file_id` y sin volver a subirlas: una sola
-   * como foto y varias como álbum. El pie va en la primera. Devuelve los `message_id` en
-   * el grupo, uno por foto.
+   * como foto y varias como álbum. El pie va en la primera.
    */
   async sendPhotosToGroup(
     fileIds: readonly string[],
     caption: string,
     captionEntities: MessageEntity[],
-  ): Promise<number[]> {
+  ): Promise<void> {
     if (fileIds.length === 1) {
-      const sent = await this.bot.api.sendPhoto(
-        this.config.mainChatId,
-        fileIds[0],
-        { caption, caption_entities: captionEntities },
-      );
-      return [sent.message_id];
+      await this.bot.api.sendPhoto(this.config.mainChatId, fileIds[0], {
+        caption,
+        caption_entities: captionEntities,
+      });
+      return;
     }
-    const sent = await this.bot.api.sendMediaGroup(
+    await this.bot.api.sendMediaGroup(
       this.config.mainChatId,
       fileIds.map(
         (media, i): InputMediaPhoto =>
@@ -260,7 +275,6 @@ export class TelegramBotService {
             : { type: 'photo', media },
       ),
     );
-    return sent.map((message) => message.message_id);
   }
 
   async sendMessageToUser(telegramId: number, text: string): Promise<void> {
