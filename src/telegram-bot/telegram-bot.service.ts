@@ -211,12 +211,11 @@ export class TelegramBotService {
       this.config.mainChatId,
       { member_limit: 1 },
     );
+    // Texto plano: el código del enlace puede llevar `_`, que en Markdown abre una
+    // cursiva y hace que Telegram rechace el mensaje (o lo entregue con el enlace roto).
     await this.bot.api.sendMessage(
       telegramId,
       `Aquí tienes tu enlace de invitación al grupo: ${inviteLink.invite_link}`,
-      {
-        parse_mode: 'Markdown',
-      },
     );
   }
 

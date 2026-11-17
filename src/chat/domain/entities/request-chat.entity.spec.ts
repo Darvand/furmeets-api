@@ -191,4 +191,31 @@ describe('RequestChatEntity', () => {
       'User 1, tienes un mensaje nuevo',
     );
   });
+
+  describe('Markdown en el nombre del solicitante', () => {
+    const named = UserEntity.create({
+      name: 'Maxy_fur *[x]*',
+      telegramId: 9,
+      isMember: false,
+    });
+    const escaped = 'Maxy\\_fur \\*\\[x]\\*';
+
+    it('se escapa en los avisos de aprobación y rechazo', () => {
+      const chat = RequestChatEntity.apply(
+        named,
+        ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+      );
+
+      expect(chat.announceApproval()).toContain(`[${escaped}](tg://user?id=9)`);
+      expect(chat.announceRejection()).toContain(
+        `[${escaped}](tg://user?id=9)`,
+      );
+    });
+
+    it('se escapa en el aviso de mensaje nuevo', () => {
+      expect(RequestChatEntity.newMessageNotificationText(named)).toContain(
+        `${escaped}, tienes un mensaje nuevo`,
+      );
+    });
+  });
 });

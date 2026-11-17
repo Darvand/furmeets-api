@@ -187,6 +187,26 @@ describe('TelegramBotService', () => {
     expect(sendPhoto).not.toHaveBeenCalled();
   });
 
+  it('envía el enlace de invitación como texto plano (un `_` en el enlace rompía el Markdown)', async () => {
+    const { service } = createService();
+    const api = (service as unknown as { bot: { api: Api } }).bot.api;
+    const link = 'https://t.me/+AbCdEfGh_jKlMnOp';
+    jest
+      .spyOn(api, 'createChatInviteLink')
+      .mockResolvedValue({ invite_link: link } as never);
+    const sendMessage = jest
+      .spyOn(api, 'sendMessage')
+      .mockResolvedValue({} as never);
+
+    await service.sendInviteLinkToUser(42);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const [chatId, text, options] = sendMessage.mock.calls[0];
+    expect(chatId).toBe(42);
+    expect(text).toContain(link);
+    expect(options?.parse_mode).toBeUndefined();
+  });
+
   it('un error de descarga no expone la URL con el token', async () => {
     const { service } = createService();
     const fetchSpy = jest
