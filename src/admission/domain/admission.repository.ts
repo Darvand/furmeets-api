@@ -14,7 +14,11 @@ export interface AdmissionRepository {
    * Guarda el enlace si la solicitud está aprobada y todavía no tiene uno. Devuelve si
    * esta llamada lo guardó.
    */
-  saveInviteLink(requestChatId: UUID, inviteLink: string): Promise<boolean>;
+  saveInviteLink(
+    requestChatId: UUID,
+    inviteLink: string,
+    expiresAt: Date,
+  ): Promise<boolean>;
   /** Marca que el solicitante entró, una sola vez. Devuelve si esta llamada lo marcó. */
   markAdmitted(requestChatId: UUID, at: Date): Promise<boolean>;
 }

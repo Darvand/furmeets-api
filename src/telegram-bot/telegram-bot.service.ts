@@ -221,13 +221,17 @@ export class TelegramBotService {
   /**
    * Crea un enlace de admisión al grupo principal (SPEC §3.4). No deja entrar a nadie
    * directamente: quien lo usa genera una solicitud de unión (`chat_join_request`) que
-   * decide el bot. No caduca; se revoca cuando entra el aprobado. `name` es solo una
-   * etiqueta para los admins (máximo 32 caracteres).
+   * decide el bot. Caduca en `expiresAt` y se revoca cuando entra el aprobado. `name` es
+   * solo una etiqueta para los admins (máximo 32 caracteres).
    */
-  async createAdmissionLink(name: string): Promise<string> {
+  async createAdmissionLink(name: string, expiresAt: Date): Promise<string> {
     const inviteLink = await this.bot.api.createChatInviteLink(
       this.config.mainChatId,
-      { creates_join_request: true, name },
+      {
+        creates_join_request: true,
+        name,
+        expire_date: Math.floor(expiresAt.getTime() / 1000),
+      },
     );
     return inviteLink.invite_link;
   }
@@ -266,12 +270,14 @@ export class TelegramBotService {
   async sendInviteLinkToUser(
     telegramId: number,
     inviteLink: string,
+    validDays: number,
   ): Promise<void> {
     // Texto plano: el código del enlace puede llevar `_`, que en Markdown abre una
     // cursiva y hace que Telegram rechace el mensaje (o lo entregue con el enlace roto).
     await this.bot.api.sendMessage(
       telegramId,
-      `Tu solicitud fue aprobada. Este es tu enlace para unirte al grupo; es solo para ti y deja de servir cuando entres: ${inviteLink}`,
+      `Tu solicitud fue aprobada. Este es tu enlace para unirte al grupo: es solo para ti y tienes ${validDays} días para usarlo; después deja de servir.
+${inviteLink}`,
     );
   }
 

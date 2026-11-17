@@ -4,12 +4,23 @@ import {
   type RequestChatStateType,
 } from 'src/chat/domain/value-objects/request-chat-state.value-object';
 
+/** Días que el aprobado tiene para usar su enlace (SPEC §3.4). */
+export const ADMISSION_LINK_TTL_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Cuándo vence un enlace creado en `from`. */
+export function admissionLinkExpiry(from: Date): Date {
+  return new Date(from.getTime() + ADMISSION_LINK_TTL_DAYS * DAY_MS);
+}
+
 /** Lo que importa de una solicitud para admitir a su solicitante en el grupo. */
 export interface Admission {
   requestChatId: UUID;
   state: RequestChatStateType;
   /** Enlace de admisión. Falta si la solicitud no está aprobada o es anterior a T25. */
   inviteLink?: string;
+  /** Hasta cuándo sirve el enlace. Si falta, no vence. */
+  inviteExpiresAt?: Date;
   /** Cuándo entró al grupo con su enlace (*ingresó*). */
   admittedAt?: Date;
 }
@@ -20,6 +31,7 @@ export type JoinRequestRejection =
   | 'no-aprobada'
   | 'ya-ingreso'
   | 'sin-enlace'
+  | 'enlace-vencido'
   | 'otro-enlace';
 
 export type JoinRequestDecision =
@@ -37,6 +49,7 @@ const APPROVED = RequestChatState.Approved().props.value;
 export function decideJoinRequest(
   admission: Admission | null,
   usedLink: string | undefined,
+  now: Date = new Date(),
 ): JoinRequestDecision {
   if (!admission) {
     return { approve: false, reason: 'sin-solicitud' };
@@ -54,14 +67,30 @@ export function decideJoinRequest(
   if (usedLink !== inviteLink) {
     return { approve: false, reason: 'otro-enlace' };
   }
+  if (isExpired(admission, now)) {
+    return { approve: false, reason: 'enlace-vencido' };
+  }
   return { approve: true, admission: { ...admission, inviteLink } };
 }
 
-/** El enlace que el solicitante todavía puede usar: aprobado y sin haber entrado. */
+function isExpired(admission: Admission, now: Date): boolean {
+  return !!admission.inviteExpiresAt && admission.inviteExpiresAt <= now;
+}
+
+/**
+ * El enlace que el solicitante todavía puede usar: aprobado, sin haber entrado y sin
+ * vencer.
+ */
 export function pendingInviteLink(
   admission: Admission | null,
+  now: Date = new Date(),
 ): string | undefined {
-  if (!admission || admission.state !== APPROVED || admission.admittedAt) {
+  if (
+    !admission ||
+    admission.state !== APPROVED ||
+    admission.admittedAt ||
+    isExpired(admission, now)
+  ) {
     return undefined;
   }
   return admission.inviteLink;

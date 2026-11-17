@@ -10,10 +10,16 @@ import type { AdmissionRepository } from '../domain/admission.repository';
 
 type AdmissionDoc = Pick<
   RequestChat,
-  '_id' | 'state' | 'inviteLink' | 'admittedAt'
+  '_id' | 'state' | 'inviteLink' | 'inviteExpiresAt' | 'admittedAt'
 >;
 
-const PROJECTION = { _id: 1, state: 1, inviteLink: 1, admittedAt: 1 };
+const PROJECTION = {
+  _id: 1,
+  state: 1,
+  inviteLink: 1,
+  inviteExpiresAt: 1,
+  admittedAt: 1,
+};
 
 /** Lee y escribe solo los campos de admisión de la solicitud, con `lean()`. */
 @Injectable()
@@ -34,6 +40,7 @@ export class AdmissionMongoRepository implements AdmissionRepository {
   async saveInviteLink(
     requestChatId: UUID,
     inviteLink: string,
+    expiresAt: Date,
   ): Promise<boolean> {
     const result = await this.requestChatModel.updateOne(
       {
@@ -41,7 +48,7 @@ export class AdmissionMongoRepository implements AdmissionRepository {
         state: RequestChatState.Approved().props.value,
         inviteLink: { $exists: false },
       },
-      { $set: { inviteLink } },
+      { $set: { inviteLink, inviteExpiresAt: expiresAt } },
     );
     return result.modifiedCount === 1;
   }
@@ -68,6 +75,7 @@ export class AdmissionMongoRepository implements AdmissionRepository {
       requestChatId: UUID.from(toUUIDString(doc._id)),
       state: RequestChatState.create(doc.state).props.value,
       inviteLink: doc.inviteLink ?? undefined,
+      inviteExpiresAt: doc.inviteExpiresAt ?? undefined,
       admittedAt: doc.admittedAt ?? undefined,
     };
   }

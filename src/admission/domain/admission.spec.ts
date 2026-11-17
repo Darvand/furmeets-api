@@ -2,6 +2,7 @@ import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import {
   type Admission,
   admissionLinkName,
+  admissionLinkExpiry,
   decideJoinRequest,
   needsInviteLink,
   pendingInviteLink,
@@ -50,6 +51,34 @@ describe('decideJoinRequest', () => {
     ],
   ])('rechaza: %s', (_, value, used, reason) => {
     expect(decideJoinRequest(value, used)).toEqual({ approve: false, reason });
+  });
+});
+
+const NOW = new Date('2026-11-17T12:00:00Z');
+const WEEK_AFTER = new Date('2026-11-24T12:00:00Z');
+
+describe('vencimiento del enlace', () => {
+  it('vence a los 7 días', () => {
+    expect(admissionLinkExpiry(NOW)).toEqual(WEEK_AFTER);
+  });
+
+  it('sirve hasta su vencimiento y no después', () => {
+    const linked = admission({ inviteExpiresAt: WEEK_AFTER });
+    const justBefore = new Date(WEEK_AFTER.getTime() - 1);
+
+    expect(decideJoinRequest(linked, LINK, justBefore).approve).toBe(true);
+    expect(pendingInviteLink(linked, justBefore)).toBe(LINK);
+    expect(decideJoinRequest(linked, LINK, WEEK_AFTER)).toEqual({
+      approve: false,
+      reason: 'enlace-vencido',
+    });
+    expect(pendingInviteLink(linked, WEEK_AFTER)).toBe(undefined);
+  });
+
+  it('un vencido no cuenta como faltante: no se emite otro solo', () => {
+    expect(needsInviteLink(admission({ inviteExpiresAt: new Date(0) }))).toBe(
+      false,
+    );
   });
 });
 

@@ -51,6 +51,7 @@ import {
 } from '../domain/value-objects/request-chat-state.value-object';
 import { RequestChatAccessService } from './request-chat-access.service';
 import { AdmissionService } from 'src/admission/application/admission.service';
+import { ADMISSION_LINK_TTL_DAYS } from 'src/admission/domain/admission';
 
 /** Cuántos mensajes trae abrir un chat; los anteriores se piden por páginas (T18). */
 export const LATEST_MESSAGES_LIMIT = 50;
@@ -377,7 +378,11 @@ export class ChatService {
       const inviteLink = await this.admission.issueInviteLink(requestChat.id);
       if (inviteLink) {
         this.background.enqueue('DM con el enlace de admisión', () =>
-          this.telegramBotService.sendInviteLinkToUser(telegramId, inviteLink),
+          this.telegramBotService.sendInviteLinkToUser(
+            telegramId,
+            inviteLink,
+            ADMISSION_LINK_TTL_DAYS,
+          ),
         );
       }
     });

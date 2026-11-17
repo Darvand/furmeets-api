@@ -9,6 +9,7 @@ import { MembershipService } from 'src/membership/application/membership.service
 import { UserService } from 'src/members/application/user.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import {
+  admissionLinkExpiry,
   admissionLinkName,
   decideJoinRequest,
   needsInviteLink,
@@ -97,13 +98,17 @@ export class AdmissionService {
   private async createInviteLink(
     requestChatId: UUID,
   ): Promise<string | undefined> {
+    const expiresAt = admissionLinkExpiry(new Date());
     const created = await this.telegram.createAdmissionLink(
       admissionLinkName(requestChatId),
+      expiresAt,
     );
     if (!created) {
       throw new Error('Telegram no devolvió el enlace de admisión');
     }
-    if (await this.admissions.saveInviteLink(requestChatId, created)) {
+    if (
+      await this.admissions.saveInviteLink(requestChatId, created, expiresAt)
+    ) {
       return created;
     }
     try {

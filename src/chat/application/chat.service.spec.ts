@@ -524,6 +524,7 @@ describe('ChatService', () => {
       expect(ctx.telegram.sendInviteLinkToUser).toHaveBeenCalledWith(
         requester.telegramId,
         'https://t.me/+enlace',
+        7,
       );
     });
 

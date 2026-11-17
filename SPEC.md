@@ -137,8 +137,8 @@ Requisitos técnicos:
 
 - Al aprobarse una solicitud, el bot crea un enlace con `createChatInviteLink({ creates_join_request: true, name: <id de la solicitud> })`.
 - El enlace se muestra en la pantalla *Aprobado* de la MiniApp y se envía por DM, si hay permiso.
-- **El enlace no caduca**: sigue válido hasta que el aprobado lo use. Tras su ingreso se revoca.
-- El enlace se guarda en la solicitud y la MiniApp lo lee de `GET /me` (`inviteLink`) mientras el aprobado no haya entrado.
+- **El enlace caduca a los 7 días** (`expire_date`): el aprobado tiene una semana para usarlo. Tras su ingreso se revoca. El DM y la pantalla *Aprobado* le dicen cuánto tiempo tiene. Pasada la semana, el enlace deja de servir y un admin tiene que invitarlo a mano.
+- El enlace se guarda en la solicitud y la MiniApp lo lee de `GET /me` (`inviteLink`) mientras el aprobado no haya entrado y el enlace no haya vencido.
 - Cuando llega un `chat_join_request`:
   - Si viene de un usuario con solicitud **aprobada**, que todavía no entró, y por el enlace de esa solicitud, se hace `approveChatJoinRequest`, se marca la solicitud como *ingresó* y se revoca el enlace.
   - Quien ya entró una vez y salió no vuelve a entrar con su enlace (ya está revocado) ni recibe otro. Volver es una rehabilitación manual, como en §3.1.

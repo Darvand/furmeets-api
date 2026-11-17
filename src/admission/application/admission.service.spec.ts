@@ -26,7 +26,9 @@ function setup(stored: Admission | null) {
     markAdmitted: jest.fn(() => Promise.resolve(true)),
   };
   const telegram = {
-    createAdmissionLink: jest.fn(() => Promise.resolve(LINK)),
+    createAdmissionLink: jest.fn<Promise<string>, [string, Date]>(() =>
+      Promise.resolve(LINK),
+    ),
     revokeInviteLink: jest.fn(() => Promise.resolve()),
     approveJoinRequest: jest.fn(() => Promise.resolve()),
     declineJoinRequest: jest.fn(() => Promise.resolve()),
@@ -73,11 +75,17 @@ describe('AdmissionService', () => {
 
       expect(ctx.telegram.createAdmissionLink).toHaveBeenCalledWith(
         '0b6f3c1e8a2d4f5b9c7e1d2e3f4a5b6c',
+        expect.any(Date),
       );
       expect(ctx.admissions.saveInviteLink).toHaveBeenCalledWith(
         requestChatId,
         LINK,
+        expect.any(Date),
       );
+      const [, expiresAt] = ctx.telegram.createAdmissionLink.mock.calls[0];
+      const days = (expiresAt.getTime() - Date.now()) / 86_400_000;
+      expect(days).toBeGreaterThan(6.99);
+      expect(days).toBeLessThanOrEqual(7);
     });
 
     it('si ya tiene enlace no crea otro: reintentar no deja enlaces de más', async () => {

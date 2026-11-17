@@ -38,6 +38,7 @@ type MeBody = {
 interface StoredRequestChat {
   _id: mongo.UUID;
   inviteLink?: string;
+  inviteExpiresAt?: Date;
   admittedAt?: Date;
 }
 
@@ -139,10 +140,21 @@ describe('Admisión por solicitud de unión (e2e)', () => {
 
     const name = anaRequestChatId.replace(/-/g, '');
     expect(tg.createAdmissionLink).toHaveBeenCalledTimes(1);
-    expect(tg.createAdmissionLink).toHaveBeenCalledWith(name);
+    expect(tg.createAdmissionLink).toHaveBeenCalledWith(name, expect.any(Date));
+    // Vence a la semana, también en Telegram (`expire_date`) y en la BD.
+    const [, expiresAt] = tg.createAdmissionLink.mock.calls[0] as [
+      string,
+      Date,
+    ];
+    const days = (expiresAt.getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(6.99);
+    expect(days).toBeLessThanOrEqual(7);
+    expect((await stored(anaRequestChatId))?.inviteExpiresAt).toEqual(
+      expiresAt,
+    );
     anaLink = `https://t.me/+${name}`;
     expect((await stored(anaRequestChatId))?.inviteLink).toBe(anaLink);
-    expect(tg.sendInviteLinkToUser).toHaveBeenCalledWith(ANA.id, anaLink);
+    expect(tg.sendInviteLinkToUser).toHaveBeenCalledWith(ANA.id, anaLink, 7);
     // El rol de Ana queda cacheado como solicitante.
     expect(await me(ANA)).toEqual(
       expect.objectContaining({
@@ -232,6 +244,28 @@ describe('Admisión por solicitud de unión (e2e)', () => {
     expect(testApp.telegramBot.declineJoinRequest).toHaveBeenCalledWith(
       CARO.id,
     );
+  });
+
+  it('pasada la semana, el enlace ya no se muestra y su solicitud de unión es rechazada', async () => {
+    const DANI = { id: 9604, first_name: 'Dani' };
+    const id = await apply(DANI);
+    await voteAll(id, 'approve');
+    const link = `https://t.me/+${id.replace(/-/g, '')}`;
+    expect((await me(DANI)).inviteLink).toBe(link);
+
+    await db
+      .collection<StoredRequestChat>('requestchats')
+      .updateOne(
+        { _id: new mongo.UUID(id) },
+        { $set: { inviteExpiresAt: new Date(Date.now() - 1000) } },
+      );
+
+    expect(await me(DANI)).not.toHaveProperty('inviteLink');
+    await joinRequest(DANI.id, link);
+    expect(testApp.telegramBot.declineJoinRequest).toHaveBeenCalledWith(
+      DANI.id,
+    );
+    expect(testApp.telegramBot.approveJoinRequest).not.toHaveBeenCalled();
   });
 
   it('ignora solicitudes de unión a otros chats', async () => {
