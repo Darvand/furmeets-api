@@ -1377,28 +1377,6 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 
 ---
 
-## Task 29: Puente: DMs, resultados y `/faq`
-
-**Repo:** API · **RNF:** CON-04, PRI-03, OBS-01 · **Deuda:** #7
-
-**Description:** DM al solicitante cuando escribe un miembro (si hay permiso). Anuncio en el grupo y DM al cerrar una solicitud. `/faq` responde un placeholder. El DM al solicitante no incluye votos ni avales, y ningún aviso dice quién votó.
-
-**Acceptance criteria:**
-- [ ] Sin permiso de DM, el mensaje se entrega por socket igual (criterio de éxito 8)
-- [ ] El DM de resultado al solicitante no nombra a quienes votaron
-
-**Verification:**
-- [ ] e2e con Telegram simulado que falla
-
-**Dependencies:** T27, T21
-
-**Files likely touched:**
-- `src/telegram-bridge/application/bridge.service.ts`
-- `src/telegram-bot/telegram-bot.service.ts`
-- `src/chat/application/chat.service.ts`
-
-**Estimated scope:** M
-
 ### Checkpoint E: v1 funcional
 - [ ] Criterios de éxito 6, 7 y 8
 - [ ] Flujo completo en staging con bot y grupo de prueba
@@ -1420,7 +1398,7 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 **Verification:**
 - [ ] e2e del endpoint; manual en staging
 
-**Dependencies:** T29
+**Dependencies:** T27
 
 **Files likely touched:**
 - `src/telegram-bot/telegram-bot.server.ts`
