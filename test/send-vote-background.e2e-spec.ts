@@ -294,6 +294,8 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
     );
     expect(testApp.telegramBot.sendInviteLinkToUser).toHaveBeenCalledWith(
       APPLICANT.id,
+      `https://t.me/+${id.replace(/-/g, '')}`,
+      7,
     );
   });
 });

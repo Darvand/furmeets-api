@@ -23,6 +23,7 @@ import {
   RequestChatMessageSchema,
 } from './infraestructure/schemas/request-chat-message.schema';
 import { BackgroundQueue } from 'src/shared/async/background-queue';
+import { AdmissionModule } from 'src/admission/admission.module';
 
 @Module({
   providers: [
@@ -52,6 +53,7 @@ import { BackgroundQueue } from 'src/shared/async/background-queue';
     MembershipModule,
     TelegramBotModule,
     MediaModule,
+    AdmissionModule,
     MongooseModule.forFeature([
       { name: RequestChat.name, schema: RequestChatSchema },
       { name: RequestChatMessage.name, schema: RequestChatMessageSchema },

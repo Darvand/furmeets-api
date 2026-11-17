@@ -1261,7 +1261,7 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 
 **Repo:** API · **RNF:** SEG-09, SEG-10 · **Deuda:** #8
 
-**Description:** Al aprobarse, `createChatInviteLink({ creates_join_request: true, name: <id> })`, guardar el enlace (sin caducidad). Handler de `chat_join_request`: aprueba solo si el usuario tiene solicitud aprobada, marca *ingresó* y revoca el enlace; en cualquier otro caso rechaza.
+**Description:** Al aprobarse, `createChatInviteLink({ creates_join_request: true, name: <id>, expire_date: +7 días })`, guardar el enlace. Handler de `chat_join_request`: aprueba solo si el usuario tiene solicitud aprobada, marca *ingresó* y revoca el enlace; en cualquier otro caso rechaza.
 
 **Contexto (2026-11-17):**
 - **El enlace actual se reutiliza.** Hay miembros aprobados que salen del grupo y meses después vuelven a entrar con el mismo enlace, sin pasar por una solicitud. Pasa porque:
@@ -1270,19 +1270,38 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 - **API PR #40** (`fix/telegram-markdown-entities`): el enlace se envía como texto plano. Con `parse_mode: 'Markdown'`, un `_` en el código aleatorio abría una cursiva: con una cantidad impar Telegram rechazaba el mensaje (*can't parse entities*) y con una par llegaba roto. El mismo PR escapa el nombre del solicitante en los avisos de aprobación, de rechazo y de mensaje nuevo.
 
 **Acceptance criteria:**
-- [ ] El aprobado es aceptado; otra cuenta con el mismo enlace es rechazada
-- [ ] Tras el ingreso, el enlace queda revocado y se invalida la caché de membresía del usuario (su siguiente `GET /me` devuelve `member`)
-- [ ] Se elimina el enlace con `member_limit: 1`
+- [x] El aprobado es aceptado; otra cuenta con el mismo enlace es rechazada
+- [x] Tras el ingreso, el enlace queda revocado y se invalida la caché de membresía del usuario (su siguiente `GET /me` devuelve `member`)
+- [x] Se elimina el enlace con `member_limit: 1`
 
 **Verification:**
-- [ ] e2e con el bot simulado (criterio de éxito 6)
+- [x] e2e con el bot simulado (criterio de éxito 6): `test/admission.e2e-spec.ts`
+- [x] Unitarias de la regla (`admission.spec.ts`) y del servicio (`admission.service.spec.ts`)
+- [x] Prueba de mutación: sin invalidar el rol, o sin comparar el enlace usado, falla el e2e
+- [ ] Manual en staging con el bot y un grupo de prueba (Checkpoint E)
+
+**Notas de implementación:**
+- **Módulo nuevo `src/admission/`.** No importa `ChatModule`: `ChatModule` lo usa al aprobar. Lee y escribe sus propios campos en la colección de solicitudes, con el mismo modelo de Mongoose.
+- **Datos.** La solicitud guarda `inviteLink` y `admittedAt` (*ingresó*). No hay un estado nuevo: la solicitud sigue *Approved*, así los totales, el historial y las rutas de la App no cambian.
+- **Al aprobarse.** Tras el aviso por socket, la cola crea el enlace (`creates_join_request: true`, sin `member_limit`, con caducidad a los 7 días), lo guarda con su vencimiento y encola el DM aparte. Así un DM fallido no vuelve a crear el enlace, y un Telegram lento no retrasa el cierre. Si ya tiene enlace, no se crea otro (tampoco si venció). El `name` del enlace es el id de la solicitud sin guiones (32 caracteres, el máximo de Telegram).
+- **Vence a los 7 días** (decidido el 2026-11-17). Se pide a Telegram con `expire_date` y se guarda `inviteExpiresAt`. El DM dice "tienes 7 días para usarlo". Pasado el plazo, Telegram ya no deja usar el enlace, `GET /me` deja de traerlo y, por si acaso, la regla rechaza con `enlace-vencido`. **No se emite otro solo:** un aprobado que no entró en la semana queda a la espera de que un admin lo invite a mano.
+- **`GET /me`** trae `inviteLink` para el solicitante aprobado que todavía no entró y cuyo enlace no venció. Falta mientras se crea (unos instantes después del cierre), si ya entró, si venció, o si la aprobación es anterior a T25.
+- **Regla** (`decideJoinRequest`, en el dominio). Se acepta solo si el usuario tiene una solicitud aprobada, todavía no entró y llega por el enlace de **esa** solicitud. Si no, se rechaza. Los motivos van al log sin datos personales: `sin-solicitud`, `no-aprobada`, `ya-ingreso`, `sin-enlace`, `otro-enlace`, `enlace-vencido`.
+- **Al aceptar.** `approveChatJoinRequest`, luego `admittedAt` (condicional, una sola vez), `MembershipService.invalidate` y `revokeChatInviteLink`. Si falla revocar, el ingreso igual queda marcado y nadie más pasa con ese enlace. Si falla aceptar, no se marca nada: la solicitud de unión queda pendiente en Telegram para un admin.
+- **Quien entra, sale y vuelve** es rechazado: su enlace ya se revocó y no se emite otro. Es el caso que motivó el contexto de arriba. Volver a entrar sigue siendo una rehabilitación manual (SPEC §3.1).
+- **Aprobaciones anteriores a T25:** no tienen enlace guardado, así que no reciben uno ni pueden entrar por solicitud de unión.
+- **Bot.** `ALLOWED_UPDATES` suma `chat_join_request`. Se quitó el handler de `:new_chat_members`, que solo dejaba un log.
+
+**Pasos operativos al desplegar:**
+- El bot debe seguir siendo administrador con permiso para invitar usuarios: sin él no recibe `chat_join_request`.
+- **Revocar a mano los enlaces viejos con `member_limit`**, en *Administrar grupo → Enlaces de invitación*. El bot no los guardó, así que no los puede revocar, y siguen dejando entrar directo a quien salió. Lo mismo con cualquier otro enlace público del grupo (SPEC §3.4).
 
 **Dependencies:** T21
 
-**Files likely touched:**
-- `src/admission/application/admission.service.ts` (+ `.spec.ts`)
-- `src/telegram-bot/telegram-bot.service.ts`
-- `src/chat/domain/value-objects/request-chat-state.value-object.ts`
+**Files touched:**
+- `src/admission/` (nuevo): `domain/admission.ts`, `domain/admission.repository.ts`, `application/admission.service.ts`, `infraestructure/admission-mongo.repository.ts`, `presentation/chat-join-request.handler.ts`
+- `src/telegram-bot/telegram-bot.service.ts`, `src/chat/application/chat.service.ts`, `src/chat/infraestructure/schemas/request-chat.schema.ts`
+- `src/membership/presentation/me.controller.ts`, `dtos/me.dto.ts`
 
 **Estimated scope:** M
 
@@ -1293,6 +1312,8 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 **Repo:** App · **RNF:** USA-01
 
 **Description:** *Aprobado* (paso 3 de 3) con el enlace y sin reglas de convivencia; *No aprobado* sin prometer reintento.
+
+**Contrato de la API (T25):** el enlace viene en `GET /me` como `inviteLink` y vence a los 7 días: *Aprobado* debe decir que tiene una semana para usarlo. Justo después del cierre puede faltar unos instantes, mientras la cola lo crea: *Aprobado* vuelve a pedir `GET /me` hasta que llegue, con un límite de intentos. Si no llega (venció, aprobación anterior a T25 o error de Telegram), muestra que un admin lo enviará, sin dejar la pantalla cargando.
 
 **Acceptance criteria:**
 - [ ] El enlace abre la solicitud de unión en Telegram

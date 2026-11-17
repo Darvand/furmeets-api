@@ -71,6 +71,10 @@ export async function createTestApp(
   process.env.REJECT_THRESHOLD = '5';
 
   const telegramBot = createTelegramBotStub();
+  // Un enlace distinto por solicitud, como los de Telegram (T25).
+  telegramBot.createAdmissionLink.mockImplementation((name: string) =>
+    Promise.resolve(`https://t.me/+${name}`),
+  );
   let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(TelegramBotService)
     .useValue(telegramBot);
