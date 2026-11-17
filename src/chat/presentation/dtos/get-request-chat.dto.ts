@@ -35,6 +35,8 @@ export class GetRequestChatDto {
  */
 export type MemberRequestChatDto = GetRequestChatDto &
   RequestChatVotingDto & {
+    /** ISO-8601 UTC. La fecha de la solicitud, para el Resumen. */
+    createdAt: string;
     /** El voto de quien pide la solicitud; falta si no votó o en eventos para todos. */
     userVote?: VoteType;
     /** Del más antiguo al más reciente. */
