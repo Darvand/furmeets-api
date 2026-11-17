@@ -1373,7 +1373,7 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 - **Responder desde el grupo (T28) se quitó.** Telegram no deja impedir que alguien responda a un mensaje del bot en el grupo, pero esas respuestas se quedan en el grupo: no se leen ni llegan al chat de la solicitud. Por eso no se guarda el `message_id` de lo republicado.
 - **Fallos.** Va a `BackgroundQueue` después de guardar y emitir, con 3 intentos. Si Telegram no cede, solo se registra el error: el mensaje ya está guardado y emitido.
 - **Límite conocido.** Si un envío llegó a Telegram pero la respuesta se perdió, el reintento lo duplica en el grupo. Es poco común y preferible a perder el mensaje.
-- **Módulo.** `TelegramBridgeModule` no importa `ChatModule`: `ChatService` lo usa y guarda lo que devuelve.
+- **Módulo.** `TelegramBridgeModule` no importa `ChatModule`: `ChatService` lo usa.
 
 ---
 
