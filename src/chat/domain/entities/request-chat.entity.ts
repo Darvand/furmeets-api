@@ -141,14 +141,14 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
   announceApproval(): string {
     return (
-      `✅ La solicitud de [${this.props.requester.name}](tg://user?id=${this.props.requester.telegramId}) ha sido aprobada.\n` +
+      `✅ La solicitud de [${escapeMarkdown(this.props.requester.name)}](tg://user?id=${this.props.requester.telegramId}) ha sido aprobada.\n` +
       `¡Te damos la bienvenida al grupo! 🎉`
     );
   }
 
   announceRejection(): string {
     return (
-      `❌ La solicitud de [${this.props.requester.name}](tg://user?id=${this.props.requester.telegramId}) ha sido rechazada.\n` +
+      `❌ La solicitud de [${escapeMarkdown(this.props.requester.name)}](tg://user?id=${this.props.requester.telegramId}) ha sido rechazada.\n` +
       `Lo sentimos, no ha sido posible aceptar su ingreso en este momento.`
     );
   }
@@ -194,7 +194,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
   /** Aviso al solicitante de que tiene un mensaje nuevo. */
   static newMessageNotificationText(requester: UserEntity): string {
-    return `${requester.name}, tienes un mensaje nuevo en el [chat](${TELEGRAM_BOT_LINK}).`;
+    return `${escapeMarkdown(requester.name)}, tienes un mensaje nuevo en el [chat](${TELEGRAM_BOT_LINK}).`;
   }
 
   isApproved(): boolean {
