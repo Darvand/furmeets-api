@@ -513,7 +513,7 @@ Encontrada en la revisión del 2026-09-29.
 | 5 | El agregado entero se reescribe en cada lectura, mensaje o voto (condiciones de carrera); el mapper no persiste `createdAt`, y `viewedAt` no coincide con `createdAt` del schema | `chat-mongo.repository.ts`, `request-chat-message.mapper.ts` |
 | 6 | `getRequestChatByUUID` guarda en cada lectura (marca leídos) | `chat.service.ts` |
 | 7 | Las notificaciones de Telegram se esperan (`await`) sin capturar errores dentro del flujo del mensaje | `chat.service.ts` |
-| 8 | El enlace de invitación con `member_limit: 1` es reenviable; `:new_chat_members` no hace nada | `telegram-bot.service.ts` |
+| 8 | El enlace de invitación con `member_limit: 1` es reenviable y reutilizable: `member_limit` cuenta miembros a la vez, no usos, así que si quien entró sale, el enlace vuelve a servir. No caduca y `:new_chat_members` no hace nada | `telegram-bot.service.ts` |
 | 9 | La membresía se decide por `group.members` en BD, que queda desactualizada | `RequireBeMember.tsx`, `groups.service.ts` |
 | 10 | Se guarda el `file_path` de los avatares (caduca) | `user-mongo.repository.ts` |
 | 11 | Sin validación de DTOs (`vote/:type` acepta cualquier string) | `presentation/dtos` |
