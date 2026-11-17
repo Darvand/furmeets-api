@@ -15,10 +15,15 @@ const TELEGRAM_BOT_LINK =
   process.env.TELEGRAM_BOT_LINK || 't.me/furmeets_test_bot/furmeets_hub';
 
 /**
- * Contenido máximo de un mensaje reenviado al grupo. Telegram acepta hasta 4096
- * caracteres y el aviso suma encabezado y enlace.
+ * Enlace que abre la App en una solicitud (`startapp`). Lleva esquema porque las
+ * entidades de Telegram lo exigen.
  */
-const GROUP_NOTICE_MAX_CONTENT = 3_500;
+export function requestChatDeepLink(requestChatId: string): string {
+  const link = /^https?:\/\//.test(TELEGRAM_BOT_LINK)
+    ? TELEGRAM_BOT_LINK
+    : `https://${TELEGRAM_BOT_LINK}`;
+  return `${link}?startapp=${requestChatId}`;
+}
 
 /**
  * Escapa texto de usuario para `parse_mode: 'Markdown'`: un `*`, `_`, `` ` `` o `[`
@@ -170,26 +175,6 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
       default:
         return undefined;
     }
-  }
-
-  /**
-   * Mensaje del solicitante reenviado al grupo: quién escribe, el contenido y el enlace
-   * a su solicitud en la MiniApp (`startapp` lleva el id de la solicitud).
-   */
-  static requesterMessageNotice(
-    requestChatId: UUID,
-    requester: UserEntity,
-    content: string,
-  ): string {
-    const excerpt =
-      content.length > GROUP_NOTICE_MAX_CONTENT
-        ? `${content.slice(0, GROUP_NOTICE_MAX_CONTENT)}…`
-        : content;
-    return (
-      `💬 Nuevo mensaje de *${escapeMarkdown(requester.name)}* en su solicitud:\n` +
-      `${escapeMarkdown(excerpt)}\n` +
-      `[Ver solicitud](${TELEGRAM_BOT_LINK}?startapp=${requestChatId.value})`
-    );
   }
 
   /** Aviso al solicitante de que tiene un mensaje nuevo. */

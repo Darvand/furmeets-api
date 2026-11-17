@@ -164,6 +164,33 @@ describe('MediaService', () => {
     });
   });
 
+  describe('fileIdsOf', () => {
+    it('devuelve los file_id en el orden pedido y omite las que no existen', async () => {
+      const { service, stored } = setup();
+      for (const id of ['a', 'b']) {
+        stored.set(id, {
+          id,
+          kind: MediaKinds.Upload,
+          fileId: `file-${id}`,
+          fileUniqueId: `unique-${id}`,
+          mimeType: 'image/jpeg',
+        });
+      }
+
+      await expect(service.fileIdsOf(['b', 'borrada', 'a'])).resolves.toEqual([
+        'file-b',
+        'file-a',
+      ]);
+    });
+
+    it('sin ids no consulta la base', async () => {
+      const { service, repository } = setup();
+
+      await expect(service.fileIdsOf([])).resolves.toEqual([]);
+      expect(repository.findByIds).not.toHaveBeenCalled();
+    });
+  });
+
   describe('shareUploads', () => {
     it('quien recibe la imagen compartida la puede abrir sin ser miembro', async () => {
       const { service } = setup(Roles.Applicant);

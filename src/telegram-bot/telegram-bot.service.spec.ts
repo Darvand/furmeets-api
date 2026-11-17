@@ -61,7 +61,15 @@ function createService({ withStorage = true } = {}) {
   const sendPhoto = jest
     .spyOn(api, 'sendPhoto')
     .mockResolvedValue({ photo: [size(320), size(1280)] } as never);
+  const sendMessage = jest
+    .spyOn(api, 'sendMessage')
+    .mockResolvedValue({ message_id: 7 } as never);
+  const sendMediaGroup = jest
+    .spyOn(api, 'sendMediaGroup')
+    .mockResolvedValue([{ message_id: 8 }, { message_id: 9 }] as never);
   return {
+    sendMessage,
+    sendMediaGroup,
     service,
     getMe,
     getChatMember,
@@ -203,6 +211,18 @@ describe('TelegramBotService', () => {
     expect(text).toContain(link);
     expect(text).toContain('7 días');
     expect(options?.parse_mode).toBeUndefined();
+    expect(options?.link_preview_options).toEqual({ is_disabled: true });
+  });
+
+  it('los mensajes privados en Markdown van sin vista previa', async () => {
+    const { service, sendMessage } = createService();
+
+    await service.sendMessageToUser(42, 'hola [chat](https://t.me/bot)');
+
+    expect(sendMessage).toHaveBeenCalledWith(42, expect.any(String), {
+      parse_mode: 'Markdown',
+      link_preview_options: { is_disabled: true },
+    });
   });
 
   it('el enlace de admisión crea solicitudes de unión y no tiene límite de miembros y caduca', async () => {
@@ -244,5 +264,82 @@ describe('TelegramBotService', () => {
       'https://api.telegram.org/file/bot123:TEST/photos/x.jpg',
     );
     fetchSpy.mockRestore();
+  });
+
+  describe('republicación en el grupo', () => {
+    const entities = [{ type: 'bold' as const, offset: 0, length: 3 }];
+
+    it('manda el texto sin parse_mode ni vista previa, con entidades', async () => {
+      const { service, sendMessage } = createService();
+
+      await service.sendTextToGroup('Ana_', entities);
+
+      expect(sendMessage).toHaveBeenCalledWith('-100', 'Ana_', {
+        entities,
+        link_preview_options: { is_disabled: true },
+      });
+    });
+
+    it('los avisos en Markdown van sin vista previa y devuelven su message_id', async () => {
+      const { service, sendMessage } = createService();
+
+      await expect(service.sendMessageToGroup('*hola*')).resolves.toBe(7);
+
+      expect(sendMessage).toHaveBeenCalledWith('-100', '*hola*', {
+        parse_mode: 'Markdown',
+        link_preview_options: { is_disabled: true },
+      });
+    });
+
+    it('fija y desfija un mensaje del grupo, sin notificar al fijar', async () => {
+      const { service } = createService();
+      const pin = jest
+        .spyOn(
+          (service as unknown as { bot: { api: Api } }).bot.api,
+          'pinChatMessage',
+        )
+        .mockResolvedValue(true);
+      const unpin = jest
+        .spyOn(
+          (service as unknown as { bot: { api: Api } }).bot.api,
+          'unpinChatMessage',
+        )
+        .mockResolvedValue(true);
+
+      await service.pinGroupMessage(7);
+      await service.unpinGroupMessage(7);
+
+      expect(pin).toHaveBeenCalledWith('-100', 7, {
+        disable_notification: true,
+      });
+      expect(unpin).toHaveBeenCalledWith('-100', 7);
+    });
+
+    it('una foto va por file_id con el pie y sus entidades', async () => {
+      const { service, sendPhoto } = createService();
+
+      await service.sendPhotosToGroup(['f1'], 'pie', entities);
+
+      expect(sendPhoto).toHaveBeenCalledWith('-100', 'f1', {
+        caption: 'pie',
+        caption_entities: entities,
+      });
+    });
+
+    it('varias fotos van como álbum, con el pie solo en la primera', async () => {
+      const { service, sendMediaGroup } = createService();
+
+      await service.sendPhotosToGroup(['f1', 'f2'], 'pie', entities);
+
+      expect(sendMediaGroup).toHaveBeenCalledWith('-100', [
+        {
+          type: 'photo',
+          media: 'f1',
+          caption: 'pie',
+          caption_entities: entities,
+        },
+        { type: 'photo', media: 'f2' },
+      ]);
+    });
   });
 });

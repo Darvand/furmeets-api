@@ -52,6 +52,7 @@ import {
 import { RequestChatAccessService } from './request-chat-access.service';
 import { AdmissionService } from 'src/admission/application/admission.service';
 import { ADMISSION_LINK_TTL_DAYS } from 'src/admission/domain/admission';
+import { BridgeService } from 'src/telegram-bridge/application/bridge.service';
 
 /** Cuántos mensajes trae abrir un chat; los anteriores se piden por páginas (T18). */
 export const LATEST_MESSAGES_LIMIT = 50;
@@ -113,6 +114,7 @@ export class ChatService {
     private readonly background: BackgroundQueue,
     private readonly mediaService: MediaService,
     private readonly admission: AdmissionService,
+    private readonly bridge: BridgeService,
   ) {}
 
   /**
@@ -147,10 +149,7 @@ export class ChatService {
       thresholds: this.thresholds,
     };
     this.chatGateway.emitNewRequestChat(view);
-    this.notifyGroup(
-      'aviso de solicitud nueva',
-      requestChat.announceWelcomeMesssage(),
-    );
+    this.announceAndPin(requestChat);
     return view;
   }
 
@@ -359,6 +358,7 @@ export class ChatService {
   }
 
   private notifyClosed(requestChat: RequestChatEntity): void {
+    this.unpinAnnouncement(requestChat.id);
     if (requestChat.isApproved()) {
       this.notifyGroup('aviso de aprobación', requestChat.announceApproval());
       this.issueInviteLink(requestChat);
@@ -389,8 +389,8 @@ export class ChatService {
   }
 
   /**
-   * Si escribe el solicitante, su mensaje llega al grupo con el enlace a la solicitud;
-   * si escribe un miembro, se avisa al solicitante.
+   * Si escribe el solicitante, el puente republica su mensaje en el grupo; si escribe un
+   * miembro, se avisa al solicitante.
    */
   private notifyNewMessage(
     header: RequestChatHeader,
@@ -398,14 +398,7 @@ export class ChatService {
   ): void {
     const author = message.author;
     if (header.requesterId.value === author.id.value) {
-      this.notifyGroup(
-        'aviso de mensaje al grupo',
-        RequestChatEntity.requesterMessageNotice(
-          header.id,
-          author,
-          message.preview,
-        ),
-      );
+      this.republish(header, message);
       return;
     }
     this.background.enqueue('aviso de mensaje al solicitante', async () => {
@@ -419,10 +412,64 @@ export class ChatService {
     });
   }
 
-  private notifyGroup(name: string, text: string): void {
-    this.background.enqueue(name, () =>
-      this.telegramBotService.sendMessageToGroup(text),
+  /**
+   * Republica el mensaje del solicitante en el grupo. Un fallo de Telegram se reintenta
+   * y, si no cede, solo se registra: el mensaje ya está guardado y emitido.
+   */
+  private republish(
+    header: RequestChatHeader,
+    message: RequestChatMessageEntity,
+  ): void {
+    this.background.enqueue('republicación del mensaje en el grupo', () =>
+      this.bridge.republish({
+        requestChatId: header.id.value,
+        requesterName: message.author.name,
+        content: message.content,
+        imageIds: message.imageIds,
+      }),
     );
+  }
+
+  /**
+   * Anuncia la solicitud nueva en el grupo y fija el aviso mientras siga en curso. Se
+   * guarda su `message_id` para desfijarlo al cerrarse. Fijar o guardar el id no se
+   * reintentan, porque repetirían el aviso: si fallan (p. ej. el bot no puede fijar
+   * mensajes) solo se registra.
+   */
+  private announceAndPin(requestChat: RequestChatEntity): void {
+    this.background.enqueue('aviso de solicitud nueva', async () => {
+      const messageId = await this.telegramBotService.sendMessageToGroup(
+        requestChat.announceWelcomeMesssage(),
+      );
+      try {
+        await this.requestChatRepository.setAnnouncementMessageId(
+          requestChat.id,
+          messageId,
+        );
+        await this.telegramBotService.pinGroupMessage(messageId);
+      } catch (error) {
+        this.logger.error(
+          `No se pudo fijar el aviso de la solicitud ${requestChat.id.value}: ${errorReason(error)}`,
+        );
+      }
+    });
+  }
+
+  /** Al cerrarse (aprobada o rechazada) el aviso deja de estar fijado. */
+  private unpinAnnouncement(id: UUID): void {
+    this.background.enqueue('desfijar el aviso de solicitud', async () => {
+      const messageId =
+        await this.requestChatRepository.getAnnouncementMessageId(id);
+      if (messageId !== undefined) {
+        await this.telegramBotService.unpinGroupMessage(messageId);
+      }
+    });
+  }
+
+  private notifyGroup(name: string, text: string): void {
+    this.background.enqueue(name, async () => {
+      await this.telegramBotService.sendMessageToGroup(text);
+    });
   }
 
   private alreadyApplied(): ConflictException {
@@ -441,4 +488,8 @@ export class ChatService {
     }
     return requestChat;
   }
+}
+
+function errorReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -99,6 +99,10 @@ export interface ChatRepository {
   withdrawEndorsement(id: UUID, endorser: UUID): Promise<Endorsement[] | null>;
   /** Cierra la solicitud si sigue en curso. Devuelve si esta llamada la cerró. */
   close(id: UUID, state: RequestChatState): Promise<boolean>;
+  /** Guarda el `message_id` del aviso de la solicitud en el grupo. */
+  setAnnouncementMessageId(id: UUID, messageId: number): Promise<void>;
+  /** El `message_id` del aviso en el grupo, si se guardó. */
+  getAnnouncementMessageId(id: UUID): Promise<number | undefined>;
   getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null>;
   chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean>;
   /** Id y estado de la solicitud del usuario, sin cargar mensajes ni votos. */

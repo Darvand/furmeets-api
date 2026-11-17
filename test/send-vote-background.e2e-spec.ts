@@ -164,7 +164,14 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
   beforeEach(() => {
     const tg = testApp.telegramBot;
     // Telegram lento en todo lo que avisa.
-    tg.sendMessageToGroup.mockReset().mockImplementation(slow);
+    tg.sendMessageToGroup.mockReset().mockImplementation(async () => {
+      await slow();
+      return 900;
+    });
+    tg.sendTextToGroup.mockReset().mockImplementation(async () => {
+      await slow();
+      return 1;
+    });
     tg.sendMessageToUser.mockReset().mockImplementation(slow);
     tg.sendInviteLinkToUser.mockReset().mockImplementation(slow);
   });
@@ -201,13 +208,16 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
     // Enviar: leer solicitante y estado, e insertar.
     expect(mongoOpsOf('WS request-chat ok')).toBeLessThanOrEqual(2);
     await drain();
-    // Al grupo llega el mensaje de Ana con el enlace a su solicitud.
-    const notice = (
-      testApp.telegramBot.sendMessageToGroup.mock.calls as [string][]
-    ).at(-1)![0];
-    expect(notice).toContain('*Ana*');
-    expect(notice).toContain('hola, soy Ana');
-    expect(notice).toContain(`startapp=${id}`);
+    // Al grupo llega el mensaje de Ana, con el enlace a su solicitud en el encabezado.
+    expect(testApp.telegramBot.sendTextToGroup).toHaveBeenCalledWith(
+      'Ana · solicitud\nhola, soy Ana',
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text_link',
+          url: expect.stringContaining(`startapp=${id}`) as string,
+        }),
+      ]),
+    );
   });
 
   it('si Telegram falla, el mensaje queda guardado y emitido, y el error se registra', async () => {

@@ -83,18 +83,6 @@ export class RequestChatMessageEntity extends Entity<RequestChatMessageProps> {
     });
   }
 
-  /**
-   * Texto para avisos de Telegram: el contenido o, si es solo imágenes, cuántas. (La
-   * republicación con las imágenes en el grupo es T27.)
-   */
-  get preview(): string {
-    if (/\S/.test(this.props.content)) {
-      return this.props.content;
-    }
-    const count = this.imageIds.length;
-    return count === 1 ? '📷 Imagen' : `📷 ${count} imágenes`;
-  }
-
   fromUser(user: UserEntity): boolean {
     return this.props.author.equals(user);
   }

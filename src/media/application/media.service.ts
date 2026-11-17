@@ -109,6 +109,24 @@ export class MediaService {
     await this.repository.shareWith(ids, viewerId);
   }
 
+  /**
+   * `file_id` de Telegram de esas imágenes, en el orden de `ids`, para republicarlas sin
+   * volver a subirlas. Las que ya no existen se omiten. Solo para uso interno: el
+   * `file_id` no sale de la API.
+   */
+  async fileIdsOf(ids: readonly string[]): Promise<string[]> {
+    if (!ids.length) {
+      return [];
+    }
+    const found = new Map(
+      (await this.repository.findByIds(ids)).map((media) => [
+        media.id,
+        media.fileId,
+      ]),
+    );
+    return ids.flatMap((id) => found.get(id) ?? []);
+  }
+
   /** Registra una foto que ya está en Telegram (avatar, foto del grupo) y devuelve su id. */
   registerTelegramPhoto(
     kind: MediaKind,

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -32,6 +33,7 @@ import type { ChatGateway } from '../presentation/chat.gateway';
 import type { MediaService } from 'src/media/application/media.service';
 import { ChatService, LATEST_MESSAGES_LIMIT } from './chat.service';
 import type { RequestChatAccessService } from './request-chat-access.service';
+import type { BridgeService } from 'src/telegram-bridge/application/bridge.service';
 
 const user = (telegramId: number) =>
   UserEntity.create({ name: `User ${telegramId}`, telegramId, isMember: true });
@@ -91,6 +93,10 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     ),
     chatAlreadyExistsForRequester: jest.fn(() => Promise.resolve(false)),
     createRequestChat: jest.fn(() => Promise.resolve()),
+    setAnnouncementMessageId: jest.fn(() => Promise.resolve()),
+    getAnnouncementMessageId: jest.fn(() =>
+      Promise.resolve<number | undefined>(undefined),
+    ),
   };
   const messages = {
     insert: jest.fn(() => Promise.resolve()),
@@ -107,7 +113,9 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     getUserByUUID: jest.fn(() => Promise.resolve(requester)),
   };
   const telegram = {
-    sendMessageToGroup: jest.fn(() => Promise.resolve()),
+    sendMessageToGroup: jest.fn(() => Promise.resolve(900)),
+    pinGroupMessage: jest.fn(() => Promise.resolve()),
+    unpinGroupMessage: jest.fn(() => Promise.resolve()),
     sendMessageToUser: jest.fn(() => Promise.resolve()),
     sendInviteLinkToUser: jest.fn(() => Promise.resolve()),
   };
@@ -128,6 +136,9 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     assertOwnUploads: jest.fn(() => Promise.resolve()),
     shareUploads: jest.fn(() => Promise.resolve()),
   };
+  const bridge = {
+    republish: jest.fn(() => Promise.resolve()),
+  };
   const queueLogger = { warn: jest.fn(), error: jest.fn() };
   const queue = new BackgroundQueue(queueLogger as unknown as Logger, {
     retryDelayMs: 1,
@@ -142,6 +153,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     queue,
     media as unknown as MediaService,
     admission as unknown as AdmissionService,
+    bridge as unknown as BridgeService,
   );
   /** Operaciones de Mongo hechas hasta ahora. */
   const mongoOps = () =>
@@ -157,6 +169,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     users,
     telegram,
     admission,
+    bridge,
     gateway,
     access,
     media,
@@ -197,6 +210,41 @@ describe('ChatService', () => {
       // Sin las líneas del formulario anterior ni la etiqueta de menor.
       expect(announcement[0]).not.toContain('intereses');
       expect(announcement[0]).not.toContain('Menor de edad');
+    });
+
+    it('fija el aviso de la solicitud nueva y guarda su message_id', async () => {
+      const ctx = setup();
+      const requestChat = application();
+      ctx.telegram.sendMessageToGroup.mockResolvedValue(321);
+
+      await ctx.service.openRequestChat(requestChat);
+      await ctx.queue.drain();
+
+      expect(ctx.chats.setAnnouncementMessageId).toHaveBeenCalledWith(
+        requestChat.id,
+        321,
+      );
+      expect(ctx.telegram.pinGroupMessage).toHaveBeenCalledWith(321);
+    });
+
+    it('si no se puede fijar (el bot sin permiso), la solicitud igual se abre y el aviso no se repite', async () => {
+      const ctx = setup();
+      ctx.telegram.pinGroupMessage.mockRejectedValue(new Error('sin permiso'));
+      const logged = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        ctx.service.openRequestChat(application()),
+      ).resolves.toBeDefined();
+      await ctx.queue.drain();
+
+      expect(ctx.telegram.sendMessageToGroup).toHaveBeenCalledTimes(1);
+      expect(ctx.telegram.pinGroupMessage).toHaveBeenCalledTimes(1);
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining('sin permiso'),
+      );
+      logged.mockRestore();
     });
 
     it('una por usuario: si ya tiene una (en cualquier estado) → 409', async () => {
@@ -252,7 +300,8 @@ describe('ChatService', () => {
     it('guarda con 2 operaciones de Mongo y vuelve sin esperar a Telegram', async () => {
       const ctx = setup();
       const slow = slowTelegram();
-      ctx.telegram.sendMessageToGroup = slow.call;
+      ctx.bridge.republish =
+        slow.call as unknown as typeof ctx.bridge.republish;
       const resume = holdQueue(ctx.queue);
 
       const { message } = await ctx.service.addMessageToRequestChat(
@@ -269,10 +318,43 @@ describe('ChatService', () => {
       // Telegram sigue sin responder y el mensaje ya está guardado.
       slow.release();
       await ctx.queue.drain();
-      const notice = (slow.call.mock.calls[0] as unknown as [string])[0];
-      expect(notice).toContain('User 1');
-      expect(notice).toContain('hola');
-      expect(notice).toContain(`startapp=${ctx.requestChat.id.value}`);
+      expect(slow.call).toHaveBeenCalledWith({
+        requestChatId: ctx.requestChat.id.value,
+        requesterName: 'User 1',
+        content: 'hola',
+        imageIds: [],
+      });
+    });
+
+    it('republica las imágenes del solicitante', async () => {
+      const ctx = setup();
+      const imageIds = [randomUUID(), randomUUID()];
+
+      await ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
+        imageIds,
+      });
+      await ctx.queue.drain();
+
+      expect(ctx.bridge.republish).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '', imageIds }),
+      );
+    });
+
+    it('un reenvío con el mismo clientMessageId no se republica otra vez', async () => {
+      const ctx = setup();
+      ctx.messages.insertOnce.mockImplementation((message) =>
+        Promise.resolve({ message, created: false }),
+      );
+
+      await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        requester,
+        { content: 'hola' },
+        randomUUID(),
+      );
+      await ctx.queue.drain();
+
+      expect(ctx.bridge.republish).not.toHaveBeenCalled();
     });
 
     it('si escribe un miembro, avisa al solicitante en segundo plano', async () => {
@@ -295,7 +377,7 @@ describe('ChatService', () => {
 
     it('si Telegram falla, el mensaje queda guardado y el error se registra', async () => {
       const ctx = setup();
-      ctx.telegram.sendMessageToGroup.mockRejectedValue(new Error('caído'));
+      ctx.bridge.republish.mockRejectedValue(new Error('caído'));
 
       await expect(
         ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
@@ -305,7 +387,7 @@ describe('ChatService', () => {
       await ctx.queue.drain();
 
       expect(ctx.messages.insertOnce).toHaveBeenCalledTimes(1);
-      expect(ctx.telegram.sendMessageToGroup).toHaveBeenCalledTimes(3);
+      expect(ctx.bridge.republish).toHaveBeenCalledTimes(3);
       expect(ctx.queueLogger.error).toHaveBeenCalledWith(
         expect.stringContaining('caído'),
       );
@@ -495,7 +577,8 @@ describe('ChatService', () => {
     it('al cruzar el umbral cierra con 2 operaciones y avisa después, una vez', async () => {
       const ctx = setup({ approves: 5 });
       const slow = slowTelegram();
-      ctx.telegram.sendMessageToGroup = slow.call;
+      ctx.telegram.sendMessageToGroup = slow.call as never;
+      ctx.chats.getAnnouncementMessageId.mockResolvedValue(321);
       ctx.chats.getRequestChatByUUID.mockImplementation(() => {
         ctx.requestChat.props.state = RequestChatState.Approved();
         return Promise.resolve(ctx.requestChat);
@@ -518,6 +601,7 @@ describe('ChatService', () => {
       expect(ctx.messages.insert).not.toHaveBeenCalled();
       expect(ctx.gateway.emitRequestChatUpdate).toHaveBeenCalledTimes(1);
       expect(slow.call).toHaveBeenCalledTimes(1);
+      expect(ctx.telegram.unpinGroupMessage).toHaveBeenCalledWith(321);
       expect(ctx.admission.issueInviteLink).toHaveBeenCalledWith(
         ctx.requestChat.id,
       );
@@ -526,6 +610,46 @@ describe('ChatService', () => {
         'https://t.me/+enlace',
         7,
       );
+    });
+
+    it('al cerrarse sin aprobar también desfija el aviso, y sin aviso guardado no desfija', async () => {
+      const rejected = setup({ approves: 0 });
+      rejected.chats.toggleVote.mockResolvedValue(
+        Votes.of(
+          Array.from({ length: 5 }, () => ({
+            voterId: UUID.generate(),
+            type: 'reject' as const,
+          })),
+        ),
+      );
+      rejected.chats.getAnnouncementMessageId.mockResolvedValue(321);
+      rejected.chats.getRequestChatByUUID.mockImplementation(() => {
+        rejected.requestChat.props.state = RequestChatState.Rejected();
+        return Promise.resolve(rejected.requestChat);
+      });
+
+      await rejected.service.voteOnRequestChat(
+        rejected.requestChat.id,
+        member,
+        'reject',
+      );
+      await rejected.queue.drain();
+
+      expect(rejected.telegram.unpinGroupMessage).toHaveBeenCalledWith(321);
+
+      const unannounced = setup({ approves: 5 });
+      unannounced.chats.getRequestChatByUUID.mockImplementation(() => {
+        unannounced.requestChat.props.state = RequestChatState.Approved();
+        return Promise.resolve(unannounced.requestChat);
+      });
+      await unannounced.service.voteOnRequestChat(
+        unannounced.requestChat.id,
+        member,
+        'approve',
+      );
+      await unannounced.queue.drain();
+
+      expect(unannounced.telegram.unpinGroupMessage).not.toHaveBeenCalled();
     });
 
     it('si Telegram falla al cerrar, la solicitud queda cerrada y avisada por socket', async () => {

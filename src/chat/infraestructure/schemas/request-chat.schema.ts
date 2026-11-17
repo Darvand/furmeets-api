@@ -50,6 +50,13 @@ export class RequestChat {
   @Prop()
   state: string;
 
+  /**
+   * `message_id` del aviso de solicitud nueva en el grupo, que el bot fija mientras la
+   * solicitud está en curso. Falta si no se anunció o es anterior a T27.
+   */
+  @Prop()
+  announcementMessageId?: number;
+
   /** Enlace de admisión (T25). Solo en las aprobadas desde T25; lo maneja `admission`. */
   @Prop()
   inviteLink?: string;

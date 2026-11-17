@@ -887,7 +887,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - Las del solicitante ya las veían los miembros.
   - Si escribe un miembro, sus imágenes se comparten con el solicitante (`media.sharedWith`, con `$addToSet`) antes de emitir el mensaje, así el solicitante puede abrirlas en cuanto lo recibe. Otro solicitante sigue recibiendo 403.
   - `media` no depende de `chat`: guarda a quién se compartió, sin consultar la solicitud.
-- **Avisos de Telegram.** Si el mensaje es solo imágenes, el aviso al grupo dice "📷 Imagen" o "📷 N imágenes" (`preview`). Republicar las imágenes en el grupo es T27.
+- **Avisos de Telegram.** Si el mensaje es solo imágenes, el aviso al grupo dice "📷 Imagen" o "📷 N imágenes" (`preview`). *(Reemplazado en T27: el puente republica las imágenes y `preview` se quitó.)*
 - **Costo.** Un mensaje de texto sigue con 2 operaciones de Mongo. Las imágenes suman su validación y, si escribe un miembro, compartirlas.
 - **Sin migración.** `content` deja de ser obligatorio en el schema; los mensajes anteriores no cambian.
 
@@ -1342,46 +1342,38 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 
 **Repo:** API · **RNF:** CON-04, OBS-01
 
-**Description:** Anunciar cada nueva solicitud en el grupo con resumen y deep link. Republicar cada mensaje del solicitante (texto e imágenes reutilizando `file_id`) con encabezado "Nombre · solicitud", guardando el `message_id` del grupo. Todo fuera del camino crítico, con log de errores.
+**Description:** Anunciar cada nueva solicitud en el grupo con resumen y deep link, y fijar el aviso mientras la solicitud esté en curso. Republicar cada mensaje del solicitante (texto e imágenes reutilizando `file_id`) con encabezado "Nombre · solicitud". Nada lleva vista previa de enlaces. Todo fuera del camino crítico, con log de errores. (Cambio de alcance del 2026-11-17: se quitó T28, las respuestas desde el grupo, y con ella guardar el `message_id` de cada mensaje republicado.)
 
 **Acceptance criteria:**
-- [ ] Cada mensaje del solicitante aparece en el grupo
-- [ ] Si Telegram falla, el mensaje igual queda persistido y emitido
+- [x] Cada mensaje del solicitante aparece en el grupo
+- [x] Si Telegram falla, el mensaje igual queda persistido y emitido
+- [x] El aviso de solicitud nueva queda fijado y se desfija al cerrarse
+- [x] Ningún mensaje del bot al grupo muestra vista previa del enlace
 
 **Verification:**
-- [ ] e2e con Telegram simulado que falla; manual en staging (criterio de éxito 7, parte 1)
+- [x] e2e con Telegram simulado que falla: `test/bridge.e2e-spec.ts`
+- [ ] Manual en staging (criterio de éxito 7, parte 1)
 
 **Dependencies:** T17
 
 **Files likely touched:**
-- `src/telegram-bridge/application/bridge.service.ts` (+ `.spec.ts`)
-- `src/shared/async/background-queue.ts` (cola de T41)
-- `src/chat/application/chat.service.ts`
+- `src/telegram-bridge/` (nuevo): `application/bridge.service.ts`, `domain/republication.ts`, `telegram-bridge.module.ts` (+ `.spec.ts`)
+- `src/chat/application/chat.service.ts` (usa la cola de T41), `src/telegram-bot/telegram-bot.service.ts`, `src/media/application/media.service.ts`
+- `src/chat/infraestructure/` (`announcementMessageId` en la solicitud)
 
 **Estimated scope:** M
 
----
-
-## Task 28: Puente: respuestas desde el grupo
-
-**Repo:** API
-
-**Description:** Un *reply* de un miembro al mensaje republicado crea un mensaje en el chat de la solicitud a su nombre. Si el autor no es miembro, se ignora.
-
-**Acceptance criteria:**
-- [ ] El reply aparece en la MiniApp en tiempo real
-- [ ] Un reply de un no miembro no crea nada
-
-**Verification:**
-- [ ] e2e con update simulado (criterio de éxito 7, parte 2)
-
-**Dependencies:** T27, T05
-
-**Files likely touched:**
-- `src/telegram-bridge/presentation/group-reply.handler.ts`
-- `src/telegram-bot/telegram-bot.service.ts`
-
-**Estimated scope:** S
+**Notas de implementación:**
+- **Ya estaba hecho.** El anuncio de la solicitud nueva con resumen y deep link existe desde T13/T14. T27 le suma fijarlo y quitar la vista previa; lo demás es la republicación de cada mensaje.
+- **Aviso fijado.** Al abrir la solicitud, el bot envía el aviso, guarda su `message_id` en `announcementMessageId` de la solicitud y lo fija sin notificar (`pinChatMessage`). Al cerrarse, aprobada **o rechazada**, lo desfija. Cada solicitud fija el suyo, así que varias en curso conviven. Si fijar o guardar el id falla (p. ej. el bot sin permiso de fijar mensajes), solo se registra y no se reintenta, porque repetiría el aviso. Las solicitudes anteriores a T27 no tienen aviso guardado y no se desfija nada. **El bot debe poder fijar mensajes en el grupo.**
+- **Sin vista previa de enlaces.** Todo texto que envía el bot (grupo, republicado y mensajes privados, incluido el enlace de admisión) va con `link_preview_options.is_disabled`, para que no salga la tarjeta del bot o del grupo. Las fotos se envían igual y se ven normalmente.
+- **Qué se republica.** Solo lo que escribe el solicitante; lo de un miembro no (ya está en la App y el solicitante recibe su aviso). Un reenvío con el mismo `clientMessageId` tampoco.
+- **Formato.** Texto plano con entidades, sin `parse_mode`: encabezado "Nombre · solicitud" en negrita y con el enlace a la solicitud (`startapp`), y el texto del usuario tal cual, así un `_` o `*` suyo no hace que Telegram rechace el mensaje. Reemplaza al aviso en Markdown "Nuevo mensaje de…" (`requesterMessageNotice`, borrado junto con `preview`).
+- **Imágenes.** Se envían por `file_id` (`MediaService.fileIdsOf`), sin volver a subirlas: una sola como foto, varias como álbum, con el encabezado y el texto como pie. Si el texto no cabe en el pie (1.024), el pie lleva solo el encabezado y el texto va en un mensaje aparte. Un texto de más de 4.096 se recorta con "…" sin partir un emoji.
+- **Responder desde el grupo (T28) se quitó.** Telegram no deja impedir que alguien responda a un mensaje del bot en el grupo, pero esas respuestas se quedan en el grupo: no se leen ni llegan al chat de la solicitud. Por eso no se guarda el `message_id` de lo republicado.
+- **Fallos.** Va a `BackgroundQueue` después de guardar y emitir, con 3 intentos. Si Telegram no cede, solo se registra el error: el mensaje ya está guardado y emitido.
+- **Límite conocido.** Si un envío llegó a Telegram pero la respuesta se perdió, el reintento lo duplica en el grupo. Es poco común y preferible a perder el mensaje.
+- **Módulo.** `TelegramBridgeModule` no importa `ChatModule`: `ChatService` lo usa y guarda lo que devuelve.
 
 ---
 
