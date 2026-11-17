@@ -154,7 +154,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [ ] Revisión humana: el solicitante no recibe votos ni avales mientras no sea miembro, y nadie ve quién votó
 
 - [x] T25: Admisión por solicitud de unión — falta revocar a mano los enlaces viejos y la prueba en staging
-- [ ] T26: App: pantallas Aprobado y No aprobado
+- [x] T26: App: pantallas Aprobado y No aprobado — falta la prueba manual en staging
 - [ ] T27: Puente: anuncios y republicación en el grupo
 - [ ] T28: Puente: respuestas desde el grupo
 - [ ] T29: Puente: DMs, resultados y `/faq`

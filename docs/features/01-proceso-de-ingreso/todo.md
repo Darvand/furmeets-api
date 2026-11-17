@@ -1316,9 +1316,9 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 **Contrato de la API (T25):** el enlace viene en `GET /me` como `inviteLink` y vence a los 7 días: *Aprobado* debe decir que tiene una semana para usarlo. Justo después del cierre puede faltar unos instantes, mientras la cola lo crea: *Aprobado* vuelve a pedir `GET /me` hasta que llegue, con un límite de intentos. Si no llega (venció, aprobación anterior a T25 o error de Telegram), muestra que un admin lo enviará, sin dejar la pantalla cargando.
 
 **Acceptance criteria:**
-- [ ] El enlace abre la solicitud de unión en Telegram
-- [ ] Aprobado no enlaza a reglas de convivencia
-- [ ] El texto de No aprobado no menciona reintentar con un aval
+- [x] El enlace abre la solicitud de unión en Telegram
+- [x] Aprobado no enlaza a reglas de convivencia
+- [x] El texto de No aprobado no menciona reintentar con un aval
 
 **Verification:**
 - [ ] Manual en staging
@@ -1326,11 +1326,15 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 **Dependencies:** T07, T25
 
 **Files likely touched:**
-- `src/pages/ApprovedPage/ApprovedPage.tsx` (nuevo)
-- `src/pages/RejectedPage/RejectedPage.tsx` (nuevo)
-- `src/navigation/routes.tsx`
+- `src/pages/ApprovedPage.tsx`, `src/pages/NotApprovedPage.tsx` (existían como versión mínima, de T07)
+- `src/models/me.model.ts`, `src/state/me.slice.ts`, `src/services/me.service.ts` (`inviteLink`)
 
 **Estimated scope:** S
+
+**Notas de implementación (App, miniapp #19):**
+- **Aprobado** muestra "Paso 3 de 3" (`StepProgress`), el botón "Unirme al grupo" y el aviso de que el enlace vence en una semana. El enlace se abre con `openTelegramLink` (o `window.open` si no es de `t.me`). No enlaza a reglas de convivencia.
+- **Espera del enlace.** `inviteLink` viaja en el estado `me`. Si falta, la pantalla vuelve a pedir `GET /me` cada 2 s, máximo 5 veces, con un indicador. Agotados los intentos dice que un admin enviará el enlace por mensaje privado.
+- **No aprobado** no promete reintento ni menciona avales.
 
 ---
 
