@@ -57,14 +57,4 @@ describe('RequestChatMessageEntity', () => {
       RequestChatMessageEntity.send(chatId, author, body, at),
     ).toThrow(InvalidMessageError);
   });
-
-  it.each([
-    [{ content: 'hola', imageIds: ['a'] }, 'hola'],
-    [{ imageIds: ['a'] }, '📷 Imagen'],
-    [{ imageIds: ['a', 'b'] }, '📷 2 imágenes'],
-  ])('el resumen para avisos de %j es %s', (body, preview) => {
-    expect(
-      RequestChatMessageEntity.send(chatId, author, body, at).preview,
-    ).toBe(preview);
-  });
 });

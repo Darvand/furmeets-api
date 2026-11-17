@@ -61,7 +61,15 @@ function createService({ withStorage = true } = {}) {
   const sendPhoto = jest
     .spyOn(api, 'sendPhoto')
     .mockResolvedValue({ photo: [size(320), size(1280)] } as never);
+  const sendMessage = jest
+    .spyOn(api, 'sendMessage')
+    .mockResolvedValue({ message_id: 7 } as never);
+  const sendMediaGroup = jest
+    .spyOn(api, 'sendMediaGroup')
+    .mockResolvedValue([{ message_id: 8 }, { message_id: 9 }] as never);
   return {
+    sendMessage,
+    sendMediaGroup,
     service,
     getMe,
     getChatMember,
@@ -244,5 +252,49 @@ describe('TelegramBotService', () => {
       'https://api.telegram.org/file/bot123:TEST/photos/x.jpg',
     );
     fetchSpy.mockRestore();
+  });
+
+  describe('republicación en el grupo', () => {
+    const entities = [{ type: 'bold' as const, offset: 0, length: 3 }];
+
+    it('manda el texto sin parse_mode, con entidades, y devuelve su message_id', async () => {
+      const { service, sendMessage } = createService();
+
+      await expect(service.sendTextToGroup('Ana_', entities)).resolves.toBe(7);
+
+      expect(sendMessage).toHaveBeenCalledWith('-100', 'Ana_', { entities });
+    });
+
+    it('una foto va por file_id con el pie y sus entidades', async () => {
+      const { service, sendPhoto } = createService();
+      sendPhoto.mockResolvedValue({ message_id: 11 } as never);
+
+      await expect(
+        service.sendPhotosToGroup(['f1'], 'pie', entities),
+      ).resolves.toEqual([11]);
+
+      expect(sendPhoto).toHaveBeenCalledWith('-100', 'f1', {
+        caption: 'pie',
+        caption_entities: entities,
+      });
+    });
+
+    it('varias fotos van como álbum, con el pie solo en la primera', async () => {
+      const { service, sendMediaGroup } = createService();
+
+      await expect(
+        service.sendPhotosToGroup(['f1', 'f2'], 'pie', entities),
+      ).resolves.toEqual([8, 9]);
+
+      expect(sendMediaGroup).toHaveBeenCalledWith('-100', [
+        {
+          type: 'photo',
+          media: 'f1',
+          caption: 'pie',
+          caption_entities: entities,
+        },
+        { type: 'photo', media: 'f2' },
+      ]);
+    });
   });
 });

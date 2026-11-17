@@ -155,7 +155,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 
 - [x] T25: Admisión por solicitud de unión — falta revocar a mano los enlaces viejos y la prueba en staging
 - [x] T26: App: pantallas Aprobado y No aprobado — falta la prueba manual en staging
-- [ ] T27: Puente: anuncios y republicación en el grupo
+- [x] T27: Puente: anuncios y republicación en el grupo — falta la prueba manual en staging
 - [ ] T28: Puente: respuestas desde el grupo
 - [ ] T29: Puente: DMs, resultados y `/faq`
 

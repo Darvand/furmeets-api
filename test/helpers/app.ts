@@ -75,6 +75,14 @@ export async function createTestApp(
   telegramBot.createAdmissionLink.mockImplementation((name: string) =>
     Promise.resolve(`https://t.me/+${name}`),
   );
+  // Ids de mensaje del grupo, crecientes, como los que devuelve Telegram (T27).
+  let groupMessageId = 1_000;
+  telegramBot.sendTextToGroup.mockImplementation(() =>
+    Promise.resolve(groupMessageId++),
+  );
+  telegramBot.sendPhotosToGroup.mockImplementation((fileIds: string[]) =>
+    Promise.resolve(fileIds.map(() => groupMessageId++)),
+  );
   let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(TelegramBotService)
     .useValue(telegramBot);

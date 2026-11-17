@@ -31,6 +31,13 @@ export class RequestChatMessage {
   @Prop({ required: true })
   createdAt: Date;
 
+  /**
+   * `message_id` en el grupo de Telegram de lo que el puente republicó (una foto cada
+   * uno si es un álbum). Falta si no se republicó: no es del solicitante o Telegram falló.
+   */
+  @Prop({ type: [Number], default: undefined })
+  groupMessageIds?: number[];
+
   /** Id del envío generado por el cliente (texto: no referencia a otro documento). */
   @Prop()
   clientMessageId?: string;

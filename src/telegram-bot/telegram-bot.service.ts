@@ -9,6 +9,8 @@ import { telegramTimingTransformer } from '../shared/timing/telegram-timing';
 import type {
   ChatFullInfo,
   ChatMember,
+  InputMediaPhoto,
+  MessageEntity,
   PhotoSize,
   UserFromGetMe,
 } from 'grammy/types';
@@ -210,6 +212,55 @@ export class TelegramBotService {
     await this.bot.api.sendMessage(this.config.mainChatId, text, {
       parse_mode: 'Markdown',
     });
+  }
+
+  /**
+   * Texto plano con entidades (sin `parse_mode`) para republicar lo que escribe un
+   * usuario. Devuelve el `message_id` en el grupo.
+   */
+  async sendTextToGroup(
+    text: string,
+    entities: MessageEntity[],
+  ): Promise<number> {
+    const sent = await this.bot.api.sendMessage(this.config.mainChatId, text, {
+      entities,
+    });
+    return sent.message_id;
+  }
+
+  /**
+   * Fotos que ya están en Telegram, por `file_id` y sin volver a subirlas: una sola
+   * como foto y varias como álbum. El pie va en la primera. Devuelve los `message_id` en
+   * el grupo, uno por foto.
+   */
+  async sendPhotosToGroup(
+    fileIds: readonly string[],
+    caption: string,
+    captionEntities: MessageEntity[],
+  ): Promise<number[]> {
+    if (fileIds.length === 1) {
+      const sent = await this.bot.api.sendPhoto(
+        this.config.mainChatId,
+        fileIds[0],
+        { caption, caption_entities: captionEntities },
+      );
+      return [sent.message_id];
+    }
+    const sent = await this.bot.api.sendMediaGroup(
+      this.config.mainChatId,
+      fileIds.map(
+        (media, i): InputMediaPhoto =>
+          i === 0
+            ? {
+                type: 'photo',
+                media,
+                caption,
+                caption_entities: captionEntities,
+              }
+            : { type: 'photo', media },
+      ),
+    );
+    return sent.map((message) => message.message_id);
   }
 
   async sendMessageToUser(telegramId: number, text: string): Promise<void> {

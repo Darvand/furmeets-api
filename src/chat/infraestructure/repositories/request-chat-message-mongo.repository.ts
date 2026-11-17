@@ -69,6 +69,16 @@ export class RequestChatMessageMongoRepository
     };
   }
 
+  async setGroupMessageIds(
+    id: UUID,
+    groupMessageIds: readonly number[],
+  ): Promise<void> {
+    await this.messageModel.updateOne(
+      { _id: id.value },
+      { $set: { groupMessageIds: [...groupMessageIds] } },
+    );
+  }
+
   findLatest(requestChatId: UUID, limit: number): Promise<MessagesPage> {
     return this.page(requestChatId, 'older', limit);
   }

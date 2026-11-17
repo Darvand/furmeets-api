@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -32,6 +33,7 @@ import type { ChatGateway } from '../presentation/chat.gateway';
 import type { MediaService } from 'src/media/application/media.service';
 import { ChatService, LATEST_MESSAGES_LIMIT } from './chat.service';
 import type { RequestChatAccessService } from './request-chat-access.service';
+import type { BridgeService } from 'src/telegram-bridge/application/bridge.service';
 
 const user = (telegramId: number) =>
   UserEntity.create({ name: `User ${telegramId}`, telegramId, isMember: true });
@@ -94,6 +96,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
   };
   const messages = {
     insert: jest.fn(() => Promise.resolve()),
+    setGroupMessageIds: jest.fn(() => Promise.resolve()),
     insertOnce: jest.fn((message: RequestChatMessageEntity) =>
       Promise.resolve({ message, created: true }),
     ),
@@ -128,6 +131,9 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     assertOwnUploads: jest.fn(() => Promise.resolve()),
     shareUploads: jest.fn(() => Promise.resolve()),
   };
+  const bridge = {
+    republish: jest.fn(() => Promise.resolve<number[]>([501])),
+  };
   const queueLogger = { warn: jest.fn(), error: jest.fn() };
   const queue = new BackgroundQueue(queueLogger as unknown as Logger, {
     retryDelayMs: 1,
@@ -142,6 +148,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     queue,
     media as unknown as MediaService,
     admission as unknown as AdmissionService,
+    bridge as unknown as BridgeService,
   );
   /** Operaciones de Mongo hechas hasta ahora. */
   const mongoOps = () =>
@@ -157,6 +164,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     users,
     telegram,
     admission,
+    bridge,
     gateway,
     access,
     media,
@@ -252,7 +260,8 @@ describe('ChatService', () => {
     it('guarda con 2 operaciones de Mongo y vuelve sin esperar a Telegram', async () => {
       const ctx = setup();
       const slow = slowTelegram();
-      ctx.telegram.sendMessageToGroup = slow.call;
+      ctx.bridge.republish =
+        slow.call as unknown as typeof ctx.bridge.republish;
       const resume = holdQueue(ctx.queue);
 
       const { message } = await ctx.service.addMessageToRequestChat(
@@ -269,10 +278,77 @@ describe('ChatService', () => {
       // Telegram sigue sin responder y el mensaje ya está guardado.
       slow.release();
       await ctx.queue.drain();
-      const notice = (slow.call.mock.calls[0] as unknown as [string])[0];
-      expect(notice).toContain('User 1');
-      expect(notice).toContain('hola');
-      expect(notice).toContain(`startapp=${ctx.requestChat.id.value}`);
+      expect(slow.call).toHaveBeenCalledWith({
+        requestChatId: ctx.requestChat.id.value,
+        requesterName: 'User 1',
+        content: 'hola',
+        imageIds: [],
+      });
+    });
+
+    it('guarda los message_id del grupo con el mensaje republicado', async () => {
+      const ctx = setup();
+      ctx.bridge.republish.mockResolvedValue([71, 72]);
+
+      const { message } = await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        requester,
+        { content: 'hola' },
+      );
+      await ctx.queue.drain();
+
+      expect(ctx.messages.setGroupMessageIds).toHaveBeenCalledWith(
+        message.id,
+        [71, 72],
+      );
+    });
+
+    it('republica las imágenes del solicitante', async () => {
+      const ctx = setup();
+      const imageIds = [randomUUID(), randomUUID()];
+
+      await ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
+        imageIds,
+      });
+      await ctx.queue.drain();
+
+      expect(ctx.bridge.republish).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '', imageIds }),
+      );
+    });
+
+    it('un reenvío con el mismo clientMessageId no se republica otra vez', async () => {
+      const ctx = setup();
+      ctx.messages.insertOnce.mockImplementation((message) =>
+        Promise.resolve({ message, created: false }),
+      );
+
+      await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        requester,
+        { content: 'hola' },
+        randomUUID(),
+      );
+      await ctx.queue.drain();
+
+      expect(ctx.bridge.republish).not.toHaveBeenCalled();
+    });
+
+    it('si guardar los ids falla, no se vuelve a republicar y se registra', async () => {
+      const ctx = setup();
+      ctx.messages.setGroupMessageIds.mockRejectedValue(new Error('sin Mongo'));
+      const logged = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
+        content: 'hola',
+      });
+      await ctx.queue.drain();
+
+      expect(ctx.bridge.republish).toHaveBeenCalledTimes(1);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining('sin Mongo'));
+      logged.mockRestore();
     });
 
     it('si escribe un miembro, avisa al solicitante en segundo plano', async () => {
@@ -295,7 +371,7 @@ describe('ChatService', () => {
 
     it('si Telegram falla, el mensaje queda guardado y el error se registra', async () => {
       const ctx = setup();
-      ctx.telegram.sendMessageToGroup.mockRejectedValue(new Error('caído'));
+      ctx.bridge.republish.mockRejectedValue(new Error('caído'));
 
       await expect(
         ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
@@ -305,7 +381,8 @@ describe('ChatService', () => {
       await ctx.queue.drain();
 
       expect(ctx.messages.insertOnce).toHaveBeenCalledTimes(1);
-      expect(ctx.telegram.sendMessageToGroup).toHaveBeenCalledTimes(3);
+      expect(ctx.bridge.republish).toHaveBeenCalledTimes(3);
+      expect(ctx.messages.setGroupMessageIds).not.toHaveBeenCalled();
       expect(ctx.queueLogger.error).toHaveBeenCalledWith(
         expect.stringContaining('caído'),
       );

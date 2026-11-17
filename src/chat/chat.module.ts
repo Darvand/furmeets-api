@@ -24,6 +24,7 @@ import {
 } from './infraestructure/schemas/request-chat-message.schema';
 import { BackgroundQueue } from 'src/shared/async/background-queue';
 import { AdmissionModule } from 'src/admission/admission.module';
+import { TelegramBridgeModule } from 'src/telegram-bridge/telegram-bridge.module';
 
 @Module({
   providers: [
@@ -54,6 +55,7 @@ import { AdmissionModule } from 'src/admission/admission.module';
     TelegramBotModule,
     MediaModule,
     AdmissionModule,
+    TelegramBridgeModule,
     MongooseModule.forFeature([
       { name: RequestChat.name, schema: RequestChatSchema },
       { name: RequestChatMessage.name, schema: RequestChatMessageSchema },
