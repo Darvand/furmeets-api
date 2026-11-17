@@ -191,20 +191,33 @@ describe('TelegramBotService', () => {
     const { service } = createService();
     const api = (service as unknown as { bot: { api: Api } }).bot.api;
     const link = 'https://t.me/+AbCdEfGh_jKlMnOp';
-    jest
-      .spyOn(api, 'createChatInviteLink')
-      .mockResolvedValue({ invite_link: link } as never);
     const sendMessage = jest
       .spyOn(api, 'sendMessage')
       .mockResolvedValue({} as never);
 
-    await service.sendInviteLinkToUser(42);
+    await service.sendInviteLinkToUser(42, link);
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
     const [chatId, text, options] = sendMessage.mock.calls[0];
     expect(chatId).toBe(42);
     expect(text).toContain(link);
     expect(options?.parse_mode).toBeUndefined();
+  });
+
+  it('el enlace de admisión crea solicitudes de unión y no tiene límite de miembros', async () => {
+    const { service } = createService();
+    const api = (service as unknown as { bot: { api: Api } }).bot.api;
+    const create = jest
+      .spyOn(api, 'createChatInviteLink')
+      .mockResolvedValue({ invite_link: 'https://t.me/+x' } as never);
+
+    await expect(service.createAdmissionLink('abc')).resolves.toBe(
+      'https://t.me/+x',
+    );
+
+    const [chatId, options] = create.mock.calls[0];
+    expect(chatId).toBe('-100');
+    expect(options).toEqual({ creates_join_request: true, name: 'abc' });
   });
 
   it('un error de descarga no expone la URL con el token', async () => {

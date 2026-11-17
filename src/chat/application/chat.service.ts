@@ -50,6 +50,7 @@ import {
   type RequestChatStateType,
 } from '../domain/value-objects/request-chat-state.value-object';
 import { RequestChatAccessService } from './request-chat-access.service';
+import { AdmissionService } from 'src/admission/application/admission.service';
 
 /** Cuántos mensajes trae abrir un chat; los anteriores se piden por páginas (T18). */
 export const LATEST_MESSAGES_LIMIT = 50;
@@ -110,6 +111,7 @@ export class ChatService {
     private readonly access: RequestChatAccessService,
     private readonly background: BackgroundQueue,
     private readonly mediaService: MediaService,
+    private readonly admission: AdmissionService,
   ) {}
 
   /**
@@ -356,15 +358,29 @@ export class ChatService {
   }
 
   private notifyClosed(requestChat: RequestChatEntity): void {
-    const requester = requestChat.props.requester;
     if (requestChat.isApproved()) {
       this.notifyGroup('aviso de aprobación', requestChat.announceApproval());
-      this.background.enqueue('enlace de invitación', () =>
-        this.telegramBotService.sendInviteLinkToUser(requester.telegramId),
-      );
+      this.issueInviteLink(requestChat);
     } else {
       this.notifyGroup('aviso de rechazo', requestChat.announceRejection());
     }
+  }
+
+  /**
+   * Enlace de admisión del aprobado (T25), con reintentos. El DM va en otra tarea, así un
+   * DM fallido (el solicitante nunca abrió el bot) no vuelve a crear el enlace. La App lo
+   * lee de `GET /me` en la pantalla Aprobado.
+   */
+  private issueInviteLink(requestChat: RequestChatEntity): void {
+    const telegramId = requestChat.props.requester.telegramId;
+    this.background.enqueue('enlace de admisión', async () => {
+      const inviteLink = await this.admission.issueInviteLink(requestChat.id);
+      if (inviteLink) {
+        this.background.enqueue('DM con el enlace de admisión', () =>
+          this.telegramBotService.sendInviteLinkToUser(telegramId, inviteLink),
+        );
+      }
+    });
   }
 
   /**

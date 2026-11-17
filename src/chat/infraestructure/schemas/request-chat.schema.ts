@@ -50,6 +50,14 @@ export class RequestChat {
   @Prop()
   state: string;
 
+  /** Enlace de admisión (T25). Solo en las aprobadas desde T25; lo maneja `admission`. */
+  @Prop()
+  inviteLink?: string;
+
+  /** Cuándo entró al grupo con su enlace (*ingresó*, T25). */
+  @Prop()
+  admittedAt?: Date;
+
   @Prop({ default: Date.now })
   updatedAt?: Date;
 

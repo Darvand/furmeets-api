@@ -9,6 +9,7 @@ import type { UserService } from 'src/members/application/user.service';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { BackgroundQueue } from 'src/shared/async/background-queue';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
+import type { AdmissionService } from 'src/admission/application/admission.service';
 import type { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
 import {
   RequestChatClosedError,
@@ -110,6 +111,11 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     sendMessageToUser: jest.fn(() => Promise.resolve()),
     sendInviteLinkToUser: jest.fn(() => Promise.resolve()),
   };
+  const admission = {
+    issueInviteLink: jest.fn(() =>
+      Promise.resolve<string | undefined>('https://t.me/+enlace'),
+    ),
+  };
   const gateway = {
     emitRequestChatUpdate: jest.fn(),
     emitVotes: jest.fn(),
@@ -135,6 +141,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     access as unknown as RequestChatAccessService,
     queue,
     media as unknown as MediaService,
+    admission as unknown as AdmissionService,
   );
   /** Operaciones de Mongo hechas hasta ahora. */
   const mongoOps = () =>
@@ -149,6 +156,7 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     messages,
     users,
     telegram,
+    admission,
     gateway,
     access,
     media,
@@ -510,8 +518,12 @@ describe('ChatService', () => {
       expect(ctx.messages.insert).not.toHaveBeenCalled();
       expect(ctx.gateway.emitRequestChatUpdate).toHaveBeenCalledTimes(1);
       expect(slow.call).toHaveBeenCalledTimes(1);
+      expect(ctx.admission.issueInviteLink).toHaveBeenCalledWith(
+        ctx.requestChat.id,
+      );
       expect(ctx.telegram.sendInviteLinkToUser).toHaveBeenCalledWith(
         requester.telegramId,
+        'https://t.me/+enlace',
       );
     });
 
@@ -522,7 +534,7 @@ describe('ChatService', () => {
         return Promise.resolve(ctx.requestChat);
       });
       ctx.telegram.sendMessageToGroup.mockRejectedValue(new Error('caído'));
-      ctx.telegram.sendInviteLinkToUser.mockRejectedValue(new Error('caído'));
+      ctx.admission.issueInviteLink.mockRejectedValue(new Error('caído'));
 
       const result = await ctx.service.voteOnRequestChat(
         ctx.requestChat.id,
