@@ -211,6 +211,18 @@ describe('TelegramBotService', () => {
     expect(text).toContain(link);
     expect(text).toContain('7 días');
     expect(options?.parse_mode).toBeUndefined();
+    expect(options?.link_preview_options).toEqual({ is_disabled: true });
+  });
+
+  it('los mensajes privados en Markdown van sin vista previa', async () => {
+    const { service, sendMessage } = createService();
+
+    await service.sendMessageToUser(42, 'hola [chat](https://t.me/bot)');
+
+    expect(sendMessage).toHaveBeenCalledWith(42, expect.any(String), {
+      parse_mode: 'Markdown',
+      link_preview_options: { is_disabled: true },
+    });
   });
 
   it('el enlace de admisión crea solicitudes de unión y no tiene límite de miembros y caduca', async () => {

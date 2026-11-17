@@ -20,7 +20,10 @@ import { TtlCache } from '../shared/cache/ttl-cache';
 export const TELEGRAM_CACHE_TTL_MS = 10 * 60 * 1000;
 const TELEGRAM_CACHE_MAX_ENTRIES = 1_000;
 
-/** Los avisos del bot al grupo llevan enlaces a la App: sin tarjeta de vista previa. */
+/**
+ * Los mensajes de texto del bot (al grupo y por privado) llevan enlaces a la App o al
+ * grupo: sin tarjeta de vista previa. Las fotos no se ven afectadas.
+ */
 const NO_LINK_PREVIEW = { is_disabled: true } as const;
 
 /** Lado mínimo de la foto de avatar: la App los muestra a 48–96 px. */
@@ -280,6 +283,7 @@ export class TelegramBotService {
   async sendMessageToUser(telegramId: number, text: string): Promise<void> {
     await this.bot.api.sendMessage(telegramId, text, {
       parse_mode: 'Markdown',
+      link_preview_options: NO_LINK_PREVIEW,
     });
   }
 
@@ -343,6 +347,7 @@ export class TelegramBotService {
       telegramId,
       `Tu solicitud fue aprobada. Este es tu enlace para unirte al grupo: es solo para ti y tienes ${validDays} días para usarlo; después deja de servir.
 ${inviteLink}`,
+      { link_preview_options: NO_LINK_PREVIEW },
     );
   }
 
