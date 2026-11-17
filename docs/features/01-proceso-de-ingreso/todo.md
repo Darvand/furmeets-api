@@ -627,7 +627,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - **Cambio de contrato.** `PUT /request-chats/:id/vote/:type` responde solo `{ uuid, state, votes, userVote? }`, sin mensajes ni solicitante: devolver la solicitud completa costaba 3 lecturas más. Si el voto cerró la solicitud, la solicitud con el mensaje de cierre llega por `request-chat-update`. La App se ajustó en la rama `feat/t41-light-vote-response`; **API y App se despliegan juntas.**
 - **Qué cuenta como camino crítico.** Las 2 operaciones son las de enviar y votar. Una petición HTTP suma además la lectura del usuario autenticado (`find`), común a todos los endpoints; el socket la hace al conectar, no por mensaje.
 - **Crear solicitud** también dejó de esperar el anuncio al grupo (RNF-REN-08).
-- **Aviso al grupo de un mensaje del solicitante** (decidido el 2026-10-03). Lleva el nombre, el contenido (escapado para Markdown y recortado a 3.500 caracteres) y un enlace `TELEGRAM_BOT_LINK?startapp=<id de la solicitud>`. La App todavía no lee `startapp`: por ahora el enlace abre la App en el inicio. Que abra la solicitud queda para la App, junto al puente de T27.
+- **Aviso al grupo de un mensaje del solicitante** (decidido el 2026-10-03). Lleva el nombre, el contenido (escapado para Markdown y recortado a 3.500 caracteres) y un enlace `TELEGRAM_BOT_LINK?startapp=<id de la solicitud>`. Desde T23 (App PR #17) la App lee `startapp` y abre esa solicitud.
 - **Hallazgo aparte:** `ValueObject.equals` devuelve `true` para cualquier par de objetos (no compara `props`). Aquí se compara por `.value`; se corrige en T45.
 
 **Dependencies:** T11
@@ -1037,6 +1037,10 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - Al reconectar, la App pide de nuevo el chat abierto y reenvía los mensajes propios que seguían "enviando", con el mismo `clientMessageId` (la API devuelve el ya guardado, T16).
   - Si el historial trae un mensaje propio pendiente (ack perdido), sale de la bandeja de salida, así no se ve dos veces.
   - Los "no enviado" esperan a que el usuario los reintente.
+- **Ajustes posteriores** (App PR #16, `fix/chat-scroll-font`):
+  - Al abrir el chat o enviar un mensaje, la vista queda fija abajo unos segundos y sigue al contenido mientras crece. Así termina al final aunque el mensaje tarde en pintarse o sus imágenes en cargar. Subir a mano o cargar mensajes anteriores la suelta.
+  - El texto de los mensajes vuelve a usar la fuente de `telegram-ui`.
+  - El solicitante solo puede estar en su chat mientras está en curso. Si se cierra en vivo (`request-chat-update`), pasa a *Aprobado* o *No aprobado* (`routes.tsx`, con `homePathFor`).
 
 **Dependencies:** T07, T09, T17, T18, T19
 
@@ -1184,7 +1188,8 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Verification:**
 - [x] e2e de la forma de la respuesta y de los totales (API): `test/request-chat-home.e2e-spec.ts`
-- [x] `npm run lint` y `npm run build` en la App. Probado en Chrome contra un API simulado con eventos de socket (App PR #17).
+- [x] `npm run lint` y `npm run build` en la App. Probado en Chrome contra un API simulado con eventos de socket.
+- Mergeado en API PR #38 y App PR #17.
 - [ ] Manual en staging
 
 **Notas de implementación (API):**
@@ -1228,6 +1233,7 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 **Verification:**
 - [x] `npm run lint` y `npm run build` en la App. Probado en Chrome contra un API simulado, en tema claro y oscuro, como miembro y como solicitante.
 - [ ] Manual en staging
+- Mergeado en API PR #39 y App PR #18. La App necesita el API de #39 para la fecha del Resumen.
 
 **Notas de implementación:**
 - **API:** `GET /request-chats/:id` y los eventos para miembros traen `createdAt` (ISO-8601 UTC), para la fecha del Resumen. El solicitante no la recibe.
@@ -1256,6 +1262,12 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 **Repo:** API · **RNF:** SEG-09, SEG-10 · **Deuda:** #8
 
 **Description:** Al aprobarse, `createChatInviteLink({ creates_join_request: true, name: <id> })`, guardar el enlace (sin caducidad). Handler de `chat_join_request`: aprueba solo si el usuario tiene solicitud aprobada, marca *ingresó* y revoca el enlace; en cualquier otro caso rechaza.
+
+**Contexto (2026-11-17):**
+- **El enlace actual se reutiliza.** Hay miembros aprobados que salen del grupo y meses después vuelven a entrar con el mismo enlace, sin pasar por una solicitud. Pasa porque:
+  - `member_limit` no cuenta usos. Es cuántos de los que entraron por el enlace pueden ser miembros *a la vez*. Si el que entró se va, el cupo se libera y el enlace vuelve a servir, a cualquier cuenta.
+  - El enlace no tiene `expire_date` y nada lo revoca al entrar: `:new_chat_members` solo deja un log.
+- **API PR #40** (`fix/telegram-markdown-entities`): el enlace se envía como texto plano. Con `parse_mode: 'Markdown'`, un `_` en el código aleatorio abría una cursiva: con una cantidad impar Telegram rechazaba el mensaje (*can't parse entities*) y con una par llegaba roto. El mismo PR escapa el nombre del solicitante en los avisos de aprobación, de rechazo y de mensaje nuevo.
 
 **Acceptance criteria:**
 - [ ] El aprobado es aceptado; otra cuenta con el mismo enlace es rechazada
