@@ -151,6 +151,22 @@ describe('RequestChatEntity', () => {
     });
   });
 
+  it('los enlaces a la App llevan https://, sin él Telegram no los abre', () => {
+    const request = RequestChatEntity.apply(
+      requester,
+      ApplicationForm.submit({ age: 20, city: 'Cali' }),
+    );
+
+    expect(request.announceWelcomeMesssage()).toMatch(
+      new RegExp(
+        `\\[Ver solicitud\\]\\(https://t\\.me/[^)]+\\?startapp=${request.id.value}\\)$`,
+      ),
+    );
+    expect(RequestChatEntity.newMessageNotificationText(requester)).toMatch(
+      /\[chat\]\(https:\/\/t\.me\/[^)]+\)/,
+    );
+  });
+
   it('el aviso de mensaje nuevo nombra al solicitante', () => {
     expect(RequestChatEntity.newMessageNotificationText(requester)).toContain(
       'User 1, tienes un mensaje nuevo',

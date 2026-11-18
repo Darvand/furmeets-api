@@ -15,14 +15,18 @@ const TELEGRAM_BOT_LINK =
   process.env.TELEGRAM_BOT_LINK || 't.me/furmeets_test_bot/furmeets_hub';
 
 /**
- * Enlace que abre la App en una solicitud (`startapp`). Lleva esquema porque las
- * entidades de Telegram lo exigen.
+ * Enlace a la App. Lleva siempre `https://`: en un enlace Markdown, Telegram no reconoce
+ * `t.me/...` sin esquema, y las entidades de Telegram también lo exigen.
  */
-export function requestChatDeepLink(requestChatId: string): string {
-  const link = /^https?:\/\//.test(TELEGRAM_BOT_LINK)
+function botLink(): string {
+  return /^https?:\/\//.test(TELEGRAM_BOT_LINK)
     ? TELEGRAM_BOT_LINK
     : `https://${TELEGRAM_BOT_LINK}`;
-  return `${link}?startapp=${requestChatId}`;
+}
+
+/** Enlace que abre la App en una solicitud (`startapp`). */
+export function requestChatDeepLink(requestChatId: string): string {
+  return `${botLink()}?startapp=${requestChatId}`;
 }
 
 /**
@@ -140,7 +144,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
         form?.howDidYouFindUs ?? legacy?.howDidYouFindUs,
       ) +
       line('¿Cuáles son sus intereses?', legacy?.interests) +
-      `[Ver solicitud](${TELEGRAM_BOT_LINK}?startapp=${this.id.value})`
+      `[Ver solicitud](${requestChatDeepLink(this.id.value)})`
     );
   }
 
@@ -179,7 +183,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
   /** Aviso al solicitante de que tiene un mensaje nuevo. */
   static newMessageNotificationText(requester: UserEntity): string {
-    return `${escapeMarkdown(requester.name)}, tienes un mensaje nuevo en el [chat](${TELEGRAM_BOT_LINK}).`;
+    return `${escapeMarkdown(requester.name)}, tienes un mensaje nuevo en el [chat](${botLink()}).`;
   }
 
   isApproved(): boolean {
