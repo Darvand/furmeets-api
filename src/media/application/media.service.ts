@@ -76,6 +76,57 @@ export class MediaService {
     return id;
   }
 
+  /**
+   * Las imágenes existen y las subió `owner` con `POST /media`: nadie adjunta a su
+   * solicitud la imagen de otro, ni un avatar. Si no → 400.
+   */
+  async assertOwnUploads(
+    owner: UserEntity,
+    ids: readonly string[],
+  ): Promise<void> {
+    if (!ids.length) {
+      return;
+    }
+    const own = (await this.repository.findByIds(ids)).filter(
+      (media) =>
+        media.kind === MediaKinds.Upload && media.ownerId === owner.id.value,
+    );
+    if (own.length !== new Set(ids).size) {
+      throw new BadRequestException(
+        'Images must be your own uploads from POST /media',
+      );
+    }
+  }
+
+  /**
+   * `viewer` también ve esas imágenes, aunque no sea miembro: el solicitante de un chat
+   * en el que un miembro las mandó. Llamar después de `assertOwnUploads`.
+   */
+  async shareUploads(ids: readonly string[], viewerId: string): Promise<void> {
+    if (!ids.length) {
+      return;
+    }
+    await this.repository.shareWith(ids, viewerId);
+  }
+
+  /**
+   * `file_id` de Telegram de esas imágenes, en el orden de `ids`, para republicarlas sin
+   * volver a subirlas. Las que ya no existen se omiten. Solo para uso interno: el
+   * `file_id` no sale de la API.
+   */
+  async fileIdsOf(ids: readonly string[]): Promise<string[]> {
+    if (!ids.length) {
+      return [];
+    }
+    const found = new Map(
+      (await this.repository.findByIds(ids)).map((media) => [
+        media.id,
+        media.fileId,
+      ]),
+    );
+    return ids.flatMap((id) => found.get(id) ?? []);
+  }
+
   /** Registra una foto que ya está en Telegram (avatar, foto del grupo) y devuelve su id. */
   registerTelegramPhoto(
     kind: MediaKind,

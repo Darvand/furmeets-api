@@ -107,14 +107,5 @@ describe('UserEntity', () => {
       expect(user.changeAvatar(undefined)).toBe(true);
       expect(user.avatarMediaId).toBeUndefined();
     });
-
-    it('registerBot crea al bot como miembro', () => {
-      const bot = UserEntity.registerBot(
-        identity({ telegramId: 999, firstName: 'FurBot', lastName: undefined }),
-      );
-
-      expect(bot.isMember).toBe(true);
-      expect(bot.name).toBe('FurBot');
-    });
   });
 });

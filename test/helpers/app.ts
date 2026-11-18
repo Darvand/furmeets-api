@@ -66,8 +66,26 @@ export async function createTestApp(
   process.env.DB_URI = mongo.getUri('furmeets-test');
   process.env.TELEGRAM_BOT_TOKEN = TEST_BOT_TOKEN;
   process.env.TELEGRAM_GROUP_ID = TEST_GROUP_ID;
+  // Los de SPEC §3.3, aunque el `.env` local tenga otros.
+  process.env.APPROVE_THRESHOLD = '5';
+  process.env.REJECT_THRESHOLD = '5';
 
   const telegramBot = createTelegramBotStub();
+  // Un enlace distinto por solicitud, como los de Telegram (T25).
+  telegramBot.createAdmissionLink.mockImplementation((name: string) =>
+    Promise.resolve(`https://t.me/+${name}`),
+  );
+  // Ids de mensaje del grupo, crecientes, como los que devuelve Telegram (T27).
+  let groupMessageId = 1_000;
+  telegramBot.sendMessageToGroup.mockImplementation(() =>
+    Promise.resolve(groupMessageId++),
+  );
+  telegramBot.sendTextToGroup.mockImplementation(() =>
+    Promise.resolve(groupMessageId++),
+  );
+  telegramBot.sendPhotosToGroup.mockImplementation((fileIds: string[]) =>
+    Promise.resolve(fileIds.map(() => groupMessageId++)),
+  );
   let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(TelegramBotService)
     .useValue(telegramBot);

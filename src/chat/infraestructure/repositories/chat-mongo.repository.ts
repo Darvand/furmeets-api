@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, mongo } from 'mongoose';
-import {
-  RequestChatEntity,
-  type VoteType,
-} from 'src/chat/domain/entities/request-chat.entity';
+import { RequestChatEntity } from 'src/chat/domain/entities/request-chat.entity';
+import { Votes, type VoteType } from 'src/review/domain/vote';
+import type { Endorsement } from 'src/review/domain/endorsement';
 import {
   ChatRepository,
   DuplicateRequestChatError,
@@ -12,8 +11,9 @@ import {
   RequestChatHeader,
   RequestChatListItem,
   RequestChatPage,
+  RequestChatScope,
   RequestChatSummary,
-  VoteApplied,
+  RequestChatTotals,
 } from 'src/chat/domain/services/chat.repository';
 import { RequestChatState } from 'src/chat/domain/value-objects/request-chat-state.value-object';
 import { toUUIDString } from 'src/shared/infraestructure/mongo-uuid';
@@ -41,10 +41,10 @@ interface RequestChatSummaryDoc {
   lastMessage?: { author: User; content: string; createdAt: Date };
   approved: number;
   rejected: number;
-  viewerVote?: 'approve' | 'reject';
+  viewerVote?: VoteType;
 }
 
-function countVotes(type: 'approve' | 'reject') {
+function countVotes(type: VoteType) {
   return {
     $size: {
       $filter: {
@@ -53,6 +53,15 @@ function countVotes(type: 'approve' | 'reject') {
       },
     },
   };
+}
+
+function statesOf(scope: RequestChatScope): string[] {
+  return scope === 'open'
+    ? [RequestChatState.InProgress().props.value]
+    : [
+        RequestChatState.Approved().props.value,
+        RequestChatState.Rejected().props.value,
+      ];
 }
 
 function toListItem(doc: RequestChatSummaryDoc): RequestChatListItem {
@@ -95,7 +104,7 @@ export class ChatMongoRepository implements ChatRepository {
     voter: UUID,
     type: VoteType,
     at: Date,
-  ): Promise<VoteApplied | null> {
+  ): Promise<Votes | null> {
     // Los pipelines no pasan por los casts de Mongoose: el UUID va como `Binary`.
     const from = new mongo.UUID(voter.value);
     const votes = { $ifNull: ['$votes', []] };
@@ -104,7 +113,12 @@ export class ChatMongoRepository implements ChatRepository {
     // dos votos a la vez (del mismo o de distintos miembros) no se pisan.
     const doc = await this.requestChatModel
       .findOneAndUpdate(
-        { _id: id.value, state: RequestChatState.InProgress().props.value },
+        {
+          _id: id.value,
+          state: RequestChatState.InProgress().props.value,
+          // Nadie vota su propia solicitud (SPEC §3.3).
+          requester: { $ne: voter.value },
+        },
         [
           {
             $set: {
@@ -175,12 +189,86 @@ export class ChatMongoRepository implements ChatRepository {
     if (!doc) {
       return null;
     }
-    const count = (t: VoteType) => doc.votes.filter((v) => v.type === t).length;
-    const own = doc.votes.find((v) => toUUIDString(v.from) === voter.value);
+    return Votes.of(
+      doc.votes.map((vote) => ({
+        voterId: UUID.from(toUUIDString(vote.from)),
+        type: vote.type as VoteType,
+      })),
+    );
+  }
+
+  async endorse(
+    id: UUID,
+    endorser: UUID,
+    at: Date,
+  ): Promise<Endorsement[] | null> {
+    // Los pipelines no pasan por los casts de Mongoose: el UUID va como `Binary`.
+    const from = new mongo.UUID(endorser.value);
+    const endorsements = { $ifNull: ['$endorsements', []] };
+    // Decide y escribe en la misma operación: dos avales a la vez del mismo miembro dejan
+    // uno solo.
+    return this.endorsementsAfter(
+      this.requestChatModel.findOneAndUpdate(
+        this.reviewableBy(id, endorser),
+        [
+          {
+            $set: {
+              endorsements: {
+                $cond: [
+                  { $in: [from, { $ifNull: ['$endorsements.from', []] }] },
+                  endorsements,
+                  {
+                    $concatArrays: [endorsements, [{ from, createdAt: at }]],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        { new: true, projection: { endorsements: 1 } },
+      ),
+    );
+  }
+
+  async withdrawEndorsement(
+    id: UUID,
+    endorser: UUID,
+  ): Promise<Endorsement[] | null> {
+    return this.endorsementsAfter(
+      this.requestChatModel.findOneAndUpdate(
+        this.reviewableBy(id, endorser),
+        { $pull: { endorsements: { from: endorser.value } } },
+        { new: true, projection: { endorsements: 1 } },
+      ),
+    );
+  }
+
+  /** Una solicitud en curso que `member` puede revisar: nadie revisa la propia (SPEC §3.3). */
+  private reviewableBy(id: UUID, member: UUID) {
     return {
-      votes: { approved: count('approve'), rejected: count('reject') },
-      voterVote: own?.type as VoteType | undefined,
+      _id: id.value,
+      state: RequestChatState.InProgress().props.value,
+      requester: { $ne: member.value },
     };
+  }
+
+  /** Los avales que dejó la actualización, con quién avaló (una lectura más, por `_id`). */
+  private async endorsementsAfter(
+    update: ReturnType<Model<RequestChat>['findOneAndUpdate']>,
+  ): Promise<Endorsement[] | null> {
+    const doc = await update
+      .populate<{
+        endorsements?: { from: User; createdAt: Date }[];
+      }>('endorsements.from')
+      .lean()
+      .exec();
+    if (!doc) {
+      return null;
+    }
+    return (doc.endorsements ?? []).map((endorsement) => ({
+      endorser: UserMapper.fromDb(endorsement.from),
+      at: endorsement.createdAt,
+    }));
   }
 
   async close(id: UUID, state: RequestChatState): Promise<boolean> {
@@ -191,11 +279,26 @@ export class ChatMongoRepository implements ChatRepository {
     return result.modifiedCount === 1;
   }
 
+  async setAnnouncementMessageId(id: UUID, messageId: number): Promise<void> {
+    await this.requestChatModel.updateOne(
+      { _id: id.value },
+      { $set: { announcementMessageId: messageId } },
+    );
+  }
+
+  async getAnnouncementMessageId(id: UUID): Promise<number | undefined> {
+    const doc = await this.requestChatModel
+      .findOne({ _id: id.value }, { announcementMessageId: 1 })
+      .lean<{ announcementMessageId?: number }>()
+      .exec();
+    return doc?.announcementMessageId;
+  }
+
   async getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null> {
     const dbRequestChat = await this.requestChatModel
       .findOne({ _id: id.value })
       .populate('requester')
-      .populate('votes.from')
+      .populate('endorsements.from')
       .exec();
     if (!dbRequestChat) {
       return null;
@@ -206,12 +309,17 @@ export class ChatMongoRepository implements ChatRepository {
 
   async listSummaries(
     viewer: UUID,
-    { limit, after }: { limit: number; after?: RequestChatCursor },
+    {
+      limit,
+      after,
+      scope,
+    }: { limit: number; after?: RequestChatCursor; scope?: RequestChatScope },
   ): Promise<RequestChatPage> {
     // Las agregaciones no pasan por los casts de Mongoose: los UUID van como `Binary`.
     const viewerId = new mongo.UUID(viewer.value);
     const docs = await this.requestChatModel
       .aggregate<RequestChatSummaryDoc>([
+        ...(scope ? [{ $match: { state: { $in: statesOf(scope) } } }] : []),
         ...(after
           ? [
               {
@@ -239,7 +347,7 @@ export class ChatMongoRepository implements ChatRepository {
           },
         },
         { $unwind: '$requester' },
-        // Solo el último mensaje, por el índice `requestChatId + createdAt`.
+        // Solo el último mensaje, por el índice `requestChatId + createdAt + _id`.
         {
           $lookup: {
             from: REQUEST_CHAT_MESSAGES_COLLECTION,
@@ -247,7 +355,7 @@ export class ChatMongoRepository implements ChatRepository {
             foreignField: 'requestChatId',
             as: 'lastMessage',
             pipeline: [
-              { $sort: { createdAt: -1 } },
+              { $sort: { createdAt: -1, _id: -1 } },
               { $limit: 1 },
               {
                 $lookup: {
@@ -268,7 +376,7 @@ export class ChatMongoRepository implements ChatRepository {
             state: 1,
             createdAt: 1,
             lastMessage: { $first: '$lastMessage' },
-            // De los votos solo salen conteos y el voto propio (RNF-PRI-01).
+            // De los votos, solo conteos y el voto propio: son anónimos (RNF-PRI-01).
             approved: countVotes('approve'),
             rejected: countVotes('reject'),
             viewerVote: {
@@ -296,6 +404,24 @@ export class ChatMongoRepository implements ChatRepository {
         docs.length > limit && last
           ? { createdAt: last.createdAt, id: last.id }
           : undefined,
+    };
+  }
+
+  async countByState(): Promise<RequestChatTotals> {
+    const groups = await this.requestChatModel
+      .aggregate<{ _id: string; count: number }>([
+        // Sin este `$sort`, Mongo recorre la colección en vez del índice de `state`.
+        { $sort: { state: 1 } },
+        { $group: { _id: '$state', count: { $sum: 1 } } },
+      ])
+      .exec();
+    const countOf = (state: RequestChatState) =>
+      groups.find((group) => group._id === state.props.value)?.count ?? 0;
+    return {
+      total: groups.reduce((sum, group) => sum + group.count, 0),
+      inProgress: countOf(RequestChatState.InProgress()),
+      approved: countOf(RequestChatState.Approved()),
+      rejected: countOf(RequestChatState.Rejected()),
     };
   }
 

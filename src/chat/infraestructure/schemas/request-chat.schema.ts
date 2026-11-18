@@ -6,6 +6,10 @@ import {
   RequestChatVoteSchema,
 } from './request-chat-vote.schema';
 import {
+  RequestChatEndorsement,
+  RequestChatEndorsementSchema,
+} from './request-chat-endorsement.schema';
+import {
   ApplicationFormDoc,
   ApplicationFormSchema,
 } from 'src/applications/infraestructure/application-form.schema';
@@ -39,8 +43,31 @@ export class RequestChat {
   @Prop({ type: [RequestChatVoteSchema] })
   votes: RequestChatVote[];
 
+  /** Falta en las solicitudes anteriores a T22: equivale a ninguno. */
+  @Prop({ type: [RequestChatEndorsementSchema], default: undefined })
+  endorsements?: RequestChatEndorsement[];
+
   @Prop()
   state: string;
+
+  /**
+   * `message_id` del aviso de solicitud nueva en el grupo, que el bot fija mientras la
+   * solicitud está en curso. Falta si no se anunció o es anterior a T27.
+   */
+  @Prop()
+  announcementMessageId?: number;
+
+  /** Enlace de admisión (T25). Solo en las aprobadas desde T25; lo maneja `admission`. */
+  @Prop()
+  inviteLink?: string;
+
+  /** Hasta cuándo sirve el enlace (T25). */
+  @Prop()
+  inviteExpiresAt?: Date;
+
+  /** Cuándo entró al grupo con su enlace (*ingresó*, T25). */
+  @Prop()
+  admittedAt?: Date;
 
   @Prop({ default: Date.now })
   updatedAt?: Date;
@@ -53,3 +80,6 @@ export const RequestChatSchema = SchemaFactory.createForClass(RequestChat);
 
 // El listado: de la más reciente a la más antigua, paginado por `createdAt` + `_id`.
 RequestChatSchema.index({ createdAt: -1, _id: -1 });
+// El mismo orden dentro de cada estado (`scope`), y los totales por estado sin leer las
+// solicitudes.
+RequestChatSchema.index({ state: 1, createdAt: -1, _id: -1 });

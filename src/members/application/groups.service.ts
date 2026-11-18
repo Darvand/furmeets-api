@@ -34,9 +34,9 @@ export class GroupsService {
 
   /**
    * Sincroniza la membresía del usuario autenticado y la devuelve. Solo espera el rol
-   * (cacheado en `MembershipService`) y escrituras atómicas en Mongo; fotos, info del
-   * grupo y usuario del bot se refrescan en segundo plano, como máximo una vez por TTL
-   * (RNF-REN-03, REN-08).
+   * (cacheado en `MembershipService`) y escrituras atómicas en Mongo; la foto y la info
+   * del grupo se refrescan en segundo plano, como máximo una vez por TTL (RNF-REN-03,
+   * REN-08).
    */
   async sync(user: UserEntity): Promise<boolean> {
     const isMember =
@@ -63,9 +63,6 @@ export class GroupsService {
       [
         this.background.schedule('group', () =>
           this.groupRepository.refreshFromTelegram(),
-        ),
-        this.background.schedule('bot-user', () =>
-          this.userService.refreshBotUser(),
         ),
         this.background.schedule(`avatar:${user.telegramId}`, () =>
           this.userService.refreshAvatar(user),

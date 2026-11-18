@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -7,14 +8,22 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import type { RequestChatScope } from 'src/chat/domain/services/chat.repository';
 import { GetUserDto } from 'src/members/presentation/dtos/get-user.dto';
 
 /** Holgado mientras la App pide solo la primera página (la paginación llega con T23). */
 export const DEFAULT_LIST_LIMIT = 50;
 export const MAX_LIST_LIMIT = 100;
 
-/** `GET /request-chats?limit=&cursor=` */
+const REQUEST_CHAT_SCOPES: RequestChatScope[] = ['open', 'closed'];
+
+/** `GET /request-chats?scope=&limit=&cursor=` */
 export class ListRequestChatQueryDto {
+  /** `open`: en curso; `closed`: el historial. Sin él, todas. */
+  @IsOptional()
+  @IsIn(REQUEST_CHAT_SCOPES)
+  scope?: RequestChatScope;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -56,4 +65,16 @@ export class ListRequestChatDto {
   items: RequestChatItemDto[];
   /** Para pedir la página siguiente; falta en la última. */
   nextCursor?: string;
+  /** De toda la BD: no dependen de la página ni de `scope`. */
+  totals: {
+    total: number;
+    inProgress: number;
+    approved: number;
+    rejected: number;
+  };
+  /** Los umbrales vigentes, para mostrar "4/5 a favor". */
+  thresholds: {
+    approve: number;
+    reject: number;
+  };
 }

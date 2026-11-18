@@ -10,4 +10,9 @@ export class MeDto {
   requestChatId?: string;
   /** Estado de esa solicitud: enruta a su chat, a Aprobado o a No aprobado. */
   requestChatState?: RequestChatStateType;
+  /**
+   * Enlace de admisión, para la pantalla Aprobado. Solo si la solicitud está aprobada y
+   * todavía no entró; falta también mientras se crea o si la aprobación es anterior a T25.
+   */
+  inviteLink?: string;
 }

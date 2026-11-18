@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import { InitDataAuthService } from '../src/auth/application/init-data-auth.service';
 import { CHAT_PROVIDERS } from '../src/chat/chat.providers';
 import { RequestChatEntity } from '../src/chat/domain/entities/request-chat.entity';
+import { ApplicationForm } from '../src/applications/domain/application-form';
 import type { ChatRepository } from '../src/chat/domain/services/chat.repository';
 import type { RequestChatMessageRepository } from '../src/chat/domain/services/request-chat-message.repository';
 import { UserEntity } from '../src/members/domain/entities/user.entity';
@@ -93,9 +94,12 @@ describe('Autenticación del socket por initData (e2e)', () => {
     await expect(connected(socket)).resolves.toBeUndefined();
   });
 
-  it('un mensaje de un miembro con userUUID ajeno queda a su nombre', async () => {
+  it('el autor es el usuario del socket; un userUUID en el payload se rechaza', async () => {
     const ana = await authenticate(ANA);
-    const requestChat = RequestChatEntity.asNew(ana, 'furros', 'Instagram');
+    const requestChat = RequestChatEntity.apply(
+      ana,
+      ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+    );
     const chats = testApp.app.get<ChatRepository>(
       CHAT_PROVIDERS.RequestChatRepository,
     );
@@ -103,12 +107,22 @@ describe('Autenticación del socket por initData (e2e)', () => {
 
     const socket = connect({ initData: signInitData(BETO, TEST_BOT_TOKEN) });
     await connected(socket);
+    // Desde T16 el payload no acepta `userUUID`: suplantar a Ana ni siquiera se procesa.
+    const rejected = new Promise<{ message: string }>((resolve) =>
+      socket.once('exception', resolve),
+    );
+    socket.emit('request-chat', {
+      requestChatUUID: requestChat.id.value,
+      userUUID: ana.id.value,
+      content: 'soy Ana',
+    });
+    expect((await rejected).message).toBe('invalid-payload');
+
     const received = new Promise<MessageDto>((resolve) =>
       socket.once('request-chat', resolve),
     );
     socket.emit('request-chat', {
       requestChatUUID: requestChat.id.value,
-      userUUID: ana.id.value,
       content: 'hola, soy Beto',
     });
 
@@ -121,8 +135,8 @@ describe('Autenticación del socket por initData (e2e)', () => {
       .get<RequestChatMessageRepository>(
         CHAT_PROVIDERS.RequestChatMessageRepository,
       )
-      .findByRequestChat(requestChat.id);
-    const last = stored.at(-1)!;
+      .findLatest(requestChat.id, 1);
+    const last = stored.items.at(-1)!;
     expect(last.content).toBe('hola, soy Beto');
     expect(last.author.telegramId).toBe(BETO.id);
   });

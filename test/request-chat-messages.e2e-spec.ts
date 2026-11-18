@@ -18,7 +18,11 @@ import { signInitData, TelegramInitDataUser } from './helpers/init-data';
 const MEMBER = { id: 9101, first_name: 'Mia' };
 const MEMBER_2 = { id: 9103, first_name: 'Beto' };
 const MEMBER_3 = { id: 9104, first_name: 'Caro' };
-const MEMBER_IDS = new Set([MEMBER.id, MEMBER_2.id, MEMBER_3.id]);
+const MEMBER_4 = { id: 9105, first_name: 'Dani' };
+const MEMBER_5 = { id: 9106, first_name: 'Eli' };
+/** Los cinco rechazos del umbral. */
+const VOTERS = [MEMBER, MEMBER_2, MEMBER_3, MEMBER_4, MEMBER_5];
+const MEMBER_IDS = new Set(VOTERS.map((m) => m.id));
 const APPLICANT = { id: 9102, first_name: 'Ana' };
 const BOT = { id: 999, is_bot: true, first_name: 'FurBot', username: 'furbot' };
 const TELEGRAM_GROUP = { id: Number(TEST_GROUP_ID), type: 'supergroup' };
@@ -88,14 +92,14 @@ describe('Mensajes en su propia colección (e2e)', () => {
     url = `http://127.0.0.1:${port}`;
     db = testApp.app.get<Connection>(getConnectionToken());
 
-    const ana = await testApp.app
+    await testApp.app
       .get(InitDataAuthService)
       .authenticate(signInitData(APPLICANT, TEST_BOT_TOKEN));
     requestChat = (
       await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', tmaAuth(APPLICANT))
-        .send({ requesterUUID: ana.id.value, interests: 'furros' })
+        .send({ age: 25, city: 'Bogotá' })
         .expect(201)
     ).body as RequestChatDto;
   });
@@ -105,11 +109,11 @@ describe('Mensajes en su propia colección (e2e)', () => {
     await testApp?.close();
   });
 
-  it('la solicitud nace con el mensaje de bienvenida en la colección de mensajes', async () => {
-    expect(requestChat.messages).toHaveLength(1);
+  it('la solicitud nace sin mensajes: el bot no escribe en el chat', async () => {
+    expect(requestChat.messages).toEqual([]);
 
     const stored = await db.collection('requestchatmessages').countDocuments();
-    expect(stored).toBe(1);
+    expect(stored).toBe(0);
   });
 
   it(`${CONCURRENT} mensajes concurrentes quedan los ${CONCURRENT} persistidos, en orden y con su createdAt`, async () => {
@@ -131,9 +135,8 @@ describe('Mensajes en su propia colección (e2e)', () => {
     await allDelivered;
 
     const { messages } = await getRequestChat(MEMBER);
-    const sent = messages.slice(1);
-    expect(sent).toHaveLength(CONCURRENT);
-    expect(new Set(sent.map((m) => m.content)).size).toBe(CONCURRENT);
+    expect(messages).toHaveLength(CONCURRENT);
+    expect(new Set(messages.map((m) => m.content)).size).toBe(CONCURRENT);
     // En orden: cada fecha es posterior a la anterior (ninguna se repite).
     const times = messages.map((m) => Date.parse(m.sentAt));
     expect(times).toEqual([...times].sort((a, b) => a - b));
@@ -168,13 +171,14 @@ describe('Mensajes en su propia colección (e2e)', () => {
     expect(item.lastMessage?.at).toBe(messages.at(-1)!.sentAt);
   });
 
-  it('al cerrarse por votos agrega el mensaje de sistema y avisa por socket con él', async () => {
+  it('al cerrarse por votos avisa por socket sin agregar ningún mensaje al chat', async () => {
     const ana = await connect(APPLICANT);
     const updated = new Promise<RequestChatDto>((resolve) =>
       ana.once('request-chat-update', resolve),
     );
+    const before = (await getRequestChat(MEMBER)).messages;
     let closing: { state: string } | undefined;
-    for (const member of [MEMBER, MEMBER_2, MEMBER_3]) {
+    for (const member of VOTERS) {
       closing = (
         await request(server)
           .put(`/request-chats/${requestChat.uuid}/vote/reject`)
@@ -183,17 +187,18 @@ describe('Mensajes en su propia colección (e2e)', () => {
       ).body as { state: string };
     }
 
-    // La respuesta del voto trae solo el estado; el mensaje de cierre llega por socket.
+    // El solicitante se entera por socket y la App muestra la pantalla del resultado.
     expect(closing!.state).toBe('Rejected');
-    const last = (await updated).messages.at(-1)!;
-    expect(last.content).toContain('rechazada');
+    const update = await updated;
+    expect(update.state).toBe('Rejected');
+    expect(update.messages).toEqual(before);
     const stored = (
       await request(server)
         .get(`/request-chats/${requestChat.uuid}`)
         .set('Authorization', tmaAuth(MEMBER))
         .expect(200)
     ).body as RequestChatDto;
-    expect(stored.messages.at(-1)!.uuid).toBe(last.uuid);
+    expect(stored.messages).toEqual(before);
     const doc = await db.collection('requestchats').findOne({});
     expect(doc).not.toHaveProperty('messages');
     expect(doc).toMatchObject({ state: 'Rejected' });

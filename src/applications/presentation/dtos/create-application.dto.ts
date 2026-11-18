@@ -1,4 +1,7 @@
 import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -8,6 +11,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { MAX_FORM_IMAGES } from 'src/applications/domain/application-form';
 
 /** Textos cortos (nombre, especie, ciudad…) y largos (respuestas). */
 const SHORT_TEXT = 100;
@@ -26,6 +30,14 @@ export class CreateApplicationDto {
   @IsUUID()
   requesterUUID?: string;
 
+  /** Fotos o referencias de la fursona: ids devueltos por `POST /media`. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_FORM_IMAGES)
+  @ArrayUnique()
+  @IsUUID(undefined, { each: true })
+  imageIds?: string[];
+
   @IsOptional()
   @IsString()
   @MaxLength(SHORT_TEXT)
@@ -35,11 +47,6 @@ export class CreateApplicationDto {
   @IsString()
   @MaxLength(SHORT_TEXT)
   species?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(SHORT_TEXT)
-  pronouns?: string;
 
   /** Entero > 0. El tope solo descarta errores de tipeo. */
   @IsInt()

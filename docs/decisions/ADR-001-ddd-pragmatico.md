@@ -26,7 +26,7 @@ El patrón de diseño no cambia ninguno de esos costos. La disciplina de acceso 
 
 Mantener DDD, de forma pragmática, con estas reglas:
 
-1. **Las reglas de negocio van en el dominio.** Entidades y value objects deciden qué cambia (umbrales de voto, quién puede votar, anonimato del voto en contra, admisión, qué datos se toman de Telegram). No hacen E/S y se prueban con unitarias sin BD.
+1. **Las reglas de negocio van en el dominio.** Entidades y value objects deciden qué cambia (umbrales de voto, quién puede votar, anonimato del voto, admisión, qué datos se toman de Telegram). No hacen E/S y se prueban con unitarias sin BD.
 2. **Las escrituras son atómicas y mínimas.** Se carga solo lo necesario, la entidad aplica la regla e informa qué cambió, y el repositorio lo traduce a una operación puntual (`$set`, `$push`, `$pull`, `$inc`). Nunca se reescribe el documento completo. Si nada cambió, no se escribe.
 3. **Las lecturas para mostrar datos no pasan por el dominio.** Listados y pantallas consultan con `lean()` y proyección y devuelven DTOs directamente; no se hidratan entidades solo para leer (es CQRS-lite).
 4. **Los agregados son pequeños.** Lo que crece sin límite (mensajes, imágenes) va en su propia colección, como ya decide T10.

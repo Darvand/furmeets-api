@@ -20,12 +20,12 @@
 **Description:** El token actual está publicado en el bundle de la App. Revocarlo con @BotFather (`/revoke`) para prod y staging, cargar el nuevo solo en Render y quitar `VITE_TELEGRAM_BOT_TOKEN` de los secretos de Vercel y GitHub.
 
 **Acceptance criteria:**
-- [ ] El token anterior ya no responde (`getMe` → 401)
-- [ ] El token nuevo solo existe en las variables de Render (API) y en `.env` local
-- [ ] No hay `VITE_TELEGRAM_BOT_TOKEN` en Vercel ni en GitHub
+- [x] El token anterior ya no responde (`getMe` → 401)
+- [x] El token nuevo solo existe en las variables de Render (API) y en `.env` local
+- [x] No hay `VITE_TELEGRAM_BOT_TOKEN` en Vercel ni en GitHub
 
 **Verification:**
-- [ ] Manual: `curl https://api.telegram.org/bot<viejo>/getMe` falla; el bot sigue respondiendo con el nuevo
+- [x] Manual: `curl https://api.telegram.org/bot<viejo>/getMe` falla; el bot sigue respondiendo con el nuevo. Token revocado y rotado en staging y en producción (confirmado el 2026-10-03).
 
 **Dependencies:** None
 
@@ -86,6 +86,23 @@ Casi todo el arranque son las dos `GET /request-chats` (24–28 s cada una, con 
   - Enviar bajó a un tercio y votar a menos de la mitad.
   - Abrir chat no cambió.
 - **Qué incluyen los números.** Se miden desde el cliente, así que incluyen la red hasta Render: cada petición tarda ~200–300 ms aunque el servidor responda rápido. Con n=10, el p95 es el máximo; el 624 ms de enviar en la corrida 1 es un solo valor alto. El p95 < 500 ms de RNF-REN-07 se mide en la API, con las líneas `Timing` de los logs de staging.
+**Medición tras el release (2026-10-03, staging, n=20, p50 / p95, medida desde el cliente):**
+
+| Escenario | Desde el cliente | Estimado en la API (restando la red) |
+|---|---|---|
+| arranque, App actual | 783 / 1175 ms | — |
+| arranque, flujo anterior | 1551 / 1724 ms | — |
+| abrir chat (solo `GET /request-chats/:id`, como la App actual) | 490 / 663 ms | ~355 / ~500 ms |
+| enviar | 297 / 323 ms | ~150 / ~175 ms |
+| votar | 275 / 600 ms | ~140 / ~450 ms |
+| red (`GET /`, sin Mongo ni Telegram) | 133–148 / 165–174 ms | — |
+
+- **Cómo se estima.** El tiempo en la API se estimó restando la ida y vuelta de la red, medida con `GET /`. El dato exacto de RNF-REN-07 son las líneas `Timing` de los logs de Render.
+- **Enviar y votar cumplen** p95 < 500 ms. El p95 de votar sale de dos valores altos (máximo 701 ms); el p50 es ~140 ms.
+- **Abrir chat queda justo en el límite.** `GET /request-chats/:id` trae todos los mensajes de la solicitud con sus autores: la de prueba tiene unos 100 con los de las mediciones. Se resuelve con el historial paginado (T18).
+- **Escenario "abrir chat" del script.** Todavía conecta un socket nuevo, como la App antes de T42. Hoy la App reutiliza su socket, así que abrir un chat es solo la petición HTTP, y se midió aparte.
+- **RNF-REN-08** (ninguna petición espera a Telegram) lo cubren las pruebas de T41, con Telegram simulado de 2 s. Los tiempos de enviar y votar, ~150 ms en la API, son coherentes con eso.
+
 - **Incidente.** Una corrida anterior, con umbrales de 3 y 1 en staging, cerró como rechazada una solicitud sembrada (Wendy Ruiz) y anunció el rechazo en el grupo de staging. El seed se había generado con los umbrales por defecto (5 y 3), así que había solicitudes "en curso" que ya alcanzaban el umbral. Si se vuelve a sembrar, hay que pasar `APPROVE_THRESHOLD` y `REJECT_THRESHOLD` iguales a los de la API.
 
 **Cómo medirla:** con el servidor de staging desplegado, correr dos veces
@@ -287,10 +304,10 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - **1. Sin `initData` válido → 401 o rechazo:** `test/auth.e2e-spec.ts` (HTTP: sin header, otro esquema, firma inválida, usuario alterado, `auth_date` vencido, solo `x-telegram-id`) y `test/chat-socket.e2e-spec.ts` (socket: sin `initData`, firma inválida, vencido, `initData` que no es texto).
   - **2. Solicitante que pide la solicitud de otro → 403; solicitante que vota → 403:** `test/authorization.e2e-spec.ts`, incluido el miembro recién expulsado (RNF-SEG-10).
   - **4. Un solicitante no recibe eventos de otras solicitudes:** `test/authorization.e2e-spec.ts`, en la sección `socket`.
-- [ ] Revisión humana antes de seguir. Falta además completar lo manual:
-  - **T01:** revocar el token y comprobar los secretos.
-  - **T37:** anotar la línea base.
-  - **T38 y T39:** logs de T37 antes y después.
+- [x] Revisión humana antes de seguir: los PRs se revisaron y mergearon. Lo manual quedó así:
+  - **T01:** token revocado y rotado en staging y en producción (2026-10-03).
+  - **T37:** línea base anotada (2026-10-03) y medida de nuevo tras T38–T42.
+  - **T38 y T39:** el script de T37 se corrió antes y después; los índices se verificaron en staging y en producción (`EXPRESS_IXSCAN`). Faltan las líneas `Timing` de los logs.
 
 ---
 
@@ -388,11 +405,11 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Quitar `VITE_TELEGRAM_BOT_TOKEN` y toda URL `api.telegram.org/file/bot…`. Avatares, foto del grupo e imágenes se piden a `/media/:id` con auth (fetch → blob URL). Sustituir el avatar por defecto de GitHub.
 
 **Acceptance criteria:**
-- [ ] `grep -r "api.telegram.org" dist/` y `grep -r "VITE_TELEGRAM_BOT_TOKEN"` vacíos
+- [x] `grep -r "api.telegram.org" dist/` y `grep -r "VITE_TELEGRAM_BOT_TOKEN"` vacíos (build de `main`, 2026-10-03)
 - [ ] Avatares e imágenes se ven igual que antes
 
 **Verification:**
-- [ ] `npm run build` + grep sobre `dist/` (criterio de éxito 3)
+- [x] `npm run build` + grep sobre `dist/` (criterio de éxito 3)
 
 **Dependencies:** T01, T08
 
@@ -482,7 +499,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - [x] Correrlo dos veces no duplica nada
 - [x] Mismo conteo de mensajes y votos antes y después: el script lo verifica al final y termina con código 1 si no cuadra
 - [x] Ensayado en staging (2026-10-03), con los datos sembrados de staging y no con una copia de producción: producción tiene los `telegramId` reales de los miembros y no se copia (decisión del 2026-10-03)
-- [ ] Ejecución en producción solo con respaldo y aprobación humana
+- [x] Ejecución en producción solo con respaldo y aprobación humana: 2026-10-03, tras el respaldo y el despliegue del release. 83 solicitudes; 1647 mensajes migrados; 431 votos; 121 `avatarUrl` quitados. Verificación OK y copia `requestchats_pre_001` conservada.
 
 **Verification:**
 - [x] Unitarias de las transformaciones y de la idempotencia (`scripts/migrations/001-request-chat-split.spec.ts`, contra un Mongo en memoria). Cubren solo lectura, migración completa, segunda corrida, corte a mitad de camino y mensaje sin autor.
@@ -503,7 +520,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - **`legacy: true` es el bloque `legacy`:** su presencia marca la solicitud.
 - **Modelo.**
   - La solicitud ya no tiene `whereYouFoundUs` ni `interests` sueltos: tiene `legacy` (`LegacyApplication`). `GET /request-chats/:id` devuelve `legacy` en lugar de esos dos campos; la App actual no los mostraba.
-  - `POST /request-chats` (formulario anterior, hasta T15) crea solicitudes `legacy`.
+  - `POST /request-chats` (formulario anterior) creaba solicitudes `legacy` hasta que T15 lo eliminó.
   - `species` del usuario es texto libre: con el enum, una especie fuera de la lista hacía fallar la lectura del usuario.
   - El seed escribe `legacy`.
 - **Ensayo en staging (2026-10-03).** Sus 41 solicitudes eran del seed anterior a T10, con los mensajes embebidos, igual que producción.
@@ -552,7 +569,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Acceptance criteria:**
 - [x] La respuesta no contiene arreglos de mensajes ni de leídos
 - [x] El tiempo de respuesta no crece con la cantidad total de mensajes (medido con datos de prueba de 50 solicitudes × 200 mensajes)
-- [x] Solo expone conteos de votos en contra, nunca identidades (RNF-PRI-01)
+- [x] Solo expone conteos de votos, nunca identidades (los votos son anónimos desde el 2026-10-05, T21)
 
 **Verification:**
 - [x] e2e sobre la forma de la respuesta (`test/request-chat-list.e2e-spec.ts`)
@@ -610,8 +627,8 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 - **Cambio de contrato.** `PUT /request-chats/:id/vote/:type` responde solo `{ uuid, state, votes, userVote? }`, sin mensajes ni solicitante: devolver la solicitud completa costaba 3 lecturas más. Si el voto cerró la solicitud, la solicitud con el mensaje de cierre llega por `request-chat-update`. La App se ajustó en la rama `feat/t41-light-vote-response`; **API y App se despliegan juntas.**
 - **Qué cuenta como camino crítico.** Las 2 operaciones son las de enviar y votar. Una petición HTTP suma además la lectura del usuario autenticado (`find`), común a todos los endpoints; el socket la hace al conectar, no por mensaje.
 - **Crear solicitud** también dejó de esperar el anuncio al grupo (RNF-REN-08).
-- **Aviso al grupo de un mensaje del solicitante** (decidido el 2026-10-03). Lleva el nombre, el contenido (escapado para Markdown y recortado a 3.500 caracteres) y un enlace `TELEGRAM_BOT_LINK?startapp=<id de la solicitud>`. La App todavía no lee `startapp`: por ahora el enlace abre la App en el inicio. Que abra la solicitud queda para la App, junto al puente de T27.
-- **Hallazgo aparte:** `ValueObject.equals` devuelve `true` para cualquier par de objetos (no compara `props`). Aquí se compara por `.value`; falta corregirlo en una tarea aparte.
+- **Aviso al grupo de un mensaje del solicitante** (decidido el 2026-10-03). Lleva el nombre, el contenido (escapado para Markdown y recortado a 3.500 caracteres) y un enlace `TELEGRAM_BOT_LINK?startapp=<id de la solicitud>`. Desde T23 (App PR #17) la App lee `startapp` y abre esa solicitud.
+- **Hallazgo aparte:** `ValueObject.equals` devuelve `true` para cualquier par de objetos (no compara `props`). Aquí se compara por `.value`; se corrige en T45.
 
 **Dependencies:** T11
 
@@ -656,7 +673,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - **Mensajes optimistas.** Los propios sin confirmar viven en una bandeja aparte (`state/outbox.slice.ts`), así una recarga de la caché no los pierde. Se confirman por `clientMessageId` con el ack o con el evento, lo que llegue primero, sin duplicarse. Si la API los rechaza o no confirma en 10 s, quedan "No enviado · Reintentar".
   - **Votos.** El voto propio se aplica al chat y al listado antes de la respuesta, se corrige con los conteos reales y se revierte si falla.
   - **Reconexión.** Al reconectar se invalida el tag `RequestChat` para recuperar lo perdido durante el corte: es la única recarga.
-- **Pendiente para T16:** reintentar un mensaje cuyo primer intento sí se guardó (ack perdido) lo duplica, hasta que la API guarde el `clientMessageId` con índice único.
+- **Resuelto en T16:** reintentar un mensaje cuyo primer intento sí se guardó (ack perdido) lo duplicaba; ahora la API guarda el `clientMessageId` con índice único y devuelve el mismo mensaje.
 
 **Dependencies:** T06, T40, T41
 
@@ -671,9 +688,17 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Estimated scope:** M
 
 ### Checkpoint B: Fase 0 completa
-- [ ] Criterios de éxito 1–5 y 14
-- [ ] Script de T37 corrido de nuevo y comparado con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos
-- [ ] Revisión humana; despliegue de API y App juntas a staging y luego a producción
+- [x] Criterios de éxito 1–5 y 14:
+  - **1, 2 y 4:** e2e del Checkpoint A.
+  - **3:** build de producción de la App (`main`, 2026-10-03) sin `api.telegram.org`, `VITE_TELEGRAM_BOT_TOKEN` ni tokens de bot.
+  - **5:** `test/request-chat-messages.e2e-spec.ts` (20 mensajes concurrentes, en orden y con su `createdAt`).
+  - **14:** migración en producción con mensajes 1647/1647 y votos 431/431, y la Mini App de producción abre las solicitudes con sus mensajes.
+- [ ] Script de T37 corrido de nuevo y comparado con la línea base (hecho, ver T37); RNF-REN-06, REN-07 y REN-08 cumplidos.
+  - **Enviar y votar** cumplen p95 < 500 ms estimado en la API.
+  - **Abrir chat** queda en ~500 ms porque trae todo el historial: se resuelve con T18.
+  - **REN-08** lo cubren las pruebas de T41.
+  - **Falta** la prueba manual con red lenta (REN-06).
+- [x] Revisión humana; despliegue de API y App juntas a staging y luego a producción (2026-10-03: API PR #23, App PR #11)
 
 ---
 
@@ -703,12 +728,12 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
   - `POST /applications`, solo para solicitantes (`@ApplicantsOnly`). Devuelve la solicitud completa (como `GET /request-chats/:id`), así la App navega al chat sin pedirla de nuevo.
   - `requesterUUID` se acepta y se ignora; cualquier otro campo desconocido da 400.
   - Límites: textos cortos de 100 caracteres y largos de 2.000; edad entera de 1 a 120 (el tope solo descarta errores de tipeo).
-- **Apertura.** `ChatService.openRequestChat` es el flujo común del endpoint nuevo y del viejo: unicidad, bienvenida, `new-request-chat` y anuncio en el grupo en segundo plano. El anuncio usa el formulario y solo lleva las líneas con valor; escapa el texto del usuario y enlaza a la solicitud con `startapp`. La etiqueta "Menor de edad" no va en el anuncio: se muestra en señales y comentarios de la App.
+- **Apertura.** `ChatService.openRequestChat` es el flujo común del endpoint nuevo y del viejo: unicidad, bienvenida, `new-request-chat` y anuncio en el grupo en segundo plano. El anuncio usa el formulario y solo lleva las líneas con valor; escapa el texto del usuario y enlaza a la solicitud con `startapp`. La etiqueta "Menor de edad" no va en el anuncio: se muestra en el Resumen de la App.
 - **Lectura.** `GET /request-chats/:id` incluye `form` con `isMinor`.
 - **Una por usuario.**
   - Además de la lectura previa, `requestchats.requester` pasa a ser índice único: un doble toque en "Enviar" no crea dos solicitudes. El `E11000` se traduce a 409.
   - **Paso manual:** T38 creó `requester_1` no único, y Mongoose no cambia un índice que ya existe. En staging y en producción hay que correr `scripts/requester-unique-index-t13.mjs`. Sin `--apply` solo detecta duplicados; con `--apply` y `CONFIRM=<base>` deja el índice único.
-- **`POST /request-chats`** (formulario anterior) sigue hasta que la App use este endpoint (T15), y después se elimina.
+- **`POST /request-chats`** (formulario anterior) se eliminó en T15, cuando la App pasó a este endpoint.
 
 **Dependencies:** T06, T10
 
@@ -727,21 +752,33 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** SEG-05
 
-**Description:** El formulario acepta 0–3 imágenes JPEG/PNG/WebP de ≤ 10 MB, subidas por `media`.
+**Description:** El formulario acepta 0–3 imágenes JPEG/PNG/WebP de ≤ 10 MB, subidas por `media`. Además se quita `pronouns`, que T13 dejó en el formulario (decidido el 2026-10-03).
 
 **Acceptance criteria:**
-- [ ] 4 imágenes → 400; MIME no permitido → 400; > 10 MB → 413
-- [ ] Las imágenes se ven en el resumen vía `/media/:id`
+- [x] 4 imágenes → 400; MIME no permitido → 400; > 10 MB → 413 (los dos últimos los valida `POST /media`, T08)
+- [x] Las imágenes se ven en el resumen vía `/media/:id`
+- [x] `pronouns` en el body → 400; desaparece de la entidad, el schema, el mapper y los DTOs (los datos ya guardados se ignoran)
 
 **Verification:**
-- [ ] Unitarias de la regla de máximo 3; e2e de subida (criterio de éxito 11)
+- [x] Unitarias de la regla de máximo 3 (`application-form.spec.ts`), de `assertOwnUploads` (`media.service.spec.ts`) y del servicio (`applications.service.spec.ts`)
+- [x] e2e (`test/applications.e2e-spec.ts`): formulario con 3 imágenes propias que ven el solicitante y un miembro, pero no otro solicitante; 400 con 4 imágenes, repetidas, ids que no son UUID, inexistentes o de otro usuario, y con `pronouns` (criterio de éxito 11, parte de las imágenes)
+
+**Notas de implementación:**
+- **Contrato.** La App sube cada imagen con `POST /media` (devuelve `{ id }`) y envía los ids en `POST /applications` como `imageIds` (0–3 UUID, sin repetir, en el orden elegido). `form.imageIds` vuelve en la respuesta y en `GET /request-chats/:id`; la App las muestra con `GET /media/:id`.
+- **Reglas.** El máximo de 3 y la no repetición viven en `ApplicationForm` (`MAX_FORM_IMAGES`); el DTO las repite para responder 400 antes de tocar la BD. `MediaService.assertOwnUploads` exige que cada id exista, sea una subida (no un avatar) y la haya subido el solicitante: nadie adjunta la imagen de otro. Si no → 400 y no se crea la solicitud.
+- **Quién las ve.** No hizo falta cambiar `visibleWithoutRole`: el solicitante ve sus subidas y un miembro ve todas.
+- **Guardado.** `requestchats.form.imageIds` como UUID; el mapper los normaliza a texto (con `lean()` llegan como `Binary`). Sin imágenes el campo no se guarda.
+- **Pronombres.** Se quitaron del formulario. Los formularios de staging o producción que los tengan los conservan en la BD, pero el mapper ya no los lee.
+- **Pendiente.** Subidas que nunca se usan en un formulario (el solicitante sube y no envía) quedan en `media` y en el canal de almacenamiento. Son pocas y no cuestan nada; no se limpian por ahora.
 
 **Dependencies:** T08, T13
 
 **Files likely touched:**
-- `src/applications/presentation/applications.controller.ts`
-- `src/applications/domain/application-form.ts`
-- `src/media/application/media.service.ts`
+- `src/applications/domain/application-form.ts` (+ `.spec.ts`)
+- `src/applications/application/applications.service.ts` (+ `.spec.ts`)
+- `src/applications/presentation/dtos/create-application.dto.ts`, `get-application-form.dto.ts`
+- `src/applications/infraestructure/application-form.schema.ts`, `mappers/application-form.mapper.ts`
+- `src/media/application/media.service.ts` (+ `.spec.ts`), `src/media/infraestructure/media-mongo.repository.ts`
 
 **Estimated scope:** S
 
@@ -749,24 +786,36 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ## Task 15: App: pantalla Formulario (paso 1 de 3)
 
-**Repo:** App · **RNF:** PRI-04, USA-01, USA-02 · **Deuda:** #13
+**Repo:** App · **RNF:** USA-01, USA-02 · **Deuda:** #13
 
-**Description:** Reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios, hasta 3 imágenes, aviso de envío definitivo y de que los mensajes se comparten en el grupo. Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
+**Description:** Pantalla *Bienvenida* (presenta FurMeets y los 3 pasos; "Quiero unirme" abre el formulario) y reescribir `RegisterPage` según el artboard *Formulario*: campos opcionales/obligatorios sin pronombres, hasta 3 imágenes (contador "2 de 3"). Sin reglas de convivencia ni avisos de envío definitivo o de que los mensajes se comparten en el grupo (retirados el 2026-10-04). Al enviar, pide `requestWriteAccess` (si lo rechaza, continúa).
 
 **Acceptance criteria:**
-- [ ] El botón de enviar se bloquea sin edad o ciudad
-- [ ] No aparece el texto "puedes editarlo hasta que empiecen a revisarte"
-- [ ] Tras enviar, navega al chat del solicitante
+- [x] Un usuario sin solicitud ve primero la Bienvenida
+- [x] El botón de enviar se bloquea sin edad o ciudad; con 3 imágenes ya no se puede subir otra
+- [x] No aparece el texto "puedes editarlo hasta que empiecen a revisarte"
+- [x] Tras enviar (`POST /applications`), navega al chat del solicitante
+- [x] Ya sin uso desde la App, se elimina `POST /request-chats` de la API (T13). API y App se despliegan juntas
 
 **Verification:**
+- [x] `npm run lint` y `npm run build` en la App; `npm test` y `npm run test:e2e` en la API
 - [ ] Manual en staging (móvil y escritorio, tema claro y oscuro)
+
+**Notas de implementación:**
+- **Ruteo.** Un solicitante sin solicitud entra a `/welcome` (`homePathFor`); "Quiero unirme" abre `/register`, y el botón atrás vuelve a la Bienvenida. Las dos rutas solo las ve un solicitante sin solicitud.
+- **Imágenes.** Cada una se sube a `POST /media` al elegirla (`ImagePicker`), con vista previa local, indicador de subida y botón para quitarla. Antes de subir se revisan el tipo (JPEG, PNG o WebP) y el tamaño (10 MB); un 400 o 413 de la API se muestra igual. Enviar espera a que terminen las subidas. La imagen subida queda en la caché de `media.ts`: mostrarla después no la vuelve a descargar.
+- **Envío.** `submitApplication` (`POST /applications`) reemplaza a `createRequestChat`. Recorta los textos y omite los vacíos. Antes pide `requestWriteAccess` si Telegram lo permite; si lo rechaza, sigue. Un 409 vuelve a pedir `GET /me`, que lleva a su pantalla.
+- **Avisos.** Bajo el botón dice qué falta (edad o ciudad) mientras no se puede enviar. Los avisos de envío definitivo, de que los mensajes se comparten en el grupo y de la etiqueta "Menor de edad" se quitaron a pedido (2026-10-04, miniapp #12).
+- **Accesibilidad.** Cada campo tiene `<label>` propio: el `header` de los inputs de telegram-ui no se muestra en iOS.
+- **`StepProgress`.** Componente "Paso N de 3", para reusar en el chat del solicitante (T20) y en Aprobado (T26).
+- **API.** Se quitaron `POST /request-chats`, `CreateRequestChatDto`, `ChatService.createRequestChat`, `RequestChatEntity.asNew` y `legacyApplication`. Las solicitudes `legacy` ahora solo salen de la migración (T12). Las pruebas que creaban solicitudes por ese endpoint usan `POST /applications`. Una e2e confirma que `POST /request-chats` responde 404.
+- **Despliegue.** La App vieja usa `POST /request-chats`: API y App se despliegan juntas.
 
 **Dependencies:** T07, T14
 
 **Files likely touched:**
-- `src/pages/RegisterPage/RegisterPage.tsx`
-- `src/services/request-chat.service.ts`
-- `src/models/request-chat.model.ts`
+- App: `src/pages/WelcomePage.tsx` (nuevo), `src/pages/RegisterPage/RegisterPage.tsx`, `src/pages/RegisterPage/ImagePicker.tsx` (nuevo), `src/components/StepProgress.tsx` (nuevo), `src/services/request-chat.service.ts`, `src/services/media.ts`, `src/navigation/*`
+- API: `src/chat/presentation/request-chat.controller.ts` (quitar `POST /request-chats`)
 
 **Estimated scope:** M
 
@@ -779,44 +828,76 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Description:** Evento de envío con `clientMessageId`; ack con el mensaje persistido; reenvíos con el mismo id no duplican. Endpoint/evento para recuperar mensajes posteriores a un id o fecha. Emisión a `request-chat:<id>` y resumen a `members`. Se construye sobre el orden persistir → emitir → notificar de T41.
 
 **Acceptance criteria:**
-- [ ] Reenviar el mismo `clientMessageId` devuelve el mismo mensaje sin duplicar
-- [ ] Tras reconectar, el cliente obtiene los mensajes que se perdió
-- [ ] Longitud de texto validada
+- [x] Reenviar el mismo `clientMessageId` devuelve el mismo mensaje sin duplicar
+- [x] Tras reconectar, el cliente obtiene los mensajes que se perdió
+- [x] Longitud de texto validada
 
 **Verification:**
-- [ ] e2e de idempotencia y reconexión
+- [x] e2e de idempotencia y reconexión (`test/request-chat-idempotency.e2e-spec.ts`); unitarias del servicio (`chat.service.spec.ts`)
+
+**Notas de implementación:**
+- **Idempotencia.**
+  - El mensaje guarda `clientMessageId`. Un índice único parcial `{ requestChatId, authorId, clientMessageId }` (solo los que lo tienen) deja un envío por autor e id en cada solicitud.
+  - `insertOnce` inserta y, si el índice lo rechaza, lee el ya guardado: un reenvío, aunque llegue a la vez, recibe el mismo mensaje (mismo `uuid` y `sentAt`).
+  - Un reenvío no se vuelve a emitir ni a avisar por Telegram (`created: false`).
+  - El índice incluye al autor: el mismo id enviado por dos personas son dos mensajes, y nadie recibe el mensaje de otro por adivinar su id.
+  - El índice lo crea Mongoose al arrancar. Los mensajes anteriores no tienen el campo y quedan fuera, así que no hace falta migración.
+  - Con esto se resuelve el pendiente de T42: la App reintenta con el mismo `clientMessageId` y ya no duplica.
+- **`clientMessageId` en el historial.** Viene en el ack, en el evento y en `GET /request-chats/:id`. Tras reconectar, la App puede confirmar con él los mensajes que quedaron "enviando" aunque el ack se haya perdido.
+- **Recuperación.**
+  - `GET /request-chats/:id/messages?after=<uuid>&limit=` (dueño o miembro) devuelve `{ items, hasMore }`: los mensajes posteriores a `after`, en orden, hasta `limit` (50 por defecto, 100 como máximo).
+  - Si `hasMore` es `true`, se vuelve a pedir con `after` = el último. Un `after` de otra solicitud → 400.
+  - Usa el índice `requestChatId + createdAt`. La App lo adopta en T20; hoy recarga el chat al reconectar.
+- **Validación.** `content` de 1 a 4096 caracteres (límite de un mensaje de Telegram) y no solo espacios. Si no cumple, el socket responde `invalid-payload`.
+- **`userUUID`.** Se quitó del DTO del socket: la App ya no lo envía desde T07.
 
 **Dependencies:** T06, T11, T41
 
 **Files likely touched:**
 - `src/chat/presentation/chat.gateway.ts`
-- `src/chat/application/chat.service.ts`
-- `src/chat/presentation/dtos/create-request-chat-message.dto.ts`
-- índice único `requestChatId + clientMessageId` en el schema
+- `src/chat/application/chat.service.ts` (+ `.spec.ts`)
+- `src/chat/presentation/dtos/create-request-chat-message.dto.ts`, `list-request-chat-messages.dto.ts` (nuevo)
+- `src/chat/infraestructure/schemas/request-chat-message.schema.ts`, `repositories/request-chat-message-mongo.repository.ts`
 
 **Estimated scope:** M
 
 ---
 
-## Task 17: Chat: imágenes y respuestas
+## Task 17: Chat: imágenes
 
 **Repo:** API · **RNF:** SEG-05
 
-**Description:** Mensajes con imágenes (sin límite de cantidad, ≤ 10 MB c/u) vía `media`, y `replyToId` para citar un mensaje de la misma solicitud.
+**Description:** Mensajes con imágenes (sin límite de cantidad, ≤ 10 MB c/u) vía `media`. (Responder citando un mensaje se planeó aquí y se quitó el 2026-10-04: agrega complejidad para poco valor en chats cortos.)
 
 **Acceptance criteria:**
-- [ ] Un `replyToId` de otra solicitud → 400
-- [ ] El mensaje devuelto incluye la cita (autor y extracto)
+- [x] Un mensaje lleva texto, imágenes o ambos; las imágenes deben ser subidas del autor
+- [x] Las imágenes que manda un miembro las ve el solicitante; otro solicitante no
 
 **Verification:**
-- [ ] e2e de imagen y de respuesta
+- [x] e2e (`test/request-chat-images.e2e-spec.ts`); unitarias de la entidad, del servicio y de `media`
+- [x] Prueba de mutación: sin la validación de imágenes propias fallan los casos de imagen ajena e inexistente
+
+**Notas de implementación:**
+- **Contrato del socket.** `request-chat` acepta `content?` e `imageIds?` (hasta 10 UUID sin repetir, subidos antes con `POST /media`). Necesita texto o al menos una imagen. El mensaje devuelto (ack, evento, historial y recuperación) trae `imageIds`; `content` queda vacío si es solo imágenes.
+- **Reglas.**
+  - `RequestChatMessageEntity.send` valida el cuerpo: texto o imágenes, máximo 10 (`MAX_MESSAGE_IMAGES`) y sin repetir.
+  - Las imágenes deben ser subidas del autor (`MediaService.assertOwnUploads`, la misma de T14).
+  - Si algo falla, el servicio responde 400 y el gateway lo devuelve como `invalid-payload`, igual que un payload mal formado: la App lo marca como no enviado.
+- **Quién ve las imágenes del chat.**
+  - Las del solicitante ya las veían los miembros.
+  - Si escribe un miembro, sus imágenes se comparten con el solicitante (`media.sharedWith`, con `$addToSet`) antes de emitir el mensaje, así el solicitante puede abrirlas en cuanto lo recibe. Otro solicitante sigue recibiendo 403.
+  - `media` no depende de `chat`: guarda a quién se compartió, sin consultar la solicitud.
+- **Avisos de Telegram.** Si el mensaje es solo imágenes, el aviso al grupo dice "📷 Imagen" o "📷 N imágenes" (`preview`). *(Reemplazado en T27: el puente republica las imágenes y `preview` se quitó.)*
+- **Costo.** Un mensaje de texto sigue con 2 operaciones de Mongo. Las imágenes suman su validación y, si escribe un miembro, compartirlas.
+- **Sin migración.** `content` deja de ser obligatorio en el schema; los mensajes anteriores no cambian.
 
 **Dependencies:** T08, T16
 
 **Files likely touched:**
-- `src/chat/domain/entities/request-chat-message.entity.ts`
-- `src/chat/mappers/request-chat-message.mapper.ts`
-- `src/chat/presentation/dtos/create-request-chat-message.dto.ts`
+- `src/chat/domain/entities/request-chat-message.entity.ts` (+ `.spec.ts`)
+- `src/chat/mappers/request-chat-message.mapper.ts`, `infraestructure/schemas/request-chat-message.schema.ts`, `repositories/request-chat-message-mongo.repository.ts`
+- `src/chat/application/chat.service.ts` (+ `.spec.ts`), `presentation/chat.gateway.ts`, `presentation/dtos/*message*.dto.ts`
+- `src/media/domain/media.ts`, `application/media.service.ts`, `infraestructure/media*.ts`
 
 **Estimated scope:** S
 
@@ -824,47 +905,102 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ## Task 18: Chat: historial paginado
 
-**Repo:** API · **RNF:** REN-04
+**Repo:** API + App · **RNF:** REN-04
 
 **Description:** Historial de mensajes de un chat paginado: abrir un chat trae los últimos mensajes y los anteriores se piden por páginas. (El resumen del listado se hace en T40. Los leídos y no leídos se quitaron el 2026-10-03, SPEC §15.)
 
 **Acceptance criteria:**
-- [ ] Abrir un chat con muchos mensajes trae solo la última página
-- [ ] Las páginas anteriores no repiten ni saltan mensajes
+- [x] Abrir un chat con muchos mensajes trae solo la última página
+- [x] Las páginas anteriores no repiten ni saltan mensajes
 
 **Verification:**
-- [ ] e2e de paginación del historial
+- [x] e2e (`test/request-chat-history.e2e-spec.ts`): 121 mensajes, recorridos hacia atrás de a 50 y de a 7, con `createdAt` empatados; unitarias del servicio
+- [x] Prueba de mutación: sin el desempate por `_id`, las páginas repiten o saltan mensajes y fallan 3 casos
+- [ ] App: manual en staging con un chat de más de 50 mensajes
+
+**Notas de implementación:**
+- **Contrato.**
+  - `GET /request-chats/:id` (y `POST /applications`, `new-request-chat`, `request-chat-update`) trae los últimos 50 mensajes (`LATEST_MESSAGES_LIMIT`) y `hasOlderMessages`.
+  - Los anteriores: `GET /request-chats/:id/messages?before=<primer mensaje>&limit=` (por defecto 50, máximo 100) → `{ items, hasMore }`, en orden cronológico.
+  - La misma ruta sigue sirviendo `?after=` (recuperación, T16). Lleva uno de los dos: ambos o ninguno → 400. Un mensaje de otra solicitud → 400.
+- **Orden estable.** Los mensajes nuevos tienen `createdAt` único (reloj monótono), pero los migrados sin fecha propia (T12) comparten la de su solicitud. El orden es `createdAt` y después `_id`, y el cursor compara los dos: las páginas no repiten ni saltan mensajes aunque empaten. Aplica también a `after`.
+- **Índice.** `requestChatId + createdAt` pasa a `requestChatId + createdAt + _id`, que sirve los dos sentidos y el último mensaje del listado. Mongoose crea el nuevo al arrancar. El anterior quedó redundante y se borró en staging y producción el 2026-10-05, después de crear el nuevo.
+- **Cierre.** El `request-chat-update` del cierre ya no lee todo el historial: lleva la última página, igual que abrir el chat.
+- **App (mínimo, el chat completo es T20).**
+  - Botón "Ver mensajes anteriores" arriba del chat mientras haya `hasOlderMessages`.
+  - La vista no se mueve al agregar mensajes anteriores.
+  - Desplazamiento: el chat abre mostrando lo último y baja al enviar un mensaje propio. Los mensajes que llegan de otros no mueven la vista; bajar con cada mensaje nuevo resultaba molesto.
+  - `request-chat-update` agrega los mensajes nuevos sin borrar las páginas ya cargadas. Si no se solapa con lo que hay, reemplaza todo.
 
 **Dependencies:** T16
 
 **Files likely touched:**
-- `src/chat/application/chat.service.ts`
-- `src/chat/infraestructure/repositories/chat-mongo.repository.ts`
-- `src/chat/presentation/chat.gateway.ts`
+- `src/chat/application/chat.service.ts`, `domain/services/request-chat-message.repository.ts`
+- `src/chat/infraestructure/repositories/request-chat-message-mongo.repository.ts`, `schemas/request-chat-message.schema.ts`
+- `src/chat/presentation/request-chat.controller.ts`, `dtos/list-request-chat-messages.dto.ts`, `dtos/get-request-chat.dto.ts`, `chat.gateway.ts`
+- App: `src/pages/RequestChatPage/RequestChatPage.tsx`, `src/services/request-chat.service.ts`, `src/services/live-updates.ts`
 
 **Estimated scope:** S
 
 ---
 
-## Task 19: Chat: mensajes de sistema y solo lectura
+## Task 19: Chat: sin mensajes del bot y solo lectura
 
-**Repo:** API
+**Repo:** API + App
 
-**Description:** Mensajes de sistema (bienvenida, "X entró al chat de revisión", resultado). Tras el cierre, cualquier envío se rechaza.
+**Description:** El bot no escribe en el chat. El chat empieza con un encabezado de bienvenida de la App y el resultado se comunica en la pantalla *Aprobado* o *No aprobado*. Tras el cierre, cualquier envío se rechaza. (Cambio de alcance del 2026-10-05: antes eran mensajes de sistema del bot, de bienvenida y de resultado. "X entró al chat de revisión" también se quitó, porque solo informaría que alguien entró.)
 
 **Acceptance criteria:**
-- [ ] Enviar a una solicitud cerrada → error `RequestChatClosed`
-- [ ] Los mensajes de sistema se distinguen por tipo en el DTO
+- [x] Enviar a una solicitud cerrada → error `RequestChatClosed`
+- [x] Una solicitud nueva no tiene mensajes, y cerrarla no agrega ninguno
+- [x] La App muestra la bienvenida como encabezado al inicio del chat
+- [ ] Los mensajes del bot que ya existen se quitan en staging y producción (migración 002). Staging: hecho el 2026-10-05 (8 mensajes de `@furmeets_test_bot`, respaldados en `requestchatmessages_bot_pre_002`). Falta producción.
 
 **Verification:**
-- [ ] Unitarias de la entidad; e2e de envío a solicitud cerrada
+- [x] Unitarias de la entidad y del servicio
+- [x] e2e (`test/request-chat-read-only.e2e-spec.ts`):
+  - envío a solicitud cerrada, del solicitante y de un miembro;
+  - el historial se sigue leyendo;
+  - migración 002: modo lectura, aplicada con respaldo, idempotente y con un bot inexistente.
+- [x] e2e de solicitud nueva y de cierre por votos sin mensajes del bot
+- [x] Prueba de mutación: sin la regla de solo lectura fallan 3 casos
+- [ ] App: manual en staging (encabezado al abrir un chat nuevo y al llegar al principio del historial)
+
+**Notas de implementación:**
+- **Sin mensajes del bot.**
+  - `openRequestChat` crea la solicitud sin mensajes.
+  - Al cerrar, `afterClose` ya no inserta un mensaje: solo emite `request-chat-update`, con la última página como antes, y manda los avisos de Telegram.
+  - El usuario del bot (`getBotUser`, `refreshBotUser`, `UserEntity.registerBot`) existía solo para firmar esos mensajes y se quitó.
+  - El documento del bot que ya está en `users` no se toca.
+  - Los avisos al grupo de Telegram (solicitud nueva, aprobada, rechazada) siguen igual: no son mensajes del chat.
+- **Solo lectura.**
+  - `RequestChatEntity.assertAcceptsMessages` lanza `RequestChatClosedError` si la solicitud no está en curso.
+  - Por socket llega como `exception` con `message: 'request-chat-closed'` y el payload en `cause.data`, así la App marca el mensaje como no enviado con su `clientMessageId`.
+  - No se guarda, no se emite y no se avisa por Telegram. Leer el historial sigue funcionando.
+  - Antes respondía "Internal server error" en el socket (un `ConflictException` sin traducir).
+  - Un reenvío de un mensaje que sí se guardó antes del cierre (ack perdido) también recibe `request-chat-closed`. Al reconectar, el historial lo muestra.
+- **Migración 002 (`scripts/migrations/002-drop-bot-messages.ts`).**
+  - Quita del chat los mensajes del bot anteriores a T19, después de copiarlos en `requestchatmessages_bot_pre_002`.
+  - Correrla después de desplegar, primero sin `--apply` para revisar el bot y el conteo.
+  - `BOT_TELEGRAM_ID` es el número antes de `:` en el token del bot de esa base:
+    ```
+    DB_URI=... BOT_TELEGRAM_ID=<id> npm run migrate:002
+    DB_URI=... BOT_TELEGRAM_ID=<id> CONFIRM=<base> npm run migrate:002 -- --apply
+    ```
+  - Correrla de nuevo no cambia nada.
+  - Una solicitud que solo tenía la bienvenida queda sin mensajes, igual que una nueva. En el listado se ve sin último mensaje.
+- **App.**
+  - Encabezado de bienvenida al inicio del chat, cuando ya no hay mensajes anteriores por cargar (`!hasOlderMessages`). Lo ven el solicitante y los miembros.
+  - Un chat sin mensajes muestra solo el encabezado.
 
 **Dependencies:** T16
 
 **Files likely touched:**
-- `src/chat/domain/entities/request-chat.entity.ts`
-- `src/chat/domain/entities/request-chat-message.entity.ts`
-- `src/chat/application/chat.service.ts`
+- `src/chat/domain/entities/request-chat.entity.ts`, `request-chat-message.entity.ts` (+ `.spec.ts`)
+- `src/chat/application/chat.service.ts` (+ `.spec.ts`), `presentation/chat.gateway.ts`
+- `src/members/application/user.service.ts`, `groups.service.ts`, `domain/entities/user.entity.ts`
+- `scripts/migrations/002-drop-bot-messages.ts`
+- App: `src/pages/RequestChatPage/RequestChatPage.tsx`
 
 **Estimated scope:** S
 
@@ -874,48 +1010,121 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** REN-01, CAL-04, USA-01, USA-02
 
-**Description:** Chat con texto, imágenes (adjuntar), responder, mensajes de sistema, estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
+**Description:** Chat con texto, imágenes (adjuntar), estado de solo lectura, envío con `clientMessageId` y recuperación al reconectar. Fechas formateadas en el cliente. Sin botones de emoji ni micrófono.
 
 **Acceptance criteria:**
 - [ ] Un mensaje enviado aparece en otro cliente conectado sin recargar
 - [ ] Al cortar y restablecer la red, no se pierden ni duplican mensajes
 - [ ] Chat cerrado: sin caja de texto
+- [ ] El solicitante ve "Paso 2 de 3 · conversación con el grupo" y ninguna votación
 
 **Verification:**
-- [ ] Manual en staging con dos cuentas
+- [ ] Manual en staging con dos cuentas (los criterios se marcan con ella; lint y build en verde)
+
+**Notas de implementación** (App, `feat/t20-chat`):
+- **Imágenes.**
+  - Adjuntar hasta 10 por mensaje. Cada una sube a `POST /media` al elegirla y queda como miniatura que se puede quitar. Enviar espera a que terminen las subidas (`ChatComposer`).
+  - En la burbuja, una imagen ocupa el ancho y varias van en dos columnas. Al tocarla se abre a pantalla completa.
+  - El listado muestra "📷 Imagen" si el último mensaje es solo imágenes (`messagePreview`).
+- **Diseño** (artboards *Solicitante* y *Main*).
+  - Burbujas: las propias a la derecha con hora y doble check (guardado, no leído); las ajenas con avatar y un color de nombre fijo por autor.
+  - Caja: adjuntar, texto y enviar.
+  - Cabecera del solicitante: "FurMeets · tu solicitud" y la barra "Paso 2 de 3 · conversación con el grupo · en revisión".
+  - La cabecera de miembros queda igual: la votación plegada y la tarjeta de resumen son T24.
+  - Los colores salen del tema de Telegram (`themeParams`), así el chat funciona en tema claro y oscuro.
+- **Solo lectura.** Con la solicitud cerrada no hay caja de texto: se ve "La solicitud se cerró: el chat es de solo lectura". Un envío rechazado con `request-chat-closed` queda "no enviado".
+- **Reconexión.**
+  - Al reconectar, la App pide de nuevo el chat abierto y reenvía los mensajes propios que seguían "enviando", con el mismo `clientMessageId` (la API devuelve el ya guardado, T16).
+  - Si el historial trae un mensaje propio pendiente (ack perdido), sale de la bandeja de salida, así no se ve dos veces.
+  - Los "no enviado" esperan a que el usuario los reintente.
+- **Ajustes posteriores** (App PR #16, `fix/chat-scroll-font`):
+  - Al abrir el chat o enviar un mensaje, la vista queda fija abajo unos segundos y sigue al contenido mientras crece. Así termina al final aunque el mensaje tarde en pintarse o sus imágenes en cargar. Subir a mano o cargar mensajes anteriores la suelta.
+  - El texto de los mensajes vuelve a usar la fuente de `telegram-ui`.
+  - El solicitante solo puede estar en su chat mientras está en curso. Si se cierra en vivo (`request-chat-update`), pasa a *Aprobado* o *No aprobado* (`routes.tsx`, con `homePathFor`).
 
 **Dependencies:** T07, T09, T17, T18, T19
 
 **Files likely touched:**
 - `src/pages/RequestChatPage/RequestChatPage.tsx`
-- `src/components/ChatBubble/ChatBubble.tsx`
-- `src/state/request-chat.slice.ts`
-- `src/services/request-chat.service.ts`
+- `src/components/ChatBubble/ChatBubble.tsx`, `src/components/ChatComposer/ChatComposer.tsx`
+- `src/services/live-updates.ts`, `src/state/outbox.slice.ts`
+- `src/models/request-chat-message.model.ts`, `src/components/RequestChatList/RequestChatList.tsx`
 
 **Estimated scope:** M
 
 ### Checkpoint C: solicitud y chat
 - [ ] Flujo formulario → chat en staging
-- [ ] Criterio de éxito 11
+- [x] Criterio de éxito 11 (`test/applications.e2e-spec.ts`: más de 3 imágenes → 400; `PUT`/`PATCH` → 404)
+
+---
+
+## Task 45: Corregir `ValueObject.equals`
+
+**Repo:** API · **RNF:** CAL-03 · **Deuda:** #19
+
+**Description:** `ValueObject.equals` devuelve `true` para cualquier par de objetos con `props`: no compara valores (hallazgo de T41). T21 y T22 comparan votantes y autores, así que se corrige antes. Comparar `props` por valor (superficial, con recursión en value objects anidados) y revisar quién lo usa hoy.
+
+**Acceptance criteria:**
+- [x] Dos value objects con las mismas `props` son iguales; con `props` distintas, no
+- [x] Los usos actuales siguen funcionando (o se cambian si dependían del bug)
+
+**Verification:**
+- [x] Unitarias de `value-object.spec.ts` (fallaban 7 de 8 con el código anterior); `npm test` (229) y `npm run test:e2e` (168) completos
+
+**Notas de implementación:**
+- **Igualdad por valor.** Misma clase y mismas `props`, comparadas una a una:
+  - los value objects anidados, con su propio `equals`;
+  - las listas, elemento por elemento y en orden;
+  - las fechas, por instante;
+  - lo demás, con `Object.is`.
+- Una prop ausente equivale a una en `undefined`, así `{ text }` es igual a `{ text, author: undefined }`. Dos clases distintas con las mismas `props` no son iguales.
+- **Usos actuales.** Ningún código de `src` llamaba a `ValueObject.equals`, así que nada dependía del bug. `Entity.equals`, que usan `fromUser` y `GroupEntity`, compara `_id.value` como texto y no cambia. Desde ahora, `UUID.equals` compara el valor; T21 y T22 pueden usarlo para votantes y autores.
+
+**Dependencies:** Ninguna
+
+**Files likely touched:**
+- `src/shared/domain/value-objects/value-object.ts` (+ `.spec.ts`)
+
+**Estimated scope:** XS
 
 ---
 
 ## Task 21: Revisión: votos y umbrales
 
-**Repo:** API · **RNF:** SEG-04, PRI-01, PRI-02, CON-07 · **Deuda:** #11
+**Repo:** API · **RNF:** SEG-04, PRI-01, PRI-02, PRI-03, CON-07 · **Deuda:** #11
 
-**Description:** Votar (`approve | reject`), cambiar y retirar mientras está en curso. Umbrales `APPROVE_THRESHOLD`/`REJECT_THRESHOLD`; el voto que alcanza uno cierra en el acto (actualización condicional para evitar doble cierre). Las respuestas incluyen nombres solo de votos a favor, conteos y el voto propio. Nunca la identidad de quien rechaza.
+**Description:** Votar (`approve | reject`), cambiar y retirar mientras está en curso. Umbrales `APPROVE_THRESHOLD`/`REJECT_THRESHOLD`, los dos en 5; el voto que alcanza uno cierra en el acto (actualización condicional para evitar doble cierre). Los votos son anónimos (decidido por el grupo el 2026-10-05): los miembros reciben los conteos, los umbrales y su propio voto, nunca quién votó, y nada se registra en los logs. Para el solicitante, las respuestas no incluyen votos.
 
 **Acceptance criteria:**
-- [ ] Solicitante votando → 403; `vote` inválido → 400
-- [ ] Al alcanzar el umbral, la solicitud pasa a *Approved*/*Rejected* una sola vez
-- [ ] Ningún DTO, evento ni log contiene el id de quien votó en contra
+- [x] Solicitante votando → 403; `vote` inválido → 400
+- [x] Al alcanzar el umbral, la solicitud pasa a *Approved*/*Rejected* una sola vez
+- [x] Un miembro recibe conteos, umbrales y su propio voto en `GET /request-chats/:id` y en la respuesta del voto; `request-chat-votes` lleva conteos y umbrales. Ninguna salida dice quién votó, ni a los admins
+- [x] Sin log de quién vota ni de qué
+- [x] Mientras no sea miembro, el solicitante no recibe votos ni en `GET` ni en `request-chat-update`
+- [x] El valor por defecto de `REJECT_THRESHOLD` en el código pasa de 3 a 5 (ahora en `src/review/domain/vote.ts`)
+- [ ] Revisar `REJECT_THRESHOLD` en Render de staging y producción: debe ser 5 o no estar (cambiarlo requiere aprobación, SPEC §12)
 
 **Verification:**
-- [ ] Unitarias de dominio (umbrales, cambio, retiro, no votar la propia)
-- [ ] Prueba que serializa todas las salidas y busca el id del votante en contra (criterio de éxito 10)
+- [x] Unitarias de dominio: umbrales y su lectura del entorno, "no votar la propia", solo en curso (`vote.spec.ts`, `request-chat.entity.spec.ts`). Cambiar y retirar el voto los aplica el pipeline atómico de Mongo, así que se prueban en e2e (`send-vote-background`)
+- [x] Prueba que serializa las salidas dirigidas al solicitante y no encuentra votos (criterio de éxito 10): unitaria del mapper y e2e de `GET`, `POST /applications` y `request-chat-update`
+- [x] Pruebas de anonimato: la salida de los miembros (`GET`, respuesta del voto, `request-chat-votes`, `request-chat-update`) serializada no contiene el nombre ni el id de quienes votaron
+- [x] `npm test` (250) y `npm run test:e2e` (170) completos
 
-**Dependencies:** T11, T06
+**Notas de implementación:**
+- **Dominio en `src/review/domain/vote.ts`:** `Vote` (id del votante y opción), `Votes` (conteos, voto de un miembro, ganador) y los umbrales. Reemplaza a `RequestChatVoteEntity`. Quién puede votar y el estado al que pasa la solicitud siguen en `RequestChatEntity` (`assertAcceptsVoteFrom`, `outcomeFor`).
+- **Umbrales:** `ChatService` los lee al crearse, ya con el `.env` cargado. Antes se leían al importar la entidad, antes que el `.env`: en local valía el default, no el `.env`. Si falta uno, vale 5; si no es un entero positivo, la API no arranca. Las e2e fijan 5 y 5 aunque el `.env` local diga otra cosa.
+- **No votar la propia:** el filtro del voto atómico excluye al solicitante (`requester: { $ne: voter }`). Si el voto no se aplica, se lee la cabecera para responder 404 (no existe), 403 (es la propia, aunque ya sea miembro) o 409 (cerrada).
+- **Anonimato:**
+  - El votante se guarda (`votes.from`) solo para que cada miembro tenga un voto y pueda cambiarlo o retirarlo. No sale de la API, de los eventos ni de los logs, ni siquiera a los admins.
+  - Por eso ni el voto ni `GET` cargan a los votantes (`populate`): votar sigue en autenticar + `findAndModify`, más `update` si cierra.
+  - Se quitó el log de debug que registraba quién votaba y qué. El log de tiempos solo guarda el patrón de la ruta, sin el tipo de voto.
+- **Contrato (solo se agrega, la App actual sigue igual):**
+  - Miembros: `votes` (conteos, como antes), `thresholds: { approve, reject }` y `userVote`. Eso llega en `GET /request-chats/:id`, en la respuesta de `PUT …/vote/:type`, en `request-chat-votes`, en `new-request-chat` y en `request-chat-update` (estos tres sin `userVote`).
+  - Solicitante (no miembro): `GET /request-chats/:id`, `POST /applications` y su `request-chat-update` van sin `votes`, `thresholds` ni `userVote`. El evento se emite por separado a `members` y a la sala de la solicitud (`except(members)`). La App del solicitante no lee `votes`, así que no se rompe; el tipo `RequestChat` de la App se ajusta en T24.
+  - Si el solicitante ya es miembro, ve los conteos de su solicitud, como cualquier miembro (SPEC §3.3).
+  - El listado sigue con conteos y voto propio. Los umbrales para "4/5 a favor" se agregan en T23.
+
+**Dependencies:** T11, T06, T45
 
 **Files likely touched:**
 - `src/review/domain/vote.ts` (+ `.spec.ts`)
@@ -927,24 +1136,36 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ---
 
-## Task 22: Revisión: avales y comentarios privados
+## Task 22: Revisión: avales
 
 **Repo:** API · **RNF:** PRI-01, PRI-03
 
-**Description:** "Lo conozco" (aval informativo, cualquier miembro) y comentarios privados anónimos entre miembros. El autor del comentario se guarda pero solo se expone como `isMine` al propio autor. El solicitante no ve ninguno de los dos mientras no sea miembro.
+**Description:** "Lo conozco, lo avalo" (aval informativo, cualquier miembro, con opción de retirarlo). Los avales llevan el nombre de quien avala y la fecha, y los ven todos los miembros. El solicitante no los ve mientras no sea miembro. Los comentarios entre miembros se quitaron el 2026-10-05 (votación del grupo).
 
 **Acceptance criteria:**
-- [ ] Solicitante pidiendo avales o comentarios → 403
-- [ ] Los comentarios no traen autor, solo `isMine`
-- [ ] Avalar dos veces no duplica
+- [x] Solicitante pidiendo o dando avales → 403
+- [x] Los avales traen autor y fecha
+- [x] Avalar dos veces no duplica; retirar el aval lo quita
 
 **Verification:**
-- [ ] Unitarias; e2e por rol (criterio de éxito 9)
+- [x] Unitarias (`endorsement.service.spec.ts`, mapper, regla de la entidad); e2e por rol (`request-chat-endorsements.e2e-spec.ts`, criterios de éxito 9 y 10)
+- [x] `npm test` (259) y `npm run test:e2e` (180) completos
+
+**Notas de implementación:**
+- **Rutas:** `PUT /request-chats/:id/endorsement` avala y `DELETE /request-chats/:id/endorsement` retira el aval. Solo miembros (`@MembersOnly()`); un `:id` que no es UUID → 400. Las dos son idempotentes y responden `{ uuid, endorsements }`.
+- **Reglas** (las mismas que los votos, `RequestChatEntity.assertAcceptsReviewFrom`): nadie avala su propia solicitud, aunque ya sea miembro (403), y solo mientras está en curso (409). Cerrada, los avales quedan como estaban. La SPEC no fijaba estos dos puntos; se tomaron iguales a los votos (2026-10-05).
+- **Datos:** embebidos en la solicitud (`endorsements: [{ from, createdAt }]`), como los votos (SPEC §4.2). Avalar es un pipeline de actualización que agrega el aval solo si falta, así dos avales a la vez dejan uno. Retirar es un `$pull`. Cada uno es una operación atómica más un `find` de quién avaló. Las solicitudes anteriores no tienen el campo: equivale a ninguno, sin migración.
+- **Contrato:**
+  - Miembros: `GET /request-chats/:id`, `new-request-chat` y `request-chat-update` traen `endorsements: [{ endorser: { uuid, name, username?, avatarMediaId? }, at }]`, del más antiguo al más reciente. `at` va en ISO-8601 UTC.
+  - Nuevo evento `request-chat-endorsements` (`{ uuid, endorsements }`), solo a la sala `members`.
+  - Solicitante (no miembro): ni `GET` ni `request-chat-update` traen avales.
+  - El listado no los trae: la tarjeta "Resumen del solicitante" (T24) sale de `GET`.
+- **Rechazos compartidos:** `review-rejection.ts` decide entre 404, 403 y 409 cuando un voto o un aval no se aplicó. `CannotVoteOwnRequestError` pasa a llamarse `CannotReviewOwnRequestError`.
 
 **Dependencies:** T21
 
 **Files likely touched:**
-- `src/review/domain/endorsement.ts`, `private-comment.ts`
+- `src/review/domain/endorsement.ts`
 - `src/review/presentation/review.controller.ts`
 - `src/review/infraestructure/schemas/*.ts`
 
@@ -954,23 +1175,42 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ## Task 23: App: inicio de miembros
 
-**Repo:** App · **RNF:** PRI-02, REN-04, USA-01
+**Repo:** API + App · **RNF:** PRI-02, REN-04, USA-01
 
-**Description:** Solicitudes en curso con su último mensaje y la etiqueta "Falta tu voto", estadísticas (total, aceptadas, no aprobadas) e historial paginado. Actualización en vivo por la sala `members`.
+**Description:** Inicio según el artboard *Inicio*: todas las solicitudes en curso con su estado, conteos contra los umbrales ("4/5 a favor · 1/5 en contra") y la etiqueta "Falta tu voto"; estadísticas (total, aceptadas, no aprobadas); historial paginado. Actualización en vivo por la sala `members`. Además, abrir la App con `startapp=<id>` (el enlace del aviso al grupo, T41) lleva directo a esa solicitud.
+
+**API:** hoy `GET /request-chats` está paginado por cursor (T40) y no trae totales, así que la App no puede calcular las estadísticas ni separar "en curso" del historial. Agregar los totales por estado y un filtro por estado (o la lista de en curso aparte), con agregaciones sobre índices.
 
 **Acceptance criteria:**
-- [ ] Un mensaje nuevo actualiza el último mensaje de la lista sin recargar
-- [ ] No se lista quién falta por votar
+- [x] Las estadísticas coinciden con los conteos por estado en la BD, aunque el historial esté paginado
+- [x] Un mensaje o voto nuevo actualiza la lista sin recargar; no se lista quién falta por votar
+- [x] `startapp=<id>` abre esa solicitud (si el usuario puede verla; si no, el inicio)
 
 **Verification:**
+- [x] e2e de la forma de la respuesta y de los totales (API): `test/request-chat-home.e2e-spec.ts`
+- [x] `npm run lint` y `npm run build` en la App. Probado en Chrome contra un API simulado con eventos de socket.
+- Mergeado en API PR #38 y App PR #17.
 - [ ] Manual en staging
+
+**Notas de implementación (API):**
+- **Contrato.** `GET /request-chats?scope=&limit=&cursor=`, solo miembros. `scope=open` trae las que siguen en curso, `scope=closed` el historial (aprobadas y rechazadas) y sin `scope` trae todas, así la App actual sigue funcionando. Otro valor → 400.
+- **Respuesta.** Además de `items` y `nextCursor`, trae `totals: { total, inProgress, approved, rejected }` y `thresholds: { approve, reject }`. Los totales son de toda la BD: no dependen de la página ni de `scope`. Cada solicitud sigue trayendo solo conteos y el voto propio (RNF-PRI-01).
+- **Orden.** Por fecha de creación, también en el historial: una solicitud que se cierra no sube al principio.
+- **Índice nuevo:** `{ state: 1, createdAt: -1, _id: -1 }`. Sirve al filtro y a los totales. Los totales necesitan un `$sort` por `state` antes del `$group`: sin él, Mongo recorre la colección. Medido con `explain` sobre 3000 solicitudes: los totales leen 0 documentos (antes 3000) y cada página de 51 lee hasta 56, también con cursor.
+- **Para la App.**
+  - "Falta tu voto" se calcula en la App: la solicitud está en curso, no trae `userVote` y no es del propio miembro.
+  - En vivo no hace falta nada nuevo en la API: `new-request-chat`, `request-chat` (mensajes), `request-chat-votes` y `request-chat-update` (cierre) ya llegan a los miembros. Los eventos no traen `totals`: la App los ajusta o vuelve a pedir el listado.
+
+**Notas de implementación (App):**
+- **Dos listados** en caché, `open` (50 por página) y `closed` (5), con "Ver más". Mensajes, votos y solicitudes nuevas se parchean sin pedir nada. Un cierre (`request-chat-update`) vuelve a pedir los dos: los totales siempre son los de la BD, y el historial vuelve a la primera página.
+- **Sin "en conversación" ni "sin actividad hace N días"** del diseño: la SPEC no los define.
+- **`startapp`:** el inicio abre la solicitud encima, así volver lleva al inicio. Un id inexistente o ajeno (400, 403, 404) lleva al inicio; antes el chat se quedaba cargando para siempre.
 
 **Dependencies:** T18, T21
 
 **Files likely touched:**
-- `src/pages/IndexPage/IndexPage.tsx`
-- `src/components/RequestChatList/RequestChatList.tsx`
-- `src/services/request-chat.service.ts`
+- API: `src/chat/presentation/request-chat.controller.ts`, `src/chat/infraestructure/repositories/chat-mongo.repository.ts`, `dtos/list-request-chat.dto.ts`
+- App: `src/pages/IndexPage/IndexPage.tsx`, `src/components/RequestChatList/RequestChatList.tsx`, `src/components/App.tsx` (`startapp`)
 
 **Estimated scope:** M
 
@@ -980,15 +1220,27 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** PRI-01, USA-01
 
-**Description:** Votación plegada con barra de quórum hacia los umbrales fijos (sin estado *Vencida*), avatares solo de quienes aprobaron, texto "Tu voto a favor es visible para el grupo; en contra es anónimo". Resumen con fursona, datos, respuestas, avales, comentarios y leyenda de solicitud migrada.
+**Description:** Votación plegada con dos barras, una por opción, hacia los umbrales fijos (sin estado *Vencida*). Abierta muestra los conteos y el voto propio, nunca quién votó: los votos son anónimos (2026-10-05). Resumen con fursona, datos, respuestas, avales con su autor y leyenda de solicitud migrada. Sin pronombres ni *Reportar solicitud*.
+
+En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad · ciudad · avales) abre el Resumen. El Resumen muestra la etiqueta "Menor de edad" cuando corresponde y las imágenes del formulario por `/media/:id`.
 
 **Acceptance criteria:**
-- [ ] El solicitante no ve el panel de votación
-- [ ] Cambiar y retirar el voto funciona desde la UI
-- [ ] Solicitudes `legacy` muestran "Solicitud anterior al formulario actual"
+- [x] El solicitante no ve el panel de votación
+- [x] La votación muestra conteos contra los umbrales y el voto propio, sin nombres; el texto del panel no dice que el voto lo ve el grupo
+- [x] Cambiar y retirar el voto funciona desde la UI
+- [x] Solicitudes `legacy` muestran "Solicitud anterior al formulario actual"
 
 **Verification:**
+- [x] `npm run lint` y `npm run build` en la App. Probado en Chrome contra un API simulado, en tema claro y oscuro, como miembro y como solicitante.
 - [ ] Manual en staging
+- Mergeado en API PR #39 y App PR #18. La App necesita el API de #39 para la fecha del Resumen.
+
+**Notas de implementación:**
+- **API:** `GET /request-chats/:id` y los eventos para miembros traen `createdAt` (ISO-8601 UTC), para la fecha del Resumen. El solicitante no la recibe.
+- **Panel de votación** sobre la caja de texto: plegado, las dos barras y "Falta tu voto" o "Ya votaste"; abierto, votar, "Cambiar a …" y "Retirar voto". Solo pide confirmar el voto que alcanzaría un umbral, porque cierra la solicitud y ya no se puede cambiar.
+- **Se quitaron del diseño** los nombres de quién votó, "tu voto lo ve todo el grupo", *Reportar*, pronombres, "Señales y comentarios" y la etiqueta "+18". Solo queda "Menor de edad" (SPEC §3.1).
+- **Quien ya es miembro** ve su propia solicitud como miembro: conteos sin poder votar ni avalar (SPEC §3.3).
+- **El historial del inicio** abre el Resumen; "Ver el chat" lleva al chat.
 
 **Dependencies:** T22, T23
 
@@ -1001,7 +1253,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 ### Checkpoint D: revisión
 - [ ] Criterios de éxito 9 y 10
-- [ ] Revisión humana de privacidad
+- [ ] Revisión humana: el solicitante no recibe votos ni avales mientras no sea miembro, y nadie ve quién votó
 
 ---
 
@@ -1009,22 +1261,47 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** SEG-09, SEG-10 · **Deuda:** #8
 
-**Description:** Al aprobarse, `createChatInviteLink({ creates_join_request: true, name: <id> })`, guardar el enlace (sin caducidad). Handler de `chat_join_request`: aprueba solo si el usuario tiene solicitud aprobada, marca *ingresó* y revoca el enlace; en cualquier otro caso rechaza.
+**Description:** Al aprobarse, `createChatInviteLink({ creates_join_request: true, name: <id>, expire_date: +7 días })`, guardar el enlace. Handler de `chat_join_request`: aprueba solo si el usuario tiene solicitud aprobada, marca *ingresó* y revoca el enlace; en cualquier otro caso rechaza.
+
+**Contexto (2026-11-17):**
+- **El enlace actual se reutiliza.** Hay miembros aprobados que salen del grupo y meses después vuelven a entrar con el mismo enlace, sin pasar por una solicitud. Pasa porque:
+  - `member_limit` no cuenta usos. Es cuántos de los que entraron por el enlace pueden ser miembros *a la vez*. Si el que entró se va, el cupo se libera y el enlace vuelve a servir, a cualquier cuenta.
+  - El enlace no tiene `expire_date` y nada lo revoca al entrar: `:new_chat_members` solo deja un log.
+- **API PR #40** (`fix/telegram-markdown-entities`): el enlace se envía como texto plano. Con `parse_mode: 'Markdown'`, un `_` en el código aleatorio abría una cursiva: con una cantidad impar Telegram rechazaba el mensaje (*can't parse entities*) y con una par llegaba roto. El mismo PR escapa el nombre del solicitante en los avisos de aprobación, de rechazo y de mensaje nuevo.
 
 **Acceptance criteria:**
-- [ ] El aprobado es aceptado; otra cuenta con el mismo enlace es rechazada
-- [ ] Tras el ingreso, el enlace queda revocado y se invalida la caché de membresía del usuario (su siguiente `GET /me` devuelve `member`)
-- [ ] Se elimina el enlace con `member_limit: 1`
+- [x] El aprobado es aceptado; otra cuenta con el mismo enlace es rechazada
+- [x] Tras el ingreso, el enlace queda revocado y se invalida la caché de membresía del usuario (su siguiente `GET /me` devuelve `member`)
+- [x] Se elimina el enlace con `member_limit: 1`
 
 **Verification:**
-- [ ] e2e con el bot simulado (criterio de éxito 6)
+- [x] e2e con el bot simulado (criterio de éxito 6): `test/admission.e2e-spec.ts`
+- [x] Unitarias de la regla (`admission.spec.ts`) y del servicio (`admission.service.spec.ts`)
+- [x] Prueba de mutación: sin invalidar el rol, o sin comparar el enlace usado, falla el e2e
+- [ ] Manual en staging con el bot y un grupo de prueba (Checkpoint E)
+
+**Notas de implementación:**
+- **Módulo nuevo `src/admission/`.** No importa `ChatModule`: `ChatModule` lo usa al aprobar. Lee y escribe sus propios campos en la colección de solicitudes, con el mismo modelo de Mongoose.
+- **Datos.** La solicitud guarda `inviteLink` y `admittedAt` (*ingresó*). No hay un estado nuevo: la solicitud sigue *Approved*, así los totales, el historial y las rutas de la App no cambian.
+- **Al aprobarse.** Tras el aviso por socket, la cola crea el enlace (`creates_join_request: true`, sin `member_limit`, con caducidad a los 7 días), lo guarda con su vencimiento y encola el DM aparte. Así un DM fallido no vuelve a crear el enlace, y un Telegram lento no retrasa el cierre. Si ya tiene enlace, no se crea otro (tampoco si venció). El `name` del enlace es el id de la solicitud sin guiones (32 caracteres, el máximo de Telegram).
+- **Vence a los 7 días** (decidido el 2026-11-17). Se pide a Telegram con `expire_date` y se guarda `inviteExpiresAt`. El DM dice "tienes 7 días para usarlo". Pasado el plazo, Telegram ya no deja usar el enlace, `GET /me` deja de traerlo y, por si acaso, la regla rechaza con `enlace-vencido`. **No se emite otro solo:** un aprobado que no entró en la semana queda a la espera de que un admin lo invite a mano.
+- **`GET /me`** trae `inviteLink` para el solicitante aprobado que todavía no entró y cuyo enlace no venció. Falta mientras se crea (unos instantes después del cierre), si ya entró, si venció, o si la aprobación es anterior a T25.
+- **Regla** (`decideJoinRequest`, en el dominio). Se acepta solo si el usuario tiene una solicitud aprobada, todavía no entró y llega por el enlace de **esa** solicitud. Si no, se rechaza. Los motivos van al log sin datos personales: `sin-solicitud`, `no-aprobada`, `ya-ingreso`, `sin-enlace`, `otro-enlace`, `enlace-vencido`.
+- **Al aceptar.** `approveChatJoinRequest`, luego `admittedAt` (condicional, una sola vez), `MembershipService.invalidate` y `revokeChatInviteLink`. Si falla revocar, el ingreso igual queda marcado y nadie más pasa con ese enlace. Si falla aceptar, no se marca nada: la solicitud de unión queda pendiente en Telegram para un admin.
+- **Quien entra, sale y vuelve** es rechazado: su enlace ya se revocó y no se emite otro. Es el caso que motivó el contexto de arriba. Volver a entrar sigue siendo una rehabilitación manual (SPEC §3.1).
+- **Aprobaciones anteriores a T25:** no tienen enlace guardado, así que no reciben uno ni pueden entrar por solicitud de unión.
+- **Bot.** `ALLOWED_UPDATES` suma `chat_join_request`. Se quitó el handler de `:new_chat_members`, que solo dejaba un log.
+
+**Pasos operativos al desplegar:**
+- El bot debe seguir siendo administrador con permiso para invitar usuarios: sin él no recibe `chat_join_request`.
+- **Revocar a mano los enlaces viejos con `member_limit`**, en *Administrar grupo → Enlaces de invitación*. El bot no los guardó, así que no los puede revocar, y siguen dejando entrar directo a quien salió. Lo mismo con cualquier otro enlace público del grupo (SPEC §3.4).
 
 **Dependencies:** T21
 
-**Files likely touched:**
-- `src/admission/application/admission.service.ts` (+ `.spec.ts`)
-- `src/telegram-bot/telegram-bot.service.ts`
-- `src/chat/domain/value-objects/request-chat-state.value-object.ts`
+**Files touched:**
+- `src/admission/` (nuevo): `domain/admission.ts`, `domain/admission.repository.ts`, `application/admission.service.ts`, `infraestructure/admission-mongo.repository.ts`, `presentation/chat-join-request.handler.ts`
+- `src/telegram-bot/telegram-bot.service.ts`, `src/chat/application/chat.service.ts`, `src/chat/infraestructure/schemas/request-chat.schema.ts`
+- `src/membership/presentation/me.controller.ts`, `dtos/me.dto.ts`
 
 **Estimated scope:** M
 
@@ -1034,11 +1311,14 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** App · **RNF:** USA-01
 
-**Description:** *Aprobado* (paso 3 de 3) con el enlace; *No aprobado* sin prometer reintento.
+**Description:** *Aprobado* (paso 3 de 3) con el enlace y sin reglas de convivencia; *No aprobado* sin prometer reintento.
+
+**Contrato de la API (T25):** el enlace viene en `GET /me` como `inviteLink` y vence a los 7 días: *Aprobado* debe decir que tiene una semana para usarlo. Justo después del cierre puede faltar unos instantes, mientras la cola lo crea: *Aprobado* vuelve a pedir `GET /me` hasta que llegue, con un límite de intentos. Si no llega (venció, aprobación anterior a T25 o error de Telegram), muestra que un admin lo enviará, sin dejar la pantalla cargando.
 
 **Acceptance criteria:**
-- [ ] El enlace abre la solicitud de unión en Telegram
-- [ ] El texto de No aprobado no menciona reintentar con un aval
+- [x] El enlace abre la solicitud de unión en Telegram
+- [x] Aprobado no enlaza a reglas de convivencia
+- [x] El texto de No aprobado no menciona reintentar con un aval
 
 **Verification:**
 - [ ] Manual en staging
@@ -1046,11 +1326,15 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Dependencies:** T07, T25
 
 **Files likely touched:**
-- `src/pages/ApprovedPage/ApprovedPage.tsx` (nuevo)
-- `src/pages/RejectedPage/RejectedPage.tsx` (nuevo)
-- `src/navigation/routes.tsx`
+- `src/pages/ApprovedPage.tsx`, `src/pages/NotApprovedPage.tsx` (existían como versión mínima, de T07)
+- `src/models/me.model.ts`, `src/state/me.slice.ts`, `src/services/me.service.ts` (`inviteLink`)
 
 **Estimated scope:** S
+
+**Notas de implementación (App, miniapp #19):**
+- **Aprobado** muestra "Paso 3 de 3" (`StepProgress`), el botón "Unirme al grupo" y el aviso de que el enlace vence en una semana. El enlace se abre con `openTelegramLink` (o `window.open` si no es de `t.me`). No enlaza a reglas de convivencia.
+- **Espera del enlace.** `inviteLink` viaja en el estado `me`. Si falta, la pantalla vuelve a pedir `GET /me` cada 2 s, máximo 5 veces, con un indicador. Agotados los intentos dice que un admin enviará el enlace por mensaje privado.
+- **No aprobado** no promete reintento ni menciona avales.
 
 ---
 
@@ -1058,70 +1342,40 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 
 **Repo:** API · **RNF:** CON-04, OBS-01
 
-**Description:** Anunciar cada nueva solicitud en el grupo con resumen y deep link. Republicar cada mensaje del solicitante (texto e imágenes reutilizando `file_id`) con encabezado "Nombre · solicitud", guardando el `message_id` del grupo. Todo fuera del camino crítico, con log de errores.
+**Description:** Anunciar cada nueva solicitud en el grupo con resumen y deep link, y fijar el aviso mientras la solicitud esté en curso. Republicar cada mensaje del solicitante (texto e imágenes reutilizando `file_id`) con encabezado "Nombre · solicitud". Nada lleva vista previa de enlaces. Todo fuera del camino crítico, con log de errores. (Cambio de alcance del 2026-11-17: se quitó T28, las respuestas desde el grupo, y con ella guardar el `message_id` de cada mensaje republicado.)
 
 **Acceptance criteria:**
-- [ ] Cada mensaje del solicitante aparece en el grupo
-- [ ] Si Telegram falla, el mensaje igual queda persistido y emitido
+- [x] Cada mensaje del solicitante aparece en el grupo
+- [x] Si Telegram falla, el mensaje igual queda persistido y emitido
+- [x] El aviso de solicitud nueva queda fijado y se desfija al cerrarse
+- [x] Ningún mensaje del bot al grupo muestra vista previa del enlace
 
 **Verification:**
-- [ ] e2e con Telegram simulado que falla; manual en staging (criterio de éxito 7, parte 1)
+- [x] e2e con Telegram simulado que falla: `test/bridge.e2e-spec.ts`
+- [ ] Manual en staging (criterio de éxito 7, parte 1)
 
 **Dependencies:** T17
 
 **Files likely touched:**
-- `src/telegram-bridge/application/bridge.service.ts` (+ `.spec.ts`)
-- `src/shared/async/background-queue.ts` (cola de T41)
-- `src/chat/application/chat.service.ts`
+- `src/telegram-bridge/` (nuevo): `application/bridge.service.ts`, `domain/republication.ts`, `telegram-bridge.module.ts` (+ `.spec.ts`)
+- `src/chat/application/chat.service.ts` (usa la cola de T41), `src/telegram-bot/telegram-bot.service.ts`, `src/media/application/media.service.ts`
+- `src/chat/infraestructure/` (`announcementMessageId` en la solicitud)
 
 **Estimated scope:** M
 
----
-
-## Task 28: Puente: respuestas desde el grupo
-
-**Repo:** API
-
-**Description:** Un *reply* de un miembro al mensaje republicado crea un mensaje en el chat de la solicitud a su nombre. Si el autor no es miembro, se ignora.
-
-**Acceptance criteria:**
-- [ ] El reply aparece en la MiniApp en tiempo real
-- [ ] Un reply de un no miembro no crea nada
-
-**Verification:**
-- [ ] e2e con update simulado (criterio de éxito 7, parte 2)
-
-**Dependencies:** T27, T05
-
-**Files likely touched:**
-- `src/telegram-bridge/presentation/group-reply.handler.ts`
-- `src/telegram-bot/telegram-bot.service.ts`
-
-**Estimated scope:** S
+**Notas de implementación:**
+- **Ya estaba hecho.** El anuncio de la solicitud nueva con resumen y deep link existe desde T13/T14. T27 le suma fijarlo y quitar la vista previa; lo demás es la republicación de cada mensaje.
+- **Aviso fijado.** Al abrir la solicitud, el bot envía el aviso, guarda su `message_id` en `announcementMessageId` de la solicitud y lo fija sin notificar (`pinChatMessage`). Al cerrarse, aprobada **o rechazada**, lo desfija. Cada solicitud fija el suyo, así que varias en curso conviven. Si fijar o guardar el id falla (p. ej. el bot sin permiso de fijar mensajes), solo se registra y no se reintenta, porque repetiría el aviso. Las solicitudes anteriores a T27 no tienen aviso guardado y no se desfija nada. **El bot debe poder fijar mensajes en el grupo.**
+- **Sin vista previa de enlaces.** Todo texto que envía el bot (grupo, republicado y mensajes privados, incluido el enlace de admisión) va con `link_preview_options.is_disabled`, para que no salga la tarjeta del bot o del grupo. Las fotos se envían igual y se ven normalmente.
+- **Qué se republica.** Solo lo que escribe el solicitante; lo de un miembro no (ya está en la App y el solicitante recibe su aviso). Un reenvío con el mismo `clientMessageId` tampoco.
+- **Formato.** Texto plano con entidades, sin `parse_mode`: encabezado "Nombre · solicitud" en negrita y con el enlace a la solicitud (`startapp`), y el texto del usuario tal cual, así un `_` o `*` suyo no hace que Telegram rechace el mensaje. Reemplaza al aviso en Markdown "Nuevo mensaje de…" (`requesterMessageNotice`, borrado junto con `preview`).
+- **Imágenes.** Se envían por `file_id` (`MediaService.fileIdsOf`), sin volver a subirlas: una sola como foto, varias como álbum, con el encabezado y el texto como pie. Si el texto no cabe en el pie (1.024), el pie lleva solo el encabezado y el texto va en un mensaje aparte. Un texto de más de 4.096 se recorta con "…" sin partir un emoji.
+- **Responder desde el grupo (T28) se quitó.** Telegram no deja impedir que alguien responda a un mensaje del bot en el grupo, pero esas respuestas se quedan en el grupo: no se leen ni llegan al chat de la solicitud. Por eso no se guarda el `message_id` de lo republicado.
+- **Fallos.** Va a `BackgroundQueue` después de guardar y emitir, con 3 intentos. Si Telegram no cede, solo se registra el error: el mensaje ya está guardado y emitido.
+- **Límite conocido.** Si un envío llegó a Telegram pero la respuesta se perdió, el reintento lo duplica en el grupo. Es poco común y preferible a perder el mensaje.
+- **Módulo.** `TelegramBridgeModule` no importa `ChatModule`: `ChatService` lo usa.
 
 ---
-
-## Task 29: Puente: DMs, resultados y `/faq`
-
-**Repo:** API · **RNF:** CON-04, PRI-01, OBS-01 · **Deuda:** #7
-
-**Description:** DM al solicitante cuando escribe un miembro (si hay permiso). Anuncio en el grupo y DM al cerrar una solicitud. `/faq` responde un placeholder. Ningún mensaje del bot menciona a quien votó en contra.
-
-**Acceptance criteria:**
-- [ ] Sin permiso de DM, el mensaje se entrega por socket igual (criterio de éxito 8)
-- [ ] El anuncio de resultado solo muestra conteos de rechazos
-
-**Verification:**
-- [ ] e2e con Telegram simulado que falla
-
-**Dependencies:** T27, T21
-
-**Files likely touched:**
-- `src/telegram-bridge/application/bridge.service.ts`
-- `src/telegram-bot/telegram-bot.service.ts`
-- `src/chat/application/chat.service.ts`
-
-**Estimated scope:** M
 
 ### Checkpoint E: v1 funcional
 - [ ] Criterios de éxito 6, 7 y 8
@@ -1144,7 +1398,7 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Verification:**
 - [ ] e2e del endpoint; manual en staging
 
-**Dependencies:** T29
+**Dependencies:** T27
 
 **Files likely touched:**
 - `src/telegram-bot/telegram-bot.server.ts`
@@ -1289,6 +1543,31 @@ y pegar aquí la línea final que imprime (p50 / p95). Sin `PERF_WRITES=1` solo 
 **Files likely touched:**
 - `src/services/user.service.ts`
 - `src/pages/RegisterPage/RegisterPage.tsx`
+
+**Estimated scope:** S
+
+---
+
+## Task 44: App: pantalla de carga durante el arranque en frío
+
+**Repo:** App · **RNF:** USA-01, USA-02
+
+**Description:** Reemplazar el spinner de `LoadingPage` por el artboard *Carga*: mientras `GET /me` no responde, una barra cuenta hasta 60 s y rotan mensajes cada 6 s (ninguno menciona reglas de convivencia). Pasados 60 s, cambia a "Esto está tardando más de lo normal" con *Reintentar* y "Contactar a un admin" (`https://t.me/DarvandFrovonwill`). En cuanto la API responde, salta a su pantalla sin esperar a la barra. Respeta `prefers-reduced-motion`.
+
+**Acceptance criteria:**
+- [ ] Con la API despierta, la pantalla de carga apenas se ve (no hay espera artificial)
+- [ ] A los 60 s sin respuesta aparece el estado demorado; *Reintentar* vuelve a pedir `GET /me`
+- [ ] Con movimiento reducido no hay animaciones
+
+**Verification:**
+- [ ] Manual en staging con la API dormida
+
+**Dependencies:** T07
+
+**Files likely touched:**
+- `src/pages/LoadingPage.tsx`
+- `src/pages/StartupErrorPage.tsx`
+- `src/components/App.tsx`
 
 **Estimated scope:** S
 

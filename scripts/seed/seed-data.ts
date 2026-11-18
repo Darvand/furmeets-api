@@ -42,7 +42,7 @@ export const DEFAULT_SEED_OPTIONS: SeedOptions = {
   maxMessages: 120,
   seed: 42,
   approveThreshold: 5,
-  rejectThreshold: 3,
+  rejectThreshold: 5,
 };
 
 export interface SeedResult {

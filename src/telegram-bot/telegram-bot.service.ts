@@ -9,6 +9,8 @@ import { telegramTimingTransformer } from '../shared/timing/telegram-timing';
 import type {
   ChatFullInfo,
   ChatMember,
+  InputMediaPhoto,
+  MessageEntity,
   PhotoSize,
   UserFromGetMe,
 } from 'grammy/types';
@@ -17,6 +19,12 @@ import { TtlCache } from '../shared/cache/ttl-cache';
 /** Vigencia de lo que se cachea de Telegram (RNF-REN-03). */
 export const TELEGRAM_CACHE_TTL_MS = 10 * 60 * 1000;
 const TELEGRAM_CACHE_MAX_ENTRIES = 1_000;
+
+/**
+ * Los mensajes de texto del bot (al grupo y por privado) llevan enlaces a la App o al
+ * grupo: sin tarjeta de vista previa. Las fotos no se ven afectadas.
+ */
+const NO_LINK_PREVIEW = { is_disabled: true } as const;
 
 /** Lado mínimo de la foto de avatar: la App los muestra a 48–96 px. */
 export const AVATAR_MIN_SIZE_PX = 160;
@@ -51,10 +59,25 @@ export interface ChatMemberUpdate {
 }
 
 /**
- * Updates que recibe el bot. `chat_member` no llega por defecto: hay que pedirlo, y el
- * bot debe ser administrador del grupo para recibirlo.
+ * Una solicitud de unión al grupo (update `chat_join_request`). `inviteLink` es el
+ * enlace que usó; con los que creó el propio bot llega completo.
  */
-export const ALLOWED_UPDATES = ['message', 'chat_member'] as const;
+export interface ChatJoinRequestUpdate {
+  chatId: number;
+  userId: number;
+  inviteLink?: string;
+}
+
+/**
+ * Updates que recibe el bot. `chat_member` no llega por defecto: hay que pedirlo, y el
+ * bot debe ser administrador del grupo para recibirlo. `chat_join_request` también
+ * exige que sea administrador, con permiso para invitar usuarios.
+ */
+export const ALLOWED_UPDATES = [
+  'message',
+  'chat_member',
+  'chat_join_request',
+] as const;
 
 /**
  * Adaptador de Telegram. Grupo y fotos se cachean en memoria por `TELEGRAM_CACHE_TTL_MS`,
@@ -86,9 +109,6 @@ export class TelegramBotService {
       this.logger.debug(
         `User with id ${ctx.message.from.id} sent a message: ${ctx.message.text}`,
       );
-    });
-    this.bot.on(':new_chat_members', (ctx) => {
-      this.logger.debug(`New members in chat ${ctx.chat.id}: ${inspect(ctx)}`);
     });
     this.bot.catch((err) => {
       this.logger.error('Bot Error: ', err);
@@ -194,29 +214,140 @@ export class TelegramBotService {
     );
   }
 
-  async sendMessageToGroup(text: string): Promise<void> {
-    await this.bot.api.sendMessage(this.config.mainChatId, text, {
+  /** Aviso en Markdown, sin vista previa de enlaces. Devuelve su `message_id` en el grupo. */
+  async sendMessageToGroup(text: string): Promise<number> {
+    const sent = await this.bot.api.sendMessage(this.config.mainChatId, text, {
       parse_mode: 'Markdown',
+      link_preview_options: NO_LINK_PREVIEW,
     });
+    return sent.message_id;
+  }
+
+  /** Fija un mensaje del grupo, sin notificar a nadie. El bot necesita poder fijar mensajes. */
+  async pinGroupMessage(messageId: number): Promise<void> {
+    await this.bot.api.pinChatMessage(this.config.mainChatId, messageId, {
+      disable_notification: true,
+    });
+  }
+
+  async unpinGroupMessage(messageId: number): Promise<void> {
+    await this.bot.api.unpinChatMessage(this.config.mainChatId, messageId);
+  }
+
+  /**
+   * Texto plano con entidades (sin `parse_mode`) para republicar lo que escribe un
+   * usuario, sin vista previa de enlaces.
+   */
+  async sendTextToGroup(
+    text: string,
+    entities: MessageEntity[],
+  ): Promise<void> {
+    await this.bot.api.sendMessage(this.config.mainChatId, text, {
+      entities,
+      link_preview_options: NO_LINK_PREVIEW,
+    });
+  }
+
+  /**
+   * Fotos que ya están en Telegram, por `file_id` y sin volver a subirlas: una sola
+   * como foto y varias como álbum. El pie va en la primera.
+   */
+  async sendPhotosToGroup(
+    fileIds: readonly string[],
+    caption: string,
+    captionEntities: MessageEntity[],
+  ): Promise<void> {
+    if (fileIds.length === 1) {
+      await this.bot.api.sendPhoto(this.config.mainChatId, fileIds[0], {
+        caption,
+        caption_entities: captionEntities,
+      });
+      return;
+    }
+    await this.bot.api.sendMediaGroup(
+      this.config.mainChatId,
+      fileIds.map(
+        (media, i): InputMediaPhoto =>
+          i === 0
+            ? {
+                type: 'photo',
+                media,
+                caption,
+                caption_entities: captionEntities,
+              }
+            : { type: 'photo', media },
+      ),
+    );
   }
 
   async sendMessageToUser(telegramId: number, text: string): Promise<void> {
     await this.bot.api.sendMessage(telegramId, text, {
       parse_mode: 'Markdown',
+      link_preview_options: NO_LINK_PREVIEW,
     });
   }
 
-  async sendInviteLinkToUser(telegramId: number): Promise<void> {
+  /**
+   * Crea un enlace de admisión al grupo principal (SPEC §3.4). No deja entrar a nadie
+   * directamente: quien lo usa genera una solicitud de unión (`chat_join_request`) que
+   * decide el bot. Caduca en `expiresAt` y se revoca cuando entra el aprobado. `name` es
+   * solo una etiqueta para los admins (máximo 32 caracteres).
+   */
+  async createAdmissionLink(name: string, expiresAt: Date): Promise<string> {
     const inviteLink = await this.bot.api.createChatInviteLink(
       this.config.mainChatId,
-      { member_limit: 1 },
+      {
+        creates_join_request: true,
+        name,
+        expire_date: Math.floor(expiresAt.getTime() / 1000),
+      },
     );
+    return inviteLink.invite_link;
+  }
+
+  async revokeInviteLink(inviteLink: string): Promise<void> {
+    await this.bot.api.revokeChatInviteLink(this.config.mainChatId, inviteLink);
+  }
+
+  async approveJoinRequest(telegramId: number): Promise<void> {
+    await this.bot.api.approveChatJoinRequest(
+      this.config.mainChatId,
+      telegramId,
+    );
+  }
+
+  async declineJoinRequest(telegramId: number): Promise<void> {
+    await this.bot.api.declineChatJoinRequest(
+      this.config.mainChatId,
+      telegramId,
+    );
+  }
+
+  /** Registra un handler para los updates `chat_join_request`. Llamar antes de `start`. */
+  onChatJoinRequest(
+    handler: (request: ChatJoinRequestUpdate) => unknown,
+  ): void {
+    this.bot.on('chat_join_request', async (ctx) => {
+      await handler({
+        chatId: ctx.chatJoinRequest.chat.id,
+        userId: ctx.chatJoinRequest.from.id,
+        inviteLink: ctx.chatJoinRequest.invite_link?.invite_link,
+      });
+    });
+  }
+
+  async sendInviteLinkToUser(
+    telegramId: number,
+    inviteLink: string,
+    validDays: number,
+  ): Promise<void> {
+    // Texto plano: el código del enlace puede llevar `_`, que en Markdown abre una
+    // cursiva y hace que Telegram rechace el mensaje (o lo entregue con el enlace roto).
     await this.bot.api.sendMessage(
       telegramId,
-      `Aquí tienes tu enlace de invitación al grupo: ${inviteLink.invite_link}`,
-      {
-        parse_mode: 'Markdown',
-      },
+      `Tu solicitud fue aprobada. Este es tu enlace para unirte al grupo: es solo para ti y tienes ${validDays} días para usarlo; después deja de servir.
+${inviteLink}`,
+      { link_preview_options: NO_LINK_PREVIEW },
     );
   }
 

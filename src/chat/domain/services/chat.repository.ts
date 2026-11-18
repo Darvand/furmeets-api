@@ -1,10 +1,8 @@
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
-import {
-  RequestChatEntity,
-  type VoteTally,
-  type VoteType,
-} from '../entities/request-chat.entity';
+import { RequestChatEntity } from '../entities/request-chat.entity';
+import type { Votes, VoteType } from 'src/review/domain/vote';
+import type { Endorsement } from 'src/review/domain/endorsement';
 import {
   RequestChatState,
   RequestChatStateType,
@@ -31,13 +29,6 @@ export interface RequestChatHeader {
   state: RequestChatStateType;
 }
 
-/** Cómo quedan los votos tras el voto de un miembro. */
-export interface VoteApplied {
-  votes: VoteTally;
-  /** El voto que le quedó al miembro; falta si lo retiró. */
-  voterVote?: VoteType;
-}
-
 /** Posición en el listado: la última solicitud de la página anterior. */
 export interface RequestChatCursor {
   createdAt: Date;
@@ -45,8 +36,8 @@ export interface RequestChatCursor {
 }
 
 /**
- * Una solicitud tal como sale en el listado: resumen, sin mensajes ni votos.
- * De los votos solo hay conteos y el voto de quien mira (RNF-PRI-01).
+ * Una solicitud tal como sale en el listado: resumen, sin mensajes. De los votos solo
+ * hay conteos y el voto de quien mira (RNF-PRI-01).
  */
 export interface RequestChatListItem {
   id: UUID;
@@ -56,7 +47,7 @@ export interface RequestChatListItem {
   /** Falta si la solicitud no tiene mensajes (solicitudes antiguas sin migrar, T12). */
   lastMessage?: { author: UserEntity; content: string; at: Date };
   votes: { approved: number; rejected: number };
-  viewerVote?: 'approve' | 'reject';
+  viewerVote?: VoteType;
 }
 
 /** Una página del listado, de la más reciente a la más antigua. */
@@ -64,6 +55,17 @@ export interface RequestChatPage {
   items: RequestChatListItem[];
   /** Falta en la última página. */
   next?: RequestChatCursor;
+}
+
+/** Parte del listado: las que siguen en curso, o el historial de las ya cerradas. */
+export type RequestChatScope = 'open' | 'closed';
+
+/** Cuántas solicitudes hay por estado, en toda la BD. */
+export interface RequestChatTotals {
+  total: number;
+  inProgress: number;
+  approved: number;
+  rejected: number;
 }
 
 /**
@@ -75,18 +77,32 @@ export interface ChatRepository {
   createRequestChat(requestChat: RequestChatEntity): Promise<void>;
   /**
    * Aplica el voto de un miembro con una sola operación atómica, si la solicitud sigue
-   * en curso: repetir el mismo voto lo retira y uno distinto reemplaza al anterior.
-   * Devuelve los conteos con los votos guardados (incluidos los de otros miembros que
-   * votaron al mismo tiempo), o `null` si la solicitud no existe o ya no está en curso.
+   * en curso y no es suya: repetir el mismo voto lo retira y uno distinto reemplaza al
+   * anterior. Devuelve los votos guardados (incluidos los de otros miembros que
+   * votaron al mismo tiempo), o `null` si la solicitud no existe, ya no
+   * está en curso o es de `voter`.
    */
   toggleVote(
     id: UUID,
     voter: UUID,
     type: VoteType,
     at: Date,
-  ): Promise<VoteApplied | null>;
+  ): Promise<Votes | null>;
+  /**
+   * Agrega el aval de `endorser` con una sola operación atómica, si la solicitud sigue en
+   * curso y no es suya; si ya la avaló, no cambia nada. Devuelve los avales guardados con
+   * quién avaló, o `null` si la solicitud no existe, ya no está en curso o es de
+   * `endorser`.
+   */
+  endorse(id: UUID, endorser: UUID, at: Date): Promise<Endorsement[] | null>;
+  /** Retira el aval de `endorser`; si no había avalado, no cambia nada. Igual que `endorse`. */
+  withdrawEndorsement(id: UUID, endorser: UUID): Promise<Endorsement[] | null>;
   /** Cierra la solicitud si sigue en curso. Devuelve si esta llamada la cerró. */
   close(id: UUID, state: RequestChatState): Promise<boolean>;
+  /** Guarda el `message_id` del aviso de la solicitud en el grupo. */
+  setAnnouncementMessageId(id: UUID, messageId: number): Promise<void>;
+  /** El `message_id` del aviso en el grupo, si se guardó. */
+  getAnnouncementMessageId(id: UUID): Promise<number | undefined>;
   getRequestChatByUUID(id: UUID): Promise<RequestChatEntity | null>;
   chatAlreadyExistsForRequester(requesterUUID: UUID): Promise<boolean>;
   /** Id y estado de la solicitud del usuario, sin cargar mensajes ni votos. */
@@ -101,6 +117,12 @@ export interface ChatRepository {
    */
   listSummaries(
     viewer: UUID,
-    page: { limit: number; after?: RequestChatCursor },
+    page: {
+      limit: number;
+      after?: RequestChatCursor;
+      scope?: RequestChatScope;
+    },
   ): Promise<RequestChatPage>;
+  /** Los conteos por estado, sin importar la página que esté viendo el miembro. */
+  countByState(): Promise<RequestChatTotals>;
 }

@@ -56,11 +56,11 @@ describe('App (e2e)', () => {
       );
     });
 
-    it('POST /request-chats con campos no declarados en el DTO → 400', async () => {
+    it('POST /applications con campos no declarados en el DTO → 400', async () => {
       const res = await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', applicantAuth)
-        .send({ requesterUUID: randomUUID(), isAdmin: true })
+        .send({ age: 25, city: 'Bogotá', isAdmin: true })
         .expect(400);
 
       expect((res.body as { message: string[] }).message).toEqual(
@@ -68,13 +68,21 @@ describe('App (e2e)', () => {
       );
     });
 
-    it('POST /request-chats con tipos inválidos → 400', async () => {
+    it('POST /applications con tipos inválidos → 400', async () => {
       await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', applicantAuth)
-        .send({ requesterUUID: 123, interests: ['a'] })
+        .send({ age: 'veinte', city: ['Bogotá'] })
         .expect(400);
     });
+  });
+
+  it('POST /request-chats (formulario anterior) ya no existe → 404', async () => {
+    await request(server)
+      .post('/request-chats')
+      .set('Authorization', applicantAuth)
+      .send({ interests: 'furros' })
+      .expect(404);
   });
 
   // Los payloads que hoy envía la mini-app siguen pasando la validación.
@@ -86,18 +94,16 @@ describe('App (e2e)', () => {
         .expect(404);
     });
 
-    it('POST /request-chats con el body de la mini-app crea la solicitud del solicitante', async () => {
-      const me = await request(server)
-        .get('/users/1002')
-        .set('Authorization', applicantAuth)
-        .expect(200);
-
+    it('POST /applications con el body de la mini-app crea la solicitud del solicitante', async () => {
       await request(server)
-        .post('/request-chats')
+        .post('/applications')
         .set('Authorization', applicantAuth)
         .send({
-          requesterUUID: (me.body as { uuid: string }).uuid,
-          interests: 'furros',
+          imageIds: [],
+          age: 25,
+          city: 'Bogotá',
+          species: 'Zorro ártico',
+          howDidYouFindUs: 'Por un amigo',
         })
         .expect(201);
     });

@@ -5,11 +5,14 @@ export class GetRequestChatMessageDto {
   /** Solicitud del mensaje: el cliente filtra los eventos por ella. */
   requestChatUUID: string;
   /**
-   * Solo en el ack y en el evento de un mensaje recién enviado: el id que le puso el
-   * cliente, para confirmar su mensaje optimista. Aún no se guarda (idempotencia: T16).
+   * El id que le puso el cliente a su envío, si lo envió. Viene en el ack, en el evento y
+   * en el historial: tras reconectar, la App confirma con él sus mensajes pendientes.
    */
   clientMessageId?: string;
+  /** Vacío si el mensaje es solo imágenes. */
   content: string;
+  /** Se ven con `GET /media/:id`; falta si no tiene imágenes. */
+  imageIds?: string[];
   user: GetUserDto;
   /** ISO-8601 UTC; el cliente lo formatea en su zona horaria. */
   sentAt: string;

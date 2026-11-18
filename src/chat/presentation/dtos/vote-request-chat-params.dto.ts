@@ -1,7 +1,5 @@
 import { IsIn, IsString } from 'class-validator';
-
-export const VOTE_TYPES = ['approve', 'reject'] as const;
-export type VoteType = (typeof VOTE_TYPES)[number];
+import { VOTE_TYPES, type VoteType } from 'src/review/domain/vote';
 
 export class VoteRequestChatParamsDto {
   @IsString()

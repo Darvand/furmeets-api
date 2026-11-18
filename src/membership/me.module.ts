@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ChatModule } from 'src/chat/chat.module';
 import { MembersModule } from 'src/members/members.module';
+import { AdmissionModule } from 'src/admission/admission.module';
 import { MeController } from './presentation/me.controller';
 
 /**
@@ -8,7 +9,7 @@ import { MeController } from './presentation/me.controller';
  * su vez dependen de `MembershipModule`: juntos formarían un ciclo.
  */
 @Module({
-  imports: [MembersModule, ChatModule],
+  imports: [MembersModule, ChatModule, AdmissionModule],
   controllers: [MeController],
 })
 export class MeModule {}

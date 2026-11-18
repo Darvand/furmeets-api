@@ -2,11 +2,11 @@
 
 > Fuente: [SPEC.md](../../../SPEC.md) (§1–§15). Tareas detalladas: [todo.md](todo.md).
 > Repos: **API** = `furmeets-api` · **App** = `furmeets-mini-app`.
-> Estado: **borrador pendiente de aprobación** · 2026-09-29
+> Estado: **Fase 0 en producción** desde el 2026-10-03, junto con T13 y T12 · Fase 1 en curso · Plan creado el 2026-09-29
 
 ## Resumen
 
-Reemplazar el ingreso libre al grupo FurMeets por un proceso de admisión controlado por los miembros, dentro de Telegram (bot + MiniApp). El solicitante llena un formulario, conversa con los miembros en un chat propio que se republica en el grupo, los miembros votan (a favor nominal, en contra anónimo) y, al llegar al umbral, el bot le entrega un enlace de solicitud de unión que solo acepta al aprobado.
+Reemplazar el ingreso libre al grupo FurMeets por un proceso de admisión controlado por los miembros, dentro de Telegram (bot + MiniApp). El solicitante llena un formulario, conversa con los miembros en un chat propio que se republica en el grupo, los miembros votan con su nombre y, al llegar al umbral, el bot le entrega un enlace de solicitud de unión que solo acepta al aprobado.
 
 Hoy existe una versión parcial (chat de solicitudes, votos, enlace con `member_limit: 1`) con problemas graves de seguridad y pérdida de datos (SPEC §14), y con una **lentitud notable en cada interacción, incluso con el servidor despierto**. Por eso el plan empieza por la Fase 0, que endurece lo existente y baja su latencia antes de agregar funcionalidad. El arranque en frío de Render se resuelve en la Fase 2 (T30, T31).
 
@@ -62,13 +62,34 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
         ├─ T41 enviar/votar sin Telegram ───┴─ T42 App: en vivo y optimista (+T06)
         │
         ├─ T13 formulario API ─ T14 imágenes form ─ T15 App: formulario
-        ├─ T16 chat texto/ack ─ T17 imágenes y reply ─ T18 historial paginado ─ T19 sistema/solo lectura
+        ├─ T16 chat texto/ack ─ T17 imágenes ─ T18 historial paginado ─ T19 sin bot/solo lectura
         │                                                   └─ T20 App: chats
-        ├─ T21 votos ─ T22 avales/comentarios ─ T23 App: inicio ─ T24 App: votación y resumen
+        ├─ T45 equals ─ T21 votos ─ T22 avales ─ T23 inicio (API + App) ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
-        └─ T27 anuncios/republicación ─ T28 replies desde grupo ─ T29 DMs y resultados
-T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambientes · T35 rendimiento · T36 limpieza App
+        └─ T27 anuncios/republicación
+T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambientes · T35 rendimiento · T36 limpieza App · T44 App: carga
 ```
+
+## Estado del release (2026-10-03)
+
+La Fase 0 está en producción, junto con el formulario de la API (T13) y la migración de datos (T12). API: PR #23 (`development` → `main`); App: PR #11.
+
+- **Migración 001 en producción.**
+  - 83 solicitudes; 1647 mensajes pasados a `requestchatmessages`; 431 votos; 121 `avatarUrl` quitados.
+  - Verificación: mensajes 1647/1647 y votos 431/431, OK.
+  - Índices creados al arrancar (`users.telegramId` y `requestchats.requester` únicos); las búsquedas de T38 usan `EXPRESS_IXSCAN`.
+  - En la Mini App de producción, las solicitudes se abren con sus mensajes y la App va rápida.
+- **Bundle de producción de la App:** sin `api.telegram.org`, `VITE_TELEGRAM_BOT_TOKEN` ni tokens de bot (build de `main`, criterio de éxito 3).
+- **Latencia en staging** (script de T37, n=20, p50 desde el cliente): el arranque bajó de ~55 s a 783 ms, enviar de 948 a 297 ms y votar de 620 a 275 ms. Estimado en la API: enviar ~150 ms y votar ~140 ms.
+- **T01:** token del bot revocado y rotado en staging y en producción (confirmado el 2026-10-03).
+
+**Pendiente del release:**
+- [ ] **REN-07:** enviar y votar cumplen p95 < 500 ms (medición del 2026-10-03, ver T37 en todo.md). Abrir chat quedaba en ~500 ms porque traía todo el historial; con T18 trae solo los últimos 50 (falta medirlo de nuevo). Para el dato exacto, revisar las líneas `Timing` en los logs de Render.
+- [ ] **REN-06 / T42:** prueba manual con dos cuentas y la red en "Slow 3G".
+- [x] **Índice viejo de mensajes (T18):** `requestChatId_1_createdAt_1` borrado en staging y producción (2026-10-05), después de crear el nuevo.
+- [ ] **Migración 002 (T19):** quitar del chat los mensajes del bot (`npm run migrate:002`, ver T19 en todo.md). Hecha en staging el 2026-10-05 (8 mensajes, respaldados); falta producción después del release.
+- [ ] **`REJECT_THRESHOLD` (T21):** en Render de staging y producción debe valer 5 o no estar definida (el código ya usa 5 por defecto).
+- [ ] **Copia de la migración:** borrar `requestchats_pre_001` en producción y en staging cuando ya no haga falta (se conserva por ahora, decisión del 2026-10-03).
 
 ## Lista de tareas
 
@@ -76,66 +97,65 @@ T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambiente
 
 Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas en el orden de ejecución. T37, T38 y T43 no dependen de nada y pueden hacerse de inmediato.
 
-- [ ] T01: Revocar el token del bot y rotar secretos
-- [ ] T37: Línea base de latencia
-- [ ] T38: Índices y lecturas livianas
-- [ ] T02: Infraestructura de pruebas y validación
-- [ ] T03: Autenticación HTTP por `initData`
-- [ ] T04: Autenticación del socket por `initData`
-- [ ] T39: Telegram fuera del camino crítico al arrancar
-- [ ] T05: Rol en vivo (`membership`) y `GET /me`
-- [ ] T06: Autorización por rol y salas por solicitud
+- [x] T01: Revocar el token del bot y rotar secretos
+- [x] T37: Línea base de latencia
+- [x] T38: Índices y lecturas livianas
+- [x] T02: Infraestructura de pruebas y validación
+- [x] T03: Autenticación HTTP por `initData`
+- [x] T04: Autenticación del socket por `initData`
+- [x] T39: Telegram fuera del camino crítico al arrancar
+- [x] T05: Rol en vivo (`membership`) y `GET /me`
+- [x] T06: Autorización por rol y salas por solicitud
 
 #### Checkpoint A: Autenticación
-- [ ] Criterios de éxito 1, 2 y 4 (SPEC §13) cubiertos por pruebas e2e
-- [ ] Revisión humana antes de seguir
+- [x] Criterios de éxito 1, 2 y 4 (SPEC §13) cubiertos por pruebas e2e
+- [x] Revisión humana antes de seguir (PRs revisados y mergeados; T01 hecho)
 
-- [ ] T07: App autenticada y enrutada por rol
-- [ ] T43: App: bundle más liviano
-- [ ] T08: Módulo `media`: canal de almacenamiento y proxy `/media/:id`
-- [ ] T09: App sin token del bot
-- [ ] T10: Mensajes en su propia colección
-- [ ] T11: Operaciones atómicas y lecturas sin efectos
-- [ ] T12: Migración de datos existentes
-- [ ] T40: Listado liviano de solicitudes
-- [ ] T41: Enviar y votar sin esperar a Telegram
-- [ ] T42: App en vivo sin recargas y con UI optimista
+- [x] T07: App autenticada y enrutada por rol
+- [x] T43: App: bundle más liviano
+- [x] T08: Módulo `media`: canal de almacenamiento y proxy `/media/:id`
+- [x] T09: App sin token del bot
+- [x] T10: Mensajes en su propia colección
+- [x] T11: Operaciones atómicas y lecturas sin efectos
+- [x] T12: Migración de datos existentes
+- [x] T40: Listado liviano de solicitudes
+- [x] T41: Enviar y votar sin esperar a Telegram
+- [x] T42: App en vivo sin recargas y con UI optimista
 
 #### Checkpoint B: Fase 0 completa
-- [ ] Criterios de éxito 1–5 y 14
-- [ ] Bundle de la App sin token (criterio 3)
-- [ ] Migración ensayada en staging
-- [ ] Latencia medida de nuevo con el script de T37 y comparada con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos
-- [ ] Revisión humana; despliegue a producción de la Fase 0
+- [x] Criterios de éxito 1–5 y 14
+- [x] Bundle de la App sin token (criterio 3)
+- [x] Migración ensayada en staging
+- [ ] Latencia medida de nuevo con el script de T37 y comparada con la línea base; RNF-REN-06, REN-07 y REN-08 cumplidos. Enviar y votar cumplen; abrir chat queda en el límite (T18). Falta la prueba manual con red lenta (REN-06).
+- [x] Revisión humana; despliegue a producción de la Fase 0 (2026-10-03)
 
 ### Fase 1 — v1 funcional
-- [ ] T13: Formulario de solicitud (API)
-- [ ] T14: Imágenes del formulario
-- [ ] T15: App: pantalla Formulario (paso 1 de 3)
-- [ ] T16: Chat: texto con idempotencia y recuperación
-- [ ] T17: Chat: imágenes y respuestas
-- [ ] T18: Chat: historial paginado
-- [ ] T19: Chat: mensajes de sistema y solo lectura
-- [ ] T20: App: chat del solicitante y chat de miembros
+- [x] T13: Formulario de solicitud (API)
+- [x] T14: Imágenes del formulario
+- [x] T15: App: pantalla Formulario (paso 1 de 3) — falta la prueba manual en staging
+- [x] T16: Chat: texto con idempotencia y recuperación
+- [x] T17: Chat: imágenes (las respuestas se quitaron el 2026-10-04)
+- [x] T18: Chat: historial paginado — falta la prueba manual de la App en staging
+- [x] T19: Chat: sin mensajes del bot y solo lectura (cambio de alcance del 2026-10-05) — falta correr la migración 002 y la prueba manual de la App
+- [x] T20: App: chat del solicitante y chat de miembros — falta la prueba manual en staging con dos cuentas
 
 #### Checkpoint C: Solicitud y chat
 - [ ] Flujo solicitante: formulario → chat, en staging
-- [ ] Criterio de éxito 11
+- [x] Criterio de éxito 11: `test/applications.e2e-spec.ts` (4 imágenes → 400 sin crear la solicitud; `PUT` y `PATCH` a `/applications` → 404; una segunda solicitud → 409)
 
-- [ ] T21: Revisión: votos y umbrales
-- [ ] T22: Revisión: avales y comentarios privados
-- [ ] T23: App: inicio de miembros
-- [ ] T24: App: votación y resumen del solicitante
+- [x] T45: Corregir `ValueObject.equals`
+- [x] T21: Revisión: votos y umbrales — falta revisar `REJECT_THRESHOLD` en Render
+- [x] T22: Revisión: avales
+- [x] T23: App: inicio de miembros — falta la prueba manual en staging
+- [x] T24: App: votación y resumen del solicitante — falta la prueba manual en staging
 
 #### Checkpoint D: Revisión
 - [ ] Criterios de éxito 9 y 10
-- [ ] Revisión humana de privacidad de votos y comentarios
+- [ ] Revisión humana: el solicitante no recibe votos ni avales mientras no sea miembro, y nadie ve quién votó
 
-- [ ] T25: Admisión por solicitud de unión
-- [ ] T26: App: pantallas Aprobado y No aprobado
-- [ ] T27: Puente: anuncios y republicación en el grupo
-- [ ] T28: Puente: respuestas desde el grupo
-- [ ] T29: Puente: DMs, resultados y `/faq`
+- [x] T25: Admisión por solicitud de unión — falta revocar a mano los enlaces viejos y la prueba en staging
+- [x] T26: App: pantallas Aprobado y No aprobado — falta la prueba manual en staging
+- [x] T27: Puente: anuncios y republicación en el grupo — falta la prueba manual en staging
 
 #### Checkpoint E: v1 funcional
 - [ ] Criterios de éxito 6, 7 y 8
@@ -149,6 +169,7 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [ ] T34: Ambientes staging/producción aislados
 - [ ] T35: Verificación de rendimiento
 - [ ] T36: Limpieza de la App
+- [ ] T44: App: pantalla de carga durante el arranque en frío
 
 #### Checkpoint F: Completo
 - [ ] Los 15 criterios de éxito (SPEC §13)
@@ -166,7 +187,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-SEG-01 | Toda petición HTTP y conexión de socket se autentica con `initData` válido (HMAC-SHA256, `auth_date` < 24 h). Sin él: 401 / conexión rechazada. | Unitarias del validador; e2e de endpoints y handshake | T03, T04 |
 | RNF-SEG-02 | La identidad del usuario sale solo del `initData`. Ningún `userUUID`, `requesterUUID` ni autor viaja desde el cliente. | e2e: un id falso en body/payload se ignora | T03, T04, T13, T16 |
 | RNF-SEG-03 | El token del bot nunca llega al cliente: ni `VITE_TELEGRAM_BOT_TOKEN` ni URLs `api.telegram.org/file/bot…` en el bundle. | `grep` sobre el build de producción | T01, T09 |
-| RNF-SEG-04 | Autorización por rol en cada endpoint y evento: el solicitante solo accede a lo suyo; solo miembros votan, avalan y comentan. | e2e: 403 en cada caso cruzado | T06, T21, T22 |
+| RNF-SEG-04 | Autorización por rol en cada endpoint y evento: el solicitante solo accede a lo suyo; solo miembros votan y avalan. | e2e: 403 en cada caso cruzado | T06, T21, T22 |
 | RNF-SEG-05 | Validación de entrada en todos los DTOs con `class-validator` (tipos, longitudes, enums, MIME y tamaño de imagen); campos no declarados se rechazan. | Unitarias/e2e con payloads inválidos → 400 | T02, T13, T14, T16, T17, T21 |
 | RNF-SEG-06 | CORS restringido a los orígenes de la App de cada ambiente; sin `*` con credenciales. | e2e: origen no permitido rechazado | T32 |
 | RNF-SEG-07 | Webhook protegido con `X-Telegram-Bot-Api-Secret-Token`. | e2e: sin secreto → 401 | T30 |
@@ -178,10 +199,10 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-PRI-01 | Nadie ve quién votó en contra ni quién escribió un comentario privado: ni API, ni socket, ni bot, ni logs. Solo conteos. | Unitarias sobre mappers/DTOs y eventos; revisión de logs | T21, T22, T29 |
+| RNF-PRI-01 | Los votos son anónimos para todos, admins incluidos: nadie ve quién votó a favor ni en contra, solo los conteos y su propio voto. Ni API, ni socket, ni bot, ni logs dicen quién votó. Los avales sí llevan el nombre de su autor (decidido por el grupo el 2026-10-05). | Unitarias y e2e que serializan las salidas de los miembros y no encuentran a los votantes; revisión de logs | T21, T22, T24 |
 | RNF-PRI-02 | No se listan por nombre los miembros que faltan por votar. Solo la etiqueta personal "Falta tu voto". | e2e sobre la respuesta del listado | T21, T23 |
-| RNF-PRI-03 | Formulario, votos, avales y comentarios solo visibles para miembros; el solicitante ve su formulario y su chat. | e2e por rol | T06, T22 |
-| RNF-PRI-04 | El formulario advierte que los mensajes se comparten en el grupo y que el envío es definitivo. | Revisión manual de la pantalla | T15 |
+| RNF-PRI-03 | Formulario, votos y avales solo visibles para miembros; el solicitante ve su formulario y su chat. Nada de la revisión viaja en las respuestas ni en los eventos de socket que recibe el solicitante (incluido `request-chat-update`, que va a la sala de su solicitud). | e2e por rol; prueba que serializa las salidas al solicitante (criterio de éxito 10) | T06, T21, T22 |
+| ~~RNF-PRI-04~~ | ~~El formulario advierte que los mensajes se comparten en el grupo y que el envío es definitivo.~~ Retirado el 2026-10-04: el formulario no muestra esos avisos. | — | — |
 | RNF-PRI-05 | Retención indefinida: no se borran solicitudes, mensajes ni imágenes. La migración conserva la colección original. | Revisión del script de migración | T12 |
 
 ### Rendimiento
@@ -204,7 +225,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-CON-01 | 0 mensajes perdidos con envíos concurrentes (20 concurrentes → 20 persistidos, en orden, con `createdAt` original). | e2e de concurrencia | T10, T11 |
 | RNF-CON-02 | Idempotencia de envíos por `clientMessageId`; ack con el mensaje persistido. | e2e: reenvío no duplica | T16 |
 | RNF-CON-03 | Recuperación de mensajes posteriores al último recibido al reconectar. | e2e de reconexión | T16 |
-| RNF-CON-04 | Persistir → emitir → notificar. Un fallo de Telegram (DM, republicación) nunca revierte ni oculta un mensaje. | e2e con Telegram simulado que falla | T27, T29 |
+| RNF-CON-04 | Persistir → emitir → notificar. Un fallo de Telegram (DM, republicación) nunca revierte ni oculta un mensaje. | e2e con Telegram simulado que falla | T27 |
 | RNF-CON-05 | Las lecturas no escriben. | Unitarias del servicio | T11 |
 | RNF-CON-06 | La migración es idempotente, se ensaya en staging, se corre con respaldo y conserva conteos. | Unitarias + conteos antes/después | T12 |
 | RNF-CON-07 | El voto que alcanza el umbral cierra la solicitud en el acto, sin carreras que permitan superar el umbral o cerrar dos veces. | Unitarias de dominio + e2e concurrente | T21 |
@@ -223,7 +244,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-OBS-01 | Errores de llamadas a Telegram se registran con contexto (evento, id de solicitud), sin datos anónimos (RNF-PRI-01). | Revisión de logs en staging | T27, T29 |
+| RNF-OBS-01 | Errores de llamadas a Telegram se registran con contexto (evento, id de solicitud). | Revisión de logs en staging | T27 |
 | RNF-OBS-02 | Autenticaciones y autorizaciones rechazadas se registran a nivel `warn`, sin el `initData` completo. | Revisión de logs | T03, T06 |
 | RNF-OBS-03 | La duración de cada ruta HTTP y de cada evento de socket queda registrada, para detectar regresiones de latencia. | Revisión de logs | T37 |
 
@@ -240,8 +261,8 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-USA-01 | Textos visibles al usuario en español; pantallas según el diseño de referencia con los ajustes de SPEC §3. | Revisión manual | T15, T20, T23, T24, T26 |
-| RNF-USA-02 | La App funciona en los clientes de Telegram móvil (Android/iOS) y escritorio, con tema claro y oscuro. | Prueba manual en staging | T15, T20, T23, T24, T26 |
+| RNF-USA-01 | Textos visibles al usuario en español; pantallas según el diseño de referencia con los ajustes de SPEC §3. | Revisión manual | T15, T20, T23, T24, T26, T44 |
+| RNF-USA-02 | La App funciona en los clientes de Telegram móvil (Android/iOS) y escritorio, con tema claro y oscuro. | Prueba manual en staging | T15, T20, T23, T24, T26, T44 |
 
 ## Riesgos y mitigaciones
 
@@ -249,7 +270,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 |---|---|---|
 | El token actual ya está publicado en el bundle | Alto | T01 va primero, antes de cualquier otra tarea |
 | La migración corrompe o pierde datos de producción | Alto | Script idempotente, ensayo en staging con copia, respaldo previo, colección original conservada, aprobación humana |
-| Fuga de la identidad de quien vota en contra (log, evento, mapper) | Alto | DTOs sin campo de autor para votos en contra; pruebas específicas que buscan el id en todas las salidas |
+| Fuga de la revisión al solicitante (p. ej. votos en `request-chat-update`, que también le llega) o de quién votó a cualquiera | Alto | DTO del solicitante sin votos ni avales; DTO de miembros solo con conteos; pruebas que serializan las salidas y no encuentran votos ni votantes |
 | El auto-ping no evita que Render duerma el servicio | Medio | Verificar en staging; alternativa cron-job.org (gratis) |
 | Keep-alive se considere abuso en los términos de Render | Medio | Solo con solicitudes en curso; plan B Render Starter (~$7/mes) |
 | La UI optimista muestra un mensaje o voto que luego falla | Medio | Estado "no enviado" con reintento; se reconcilia con el ack por `clientMessageId` |
@@ -269,6 +290,15 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 No hay preguntas abiertas.
 
 ### Resueltas
+
+- 2026-10-03: "Contactar a un admin" en la pantalla de carga abre `https://t.me/DarvandFrovonwill` (T44).
+- 2026-10-05 (votación del grupo): los votos son anónimos para todos, admins incluidos. Cada miembro ve solo los conteos y su propio voto, y no hay logs de quién vota (RNF-PRI-01). Se quitan los comentarios entre miembros. Los avales siguen con nombre. Afecta a T21, T22, T24 y T29.
+- ~~2026-10-03: nada es anónimo dentro del grupo. Votos, avales y comentarios muestran a su autor a todos los miembros.~~ Reemplazado el 2026-10-05.
+- 2026-10-03: `REJECT_THRESHOLD` pasa a 5, igual que `APPROVE_THRESHOLD`; siguen siendo dos variables (T21).
+- 2026-10-03: el formulario no pide pronombres. La API de T13 ya los acepta: se quitan en T14.
+- 2026-11-17: se cierra T29 (DMs, resultados y `/faq`) sin tarea propia: el aviso al solicitante cuando escribe un miembro (T16/T41), el anuncio de cierre en el grupo y el DM con el enlace al aprobado (T25) ya existen, y el criterio de éxito 8 lo prueba `send-vote-background.e2e-spec.ts`. No se avisa por DM al rechazado: lo ve en *No aprobado*. El contenido de `/faq` queda pendiente del grupo.
+- 2026-11-17: se quita T28 (respuestas desde el grupo al chat de la solicitud). T27 además fija el aviso de solicitud nueva mientras esté en curso y ningún mensaje del bot al grupo lleva vista previa.
+- 2026-10-03: sin reglas de convivencia también en *Aprobado* y en la pantalla de carga (T26, T44).
 
 - 2026-09-29: se aprueba `mongodb-memory-server` como dependencia de desarrollo para las pruebas e2e (T02).
 - 2026-09-29: los DTOs se validan con `class-validator` + `class-transformer` y un `ValidationPipe` global (T02). Joi queda solo para la configuración (T32).

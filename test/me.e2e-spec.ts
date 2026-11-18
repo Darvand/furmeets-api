@@ -3,6 +3,7 @@ import { App } from 'supertest/types';
 import { InitDataAuthService } from '../src/auth/application/init-data-auth.service';
 import { CHAT_PROVIDERS } from '../src/chat/chat.providers';
 import { RequestChatEntity } from '../src/chat/domain/entities/request-chat.entity';
+import { ApplicationForm } from '../src/applications/domain/application-form';
 import type { ChatRepository } from '../src/chat/domain/services/chat.repository';
 import type { ChatMemberUpdate } from '../src/telegram-bot/telegram-bot.service';
 import {
@@ -90,7 +91,10 @@ describe('GET /me (e2e)', () => {
     const requester = await testApp.app
       .get(InitDataAuthService)
       .authenticate(signInitData(caro, TEST_BOT_TOKEN));
-    const requestChat = RequestChatEntity.asNew(requester, 'furros', 'IG');
+    const requestChat = RequestChatEntity.apply(
+      requester,
+      ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+    );
     await testApp.app
       .get<ChatRepository>(CHAT_PROVIDERS.RequestChatRepository)
       .createRequestChat(requestChat);

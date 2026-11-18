@@ -38,6 +38,7 @@ interface VoteDto {
   uuid: string;
   state: string;
   votes: { approved: number; rejected: number };
+  thresholds: { approve: number; reject: number };
   userVote?: string;
 }
 
@@ -70,15 +71,15 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
   };
 
   const createRequestChat = async (applicant: TelegramInitDataUser) => {
-    const entity = await testApp.app
+    await testApp.app
       .get(InitDataAuthService)
       .authenticate(signInitData(applicant, TEST_BOT_TOKEN));
     return (
       (
         await request(server)
-          .post('/request-chats')
+          .post('/applications')
           .set('Authorization', tmaAuth(applicant))
-          .send({ requesterUUID: entity.id.value })
+          .send({ age: 25, city: 'Bogotá' })
           .expect(201)
       ).body as { uuid: string }
     ).uuid;
@@ -163,7 +164,14 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
   beforeEach(() => {
     const tg = testApp.telegramBot;
     // Telegram lento en todo lo que avisa.
-    tg.sendMessageToGroup.mockReset().mockImplementation(slow);
+    tg.sendMessageToGroup.mockReset().mockImplementation(async () => {
+      await slow();
+      return 900;
+    });
+    tg.sendTextToGroup.mockReset().mockImplementation(async () => {
+      await slow();
+      return 1;
+    });
     tg.sendMessageToUser.mockReset().mockImplementation(slow);
     tg.sendInviteLinkToUser.mockReset().mockImplementation(slow);
   });
@@ -200,13 +208,16 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
     // Enviar: leer solicitante y estado, e insertar.
     expect(mongoOpsOf('WS request-chat ok')).toBeLessThanOrEqual(2);
     await drain();
-    // Al grupo llega el mensaje de Ana con el enlace a su solicitud.
-    const notice = (
-      testApp.telegramBot.sendMessageToGroup.mock.calls as [string][]
-    ).at(-1)![0];
-    expect(notice).toContain('*Ana*');
-    expect(notice).toContain('hola, soy Ana');
-    expect(notice).toContain(`startapp=${id}`);
+    // Al grupo llega el mensaje de Ana, con el enlace a su solicitud en el encabezado.
+    expect(testApp.telegramBot.sendTextToGroup).toHaveBeenCalledWith(
+      'Ana · solicitud\nhola, soy Ana',
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text_link',
+          url: expect.stringContaining(`startapp=${id}`) as string,
+        }),
+      ]),
+    );
   });
 
   it('si Telegram falla, el mensaje queda guardado y emitido, y el error se registra', async () => {
@@ -240,14 +251,19 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
     expect(stored.messages.at(-1)!.content).toBe('hola, Beto');
   });
 
-  it('votar alterna el voto y responde solo estado y conteos', async () => {
+  it('votar alterna el voto y responde estado, conteos y umbrales, sin quién votó', async () => {
     const id = await createRequestChat(APPLICANT_3);
 
-    const approved = await vote(MEMBER, id, 'approve');
+    const { result: approved, commands } = await mongoCommandsDuring(() =>
+      vote(MEMBER, id, 'approve'),
+    );
+    // Autenticar (find del usuario) + guardar el voto (findAndModify).
+    expect(commands).toEqual(['find', 'findAndModify']);
     expect(approved).toEqual({
       uuid: id,
       state: 'InProgress',
       votes: { approved: 1, rejected: 0 },
+      thresholds: { approve: 5, reject: 5 },
       userVote: 'approve',
     });
     // Un voto distinto reemplaza al anterior.
@@ -256,13 +272,9 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
       userVote: 'reject',
     });
     // El mismo voto otra vez lo retira.
-    const { result: removed, commands } = await mongoCommandsDuring(() =>
-      vote(MEMBER, id, 'reject'),
-    );
+    const removed = await vote(MEMBER, id, 'reject');
     expect(removed.votes).toEqual({ approved: 0, rejected: 0 });
     expect(removed.userVote).toBeUndefined();
-    // Autenticar (find del usuario) + guardar el voto (findAndModify).
-    expect(commands).toEqual(['find', 'findAndModify']);
   });
 
   it('el voto que cierra responde sin esperar a Telegram y avisa después', async () => {
@@ -292,6 +304,8 @@ describe('Enviar y votar sin esperar a Telegram (e2e)', () => {
     );
     expect(testApp.telegramBot.sendInviteLinkToUser).toHaveBeenCalledWith(
       APPLICANT.id,
+      `https://t.me/+${id.replace(/-/g, '')}`,
+      7,
     );
   });
 });

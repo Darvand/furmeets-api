@@ -14,12 +14,14 @@ import {
   type RequestChatView,
   type VoteResult,
 } from '../application/chat.service';
+import type { EndorsementsResult } from '../application/endorsement.service';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
 import { RequestChatMessageMapper } from '../mappers/request-chat-message.mapper';
 import type { Server } from 'socket.io';
-import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { RequestChatMapper } from '../mappers/request-chat.mapper';
+import { RequestChatClosedError } from '../domain/entities/request-chat.entity';
 import {
+  BadRequestException,
   ForbiddenException,
   Logger,
   UseInterceptors,
@@ -35,7 +37,7 @@ import {
 import { MembershipService } from 'src/membership/application/membership.service';
 import { Roles } from 'src/membership/domain/role';
 import { isUUID } from 'class-validator';
-import { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
+import type { InsertedMessage } from '../domain/services/request-chat-message.repository';
 import { GetRequestChatMessageDto } from './dtos/get-request-chat-message.dto';
 
 /** Sala de todos los miembros: reciben los eventos de todas las solicitudes. */
@@ -111,22 +113,34 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     if (!isUUID(message.requestChatUUID)) {
       throw this.forbidden();
     }
-    let messageEntity: RequestChatMessageEntity;
+    let inserted: InsertedMessage;
     try {
       // Guarda y vuelve: el aviso de Telegram queda en segundo plano (RNF-REN-08).
-      messageEntity = await this.chatService.addMessageToRequestChat(
+      inserted = await this.chatService.addMessageToRequestChat(
         UUID.from(message.requestChatUUID),
         author,
-        message.content,
+        { content: message.content, imageIds: message.imageIds },
+        message.clientMessageId,
       );
     } catch (error) {
-      throw error instanceof ForbiddenException ? this.forbidden() : error;
+      if (error instanceof ForbiddenException) {
+        throw this.forbidden();
+      }
+      // Igual que un payload mal formado: la App lo marca como no enviado.
+      if (error instanceof BadRequestException) {
+        throw new WsException('invalid-payload');
+      }
+      // Solo lectura tras el cierre. Lleva el payload en `cause`, como los demás.
+      if (error instanceof RequestChatClosedError) {
+        throw new WsException('request-chat-closed');
+      }
+      throw error;
     }
-    const dto: GetRequestChatMessageDto = {
-      ...RequestChatMessageMapper.toDto(messageEntity),
-      clientMessageId: message.clientMessageId,
-    };
-    this.toRequestChat(message.requestChatUUID).emit('request-chat', dto);
+    const dto = RequestChatMessageMapper.toDto(inserted.message);
+    // Un reenvío (mismo `clientMessageId`) ya se emitió la primera vez.
+    if (inserted.created) {
+      this.toRequestChat(message.requestChatUUID).emit('request-chat', dto);
+    }
     // Ack al emisor: el mensaje ya quedó guardado.
     return dto;
   }
@@ -138,35 +152,49 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
     return new WsException('forbidden');
   }
 
-  /** La solicitud cambió de estado. Sin `userVote`: lo reciben todos. */
-  emitRequestChatUpdate({ requestChat, messages }: RequestChatView): void {
-    this.toRequestChat(requestChat.id.value).emit(
-      'request-chat-update',
-      RequestChatMapper.toDto(requestChat, messages),
-    );
+  /**
+   * La solicitud cambió de estado. Trae la última página de mensajes, igual que
+   * `GET /request-chats/:id`. Los miembros la reciben con la votación (sin `userVote`:
+   * es para todos); el solicitante, sin votos (RNF-PRI-03).
+   */
+  emitRequestChatUpdate(view: RequestChatView): void {
+    const id = view.requestChat.id.value;
+    this.server
+      .to(MEMBERS_ROOM)
+      .emit('request-chat-update', RequestChatMapper.toMemberDto(view));
+    this.server
+      .to(requestChatRoom(id))
+      .except(MEMBERS_ROOM)
+      .emit('request-chat-update', RequestChatMapper.toRequesterDto(view));
   }
 
-  /** Conteos tras un voto, solo a los miembros: el solicitante no vota. */
+  /** La votación tras un voto, solo a los miembros (RNF-PRI-03). */
   emitVotes(result: VoteResult): void {
     this.server
       .to(MEMBERS_ROOM)
       .emit('request-chat-votes', RequestChatMapper.toVotesEvent(result));
   }
 
-  emitNewRequestChat(
-    { requestChat, messages }: RequestChatView,
-    viewer: UserEntity,
-  ): void {
+  /** Los avales tras avalar o retirar uno, solo a los miembros (RNF-PRI-03). */
+  emitEndorsements(result: EndorsementsResult): void {
+    this.server
+      .to(MEMBERS_ROOM)
+      .emit(
+        'request-chat-endorsements',
+        RequestChatMapper.toEndorsementsDto(result),
+      );
+  }
+
+  /** A los miembros, con la votación (vacía). */
+  emitNewRequestChat(view: RequestChatView): void {
+    const { requestChat } = view;
     // Los sockets ya abiertos del solicitante pasan a la sala de su nueva solicitud.
     this.server
       .in(userRoom(requestChat.props.requester.telegramId))
       .socketsJoin(requestChatRoom(requestChat.id.value));
     this.server
       .to(MEMBERS_ROOM)
-      .emit(
-        'new-request-chat',
-        RequestChatMapper.toDto(requestChat, messages, viewer),
-      );
+      .emit('new-request-chat', RequestChatMapper.toMemberDto(view));
   }
 
   /** El solicitante de la solicitud y todos los miembros. */

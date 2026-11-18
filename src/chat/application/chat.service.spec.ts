@@ -1,4 +1,6 @@
+import { randomUUID } from 'crypto';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Logger,
@@ -8,27 +10,38 @@ import type { UserService } from 'src/members/application/user.service';
 import { UserEntity } from 'src/members/domain/entities/user.entity';
 import { BackgroundQueue } from 'src/shared/async/background-queue';
 import { UUID } from 'src/shared/domain/value-objects/uuid.value-object';
+import type { AdmissionService } from 'src/admission/application/admission.service';
 import type { TelegramBotService } from 'src/telegram-bot/telegram-bot.service';
-import { RequestChatEntity } from '../domain/entities/request-chat.entity';
+import {
+  RequestChatClosedError,
+  RequestChatEntity,
+} from '../domain/entities/request-chat.entity';
 import {
   DuplicateRequestChatError,
   type ChatRepository,
   type RequestChatHeader,
-  type VoteApplied,
 } from '../domain/services/chat.repository';
+import { Votes } from 'src/review/domain/vote';
 import { ApplicationForm } from 'src/applications/domain/application-form';
-import type { RequestChatMessageRepository } from '../domain/services/request-chat-message.repository';
+import type {
+  MessagesPage,
+  RequestChatMessageRepository,
+} from '../domain/services/request-chat-message.repository';
+import type { RequestChatMessageEntity } from '../domain/entities/request-chat-message.entity';
 import { RequestChatState } from '../domain/value-objects/request-chat-state.value-object';
 import type { ChatGateway } from '../presentation/chat.gateway';
-import { ChatService } from './chat.service';
+import type { MediaService } from 'src/media/application/media.service';
+import { ChatService, LATEST_MESSAGES_LIMIT } from './chat.service';
 import type { RequestChatAccessService } from './request-chat-access.service';
+import type { BridgeService } from 'src/telegram-bridge/application/bridge.service';
 
 const user = (telegramId: number) =>
   UserEntity.create({ name: `User ${telegramId}`, telegramId, isMember: true });
 
 const requester = user(1);
 const member = user(2);
-const bot = user(999);
+/** Los de `.env` no aplican: las pruebas unitarias no cargan la configuración. */
+const THRESHOLDS = { approve: 5, reject: 5 };
 
 /** Una promesa que no termina hasta que la prueba la suelta: un Telegram lento. */
 function slowTelegram() {
@@ -48,7 +61,10 @@ function holdQueue(queue: BackgroundQueue) {
 }
 
 function setup({ state = 'InProgress', approves = 0 } = {}) {
-  const requestChat = RequestChatEntity.asNew(requester, 'furros');
+  const requestChat = RequestChatEntity.apply(
+    requester,
+    ApplicationForm.submit({ age: 25, city: 'Bogotá' }),
+  );
   if (state !== 'InProgress') {
     requestChat.props.state = RequestChatState.create(state);
   }
@@ -57,37 +73,56 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     requesterId: requester.id,
     state: requestChat.state,
   };
-  const voted = (approved: number): VoteApplied => ({
-    votes: { approved, rejected: 0 },
-    voterVote: 'approve',
-  });
+  /** `approved` aprobaciones; la primera es de `member`, si hay alguna. */
+  const voted = (approved: number): Votes =>
+    Votes.of(
+      Array.from({ length: approved }, (_, i) => ({
+        voterId: i === 0 ? member.id : UUID.generate(),
+        type: 'approve' as const,
+      })),
+    );
   // Funciones sueltas (no métodos) para poder pasarlas a `expect`.
   const chats = {
     findHeader: jest.fn(() =>
       Promise.resolve<RequestChatHeader | null>(header),
     ),
-    toggleVote: jest.fn(() =>
-      Promise.resolve<VoteApplied | null>(voted(approves)),
-    ),
+    toggleVote: jest.fn(() => Promise.resolve<Votes | null>(voted(approves))),
     close: jest.fn(() => Promise.resolve(true)),
     getRequestChatByUUID: jest.fn(() =>
       Promise.resolve<RequestChatEntity | null>(requestChat),
     ),
     chatAlreadyExistsForRequester: jest.fn(() => Promise.resolve(false)),
     createRequestChat: jest.fn(() => Promise.resolve()),
+    setAnnouncementMessageId: jest.fn(() => Promise.resolve()),
+    getAnnouncementMessageId: jest.fn(() =>
+      Promise.resolve<number | undefined>(undefined),
+    ),
   };
   const messages = {
     insert: jest.fn(() => Promise.resolve()),
-    findByRequestChat: jest.fn(() => Promise.resolve([])),
+    insertOnce: jest.fn((message: RequestChatMessageEntity) =>
+      Promise.resolve({ message, created: true }),
+    ),
+    findAfter: jest.fn(() => Promise.resolve<MessagesPage | null>(null)),
+    findBefore: jest.fn(() => Promise.resolve<MessagesPage | null>(null)),
+    findLatest: jest.fn(() =>
+      Promise.resolve<MessagesPage>({ items: [], hasMore: false }),
+    ),
   };
   const users = {
-    getBotUser: jest.fn(() => Promise.resolve(bot)),
     getUserByUUID: jest.fn(() => Promise.resolve(requester)),
   };
   const telegram = {
-    sendMessageToGroup: jest.fn(() => Promise.resolve()),
+    sendMessageToGroup: jest.fn(() => Promise.resolve(900)),
+    pinGroupMessage: jest.fn(() => Promise.resolve()),
+    unpinGroupMessage: jest.fn(() => Promise.resolve()),
     sendMessageToUser: jest.fn(() => Promise.resolve()),
     sendInviteLinkToUser: jest.fn(() => Promise.resolve()),
+  };
+  const admission = {
+    issueInviteLink: jest.fn(() =>
+      Promise.resolve<string | undefined>('https://t.me/+enlace'),
+    ),
   };
   const gateway = {
     emitRequestChatUpdate: jest.fn(),
@@ -96,6 +131,13 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
   };
   const access = {
     canAccessLoaded: jest.fn(() => Promise.resolve(true)),
+  };
+  const media = {
+    assertOwnUploads: jest.fn(() => Promise.resolve()),
+    shareUploads: jest.fn(() => Promise.resolve()),
+  };
+  const bridge = {
+    republish: jest.fn(() => Promise.resolve()),
   };
   const queueLogger = { warn: jest.fn(), error: jest.fn() };
   const queue = new BackgroundQueue(queueLogger as unknown as Logger, {
@@ -109,6 +151,9 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     gateway as unknown as ChatGateway,
     access as unknown as RequestChatAccessService,
     queue,
+    media as unknown as MediaService,
+    admission as unknown as AdmissionService,
+    bridge as unknown as BridgeService,
   );
   /** Operaciones de Mongo hechas hasta ahora. */
   const mongoOps = () =>
@@ -123,8 +168,11 @@ function setup({ state = 'InProgress', approves = 0 } = {}) {
     messages,
     users,
     telegram,
+    admission,
+    bridge,
     gateway,
     access,
+    media,
     queue,
     queueLogger,
     mongoOps,
@@ -142,18 +190,18 @@ describe('ChatService', () => {
         }),
       );
 
-    it('abre la solicitud con su bienvenida, avisa a los miembros y anuncia después', async () => {
+    it('abre la solicitud sin mensajes, avisa a los miembros y anuncia después', async () => {
       const ctx = setup();
       const requestChat = application();
 
       const view = await ctx.service.openRequestChat(requestChat);
 
       expect(ctx.chats.createRequestChat).toHaveBeenCalledWith(requestChat);
-      expect(view.messages).toHaveLength(1);
-      expect(ctx.gateway.emitNewRequestChat).toHaveBeenCalledWith(
-        view,
-        requester,
-      );
+      // El bot no escribe en el chat: la bienvenida la muestra la App.
+      expect(view.messages).toEqual([]);
+      expect(ctx.messages.insert).not.toHaveBeenCalled();
+      expect(ctx.gateway.emitNewRequestChat).toHaveBeenCalledWith(view);
+      expect(view.thresholds).toEqual(THRESHOLDS);
       await ctx.queue.drain();
       const announcement = ctx.telegram.sendMessageToGroup.mock
         .calls[0] as unknown as [string];
@@ -162,6 +210,41 @@ describe('ChatService', () => {
       // Sin las líneas del formulario anterior ni la etiqueta de menor.
       expect(announcement[0]).not.toContain('intereses');
       expect(announcement[0]).not.toContain('Menor de edad');
+    });
+
+    it('fija el aviso de la solicitud nueva y guarda su message_id', async () => {
+      const ctx = setup();
+      const requestChat = application();
+      ctx.telegram.sendMessageToGroup.mockResolvedValue(321);
+
+      await ctx.service.openRequestChat(requestChat);
+      await ctx.queue.drain();
+
+      expect(ctx.chats.setAnnouncementMessageId).toHaveBeenCalledWith(
+        requestChat.id,
+        321,
+      );
+      expect(ctx.telegram.pinGroupMessage).toHaveBeenCalledWith(321);
+    });
+
+    it('si no se puede fijar (el bot sin permiso), la solicitud igual se abre y el aviso no se repite', async () => {
+      const ctx = setup();
+      ctx.telegram.pinGroupMessage.mockRejectedValue(new Error('sin permiso'));
+      const logged = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        ctx.service.openRequestChat(application()),
+      ).resolves.toBeDefined();
+      await ctx.queue.drain();
+
+      expect(ctx.telegram.sendMessageToGroup).toHaveBeenCalledTimes(1);
+      expect(ctx.telegram.pinGroupMessage).toHaveBeenCalledTimes(1);
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining('sin permiso'),
+      );
+      logged.mockRestore();
     });
 
     it('una por usuario: si ya tiene una (en cualquier estado) → 409', async () => {
@@ -198,44 +281,89 @@ describe('ChatService', () => {
       expect(chats.toggleVote).not.toHaveBeenCalled();
       expect(chats.close).not.toHaveBeenCalled();
     });
+
+    it('trae solo la última página de mensajes y si hay anteriores', async () => {
+      const { service, requestChat, messages } = setup();
+      messages.findLatest.mockResolvedValue({ items: [], hasMore: true });
+
+      const view = await service.getRequestChatByUUID(requestChat.id);
+
+      expect(messages.findLatest).toHaveBeenCalledWith(
+        requestChat.id,
+        LATEST_MESSAGES_LIMIT,
+      );
+      expect(view.hasOlder).toBe(true);
+    });
   });
 
   describe('addMessageToRequestChat', () => {
     it('guarda con 2 operaciones de Mongo y vuelve sin esperar a Telegram', async () => {
       const ctx = setup();
       const slow = slowTelegram();
-      ctx.telegram.sendMessageToGroup = slow.call;
+      ctx.bridge.republish =
+        slow.call as unknown as typeof ctx.bridge.republish;
       const resume = holdQueue(ctx.queue);
 
-      const message = await ctx.service.addMessageToRequestChat(
+      const { message } = await ctx.service.addMessageToRequestChat(
         ctx.requestChat.id,
         requester,
-        'hola',
+        { content: 'hola' },
       );
 
       expect(message.content).toBe('hola');
       expect(ctx.chats.findHeader).toHaveBeenCalledTimes(1);
-      expect(ctx.messages.insert).toHaveBeenCalledTimes(1);
+      expect(ctx.messages.insertOnce).toHaveBeenCalledTimes(1);
       expect(ctx.mongoOps()).toBe(2);
       resume();
       // Telegram sigue sin responder y el mensaje ya está guardado.
       slow.release();
       await ctx.queue.drain();
-      const notice = (slow.call.mock.calls[0] as unknown as [string])[0];
-      expect(notice).toContain('User 1');
-      expect(notice).toContain('hola');
-      expect(notice).toContain(`startapp=${ctx.requestChat.id.value}`);
+      expect(slow.call).toHaveBeenCalledWith({
+        requestChatId: ctx.requestChat.id.value,
+        requesterName: 'User 1',
+        content: 'hola',
+        imageIds: [],
+      });
+    });
+
+    it('republica las imágenes del solicitante', async () => {
+      const ctx = setup();
+      const imageIds = [randomUUID(), randomUUID()];
+
+      await ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
+        imageIds,
+      });
+      await ctx.queue.drain();
+
+      expect(ctx.bridge.republish).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '', imageIds }),
+      );
+    });
+
+    it('un reenvío con el mismo clientMessageId no se republica otra vez', async () => {
+      const ctx = setup();
+      ctx.messages.insertOnce.mockImplementation((message) =>
+        Promise.resolve({ message, created: false }),
+      );
+
+      await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        requester,
+        { content: 'hola' },
+        randomUUID(),
+      );
+      await ctx.queue.drain();
+
+      expect(ctx.bridge.republish).not.toHaveBeenCalled();
     });
 
     it('si escribe un miembro, avisa al solicitante en segundo plano', async () => {
       const ctx = setup();
       const resume = holdQueue(ctx.queue);
 
-      await ctx.service.addMessageToRequestChat(
-        ctx.requestChat.id,
-        member,
-        'hola',
-      );
+      await ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+        content: 'hola',
+      });
       expect(ctx.mongoOps()).toBe(2);
       resume();
       await ctx.queue.drain();
@@ -249,18 +377,103 @@ describe('ChatService', () => {
 
     it('si Telegram falla, el mensaje queda guardado y el error se registra', async () => {
       const ctx = setup();
-      ctx.telegram.sendMessageToGroup.mockRejectedValue(new Error('caído'));
+      ctx.bridge.republish.mockRejectedValue(new Error('caído'));
 
       await expect(
-        ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, 'x'),
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
+          content: 'x',
+        }),
       ).resolves.toBeDefined();
       await ctx.queue.drain();
 
-      expect(ctx.messages.insert).toHaveBeenCalledTimes(1);
-      expect(ctx.telegram.sendMessageToGroup).toHaveBeenCalledTimes(3);
+      expect(ctx.messages.insertOnce).toHaveBeenCalledTimes(1);
+      expect(ctx.bridge.republish).toHaveBeenCalledTimes(3);
       expect(ctx.queueLogger.error).toHaveBeenCalledWith(
         expect.stringContaining('caído'),
       );
+    });
+
+    it('guarda el clientMessageId con el mensaje', async () => {
+      const ctx = setup();
+
+      const { message, created } = await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        requester,
+        { content: 'hola' },
+        'cliente-1',
+      );
+
+      expect(created).toBe(true);
+      expect(message.clientMessageId).toBe('cliente-1');
+    });
+
+    it('un reenvío devuelve el mensaje guardado y no vuelve a avisar', async () => {
+      const ctx = setup();
+      ctx.messages.insertOnce.mockImplementation(
+        (message: RequestChatMessageEntity) =>
+          Promise.resolve({ message, created: false }),
+      );
+
+      const { created } = await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        requester,
+        { content: 'hola' },
+        'cliente-1',
+      );
+      await ctx.queue.drain();
+
+      expect(created).toBe(false);
+      expect(ctx.telegram.sendMessageToGroup).not.toHaveBeenCalled();
+    });
+
+    it('imágenes de un miembro: valida que sean suyas y las comparte con el solicitante', async () => {
+      const ctx = setup();
+
+      const { message } = await ctx.service.addMessageToRequestChat(
+        ctx.requestChat.id,
+        member,
+        { imageIds: ['img-1'] },
+      );
+
+      expect(message.imageIds).toEqual(['img-1']);
+      expect(ctx.media.assertOwnUploads).toHaveBeenCalledWith(member, [
+        'img-1',
+      ]);
+      expect(ctx.media.shareUploads).toHaveBeenCalledWith(
+        ['img-1'],
+        requester.id.value,
+      );
+    });
+
+    it('imágenes del solicitante: no hace falta compartirlas (los miembros ven todas)', async () => {
+      const ctx = setup();
+
+      await ctx.service.addMessageToRequestChat(ctx.requestChat.id, requester, {
+        imageIds: ['img-1'],
+      });
+
+      expect(ctx.media.assertOwnUploads).toHaveBeenCalled();
+      expect(ctx.media.shareUploads).not.toHaveBeenCalled();
+    });
+
+    it('imágenes ajenas → 400 y no guarda nada', async () => {
+      const ctx = setup();
+      ctx.media.assertOwnUploads.mockRejectedValue(new BadRequestException());
+
+      await expect(
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+          imageIds: ['ajena'],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
+    });
+
+    it('sin texto ni imágenes → 400', async () => {
+      const ctx = setup();
+
+      await expect(
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('sin acceso → 403 y no guarda nada', async () => {
@@ -268,18 +481,65 @@ describe('ChatService', () => {
       ctx.access.canAccessLoaded.mockResolvedValue(false);
 
       await expect(
-        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, 'x'),
+        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+          content: 'x',
+        }),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(ctx.messages.insert).not.toHaveBeenCalled();
+      expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
     });
 
-    it('en una solicitud cerrada → 409', async () => {
-      const ctx = setup({ state: 'Approved' });
+    it.each(['Approved', 'Rejected'] as const)(
+      'en una solicitud %s → RequestChatClosedError, sin guardar ni avisar',
+      async (state) => {
+        const ctx = setup({ state });
+
+        await expect(
+          ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, {
+            content: 'x',
+          }),
+        ).rejects.toBeInstanceOf(RequestChatClosedError);
+        expect(ctx.messages.insertOnce).not.toHaveBeenCalled();
+        await ctx.queue.drain();
+        expect(ctx.telegram.sendMessageToGroup).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe('getMessages', () => {
+    it.each(['before', 'after'] as const)(
+      'un %s que no es de la solicitud → 400',
+      async (name) => {
+        const ctx = setup();
+        const cursor =
+          name === 'before'
+            ? { before: UUID.generate() }
+            : { after: UUID.generate() };
+
+        await expect(
+          ctx.service.getMessages(ctx.requestChat.id, cursor, 10),
+        ).rejects.toThrow(`${name} must be a message of this request chat`);
+      },
+    );
+
+    it('con before pide los anteriores; con after, los posteriores', async () => {
+      const ctx = setup();
+      const older = { items: [], hasMore: true };
+      const newer = { items: [], hasMore: false };
+      ctx.messages.findBefore.mockResolvedValue(older);
+      ctx.messages.findAfter.mockResolvedValue(newer);
+      const anchor = UUID.generate();
 
       await expect(
-        ctx.service.addMessageToRequestChat(ctx.requestChat.id, member, 'x'),
-      ).rejects.toBeInstanceOf(ConflictException);
-      expect(ctx.messages.insert).not.toHaveBeenCalled();
+        ctx.service.getMessages(ctx.requestChat.id, { before: anchor }, 10),
+      ).resolves.toBe(older);
+      await expect(
+        ctx.service.getMessages(ctx.requestChat.id, { after: anchor }, 10),
+      ).resolves.toBe(newer);
+      expect(ctx.messages.findBefore).toHaveBeenCalledWith(
+        ctx.requestChat.id,
+        anchor,
+        10,
+      );
     });
   });
 
@@ -300,13 +560,14 @@ describe('ChatService', () => {
         expect.any(Date),
       );
       expect(ctx.mongoOps()).toBe(1);
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         requestChatId: ctx.requestChat.id,
         state: 'InProgress',
-        votes: { approved: 1, rejected: 0 },
+        thresholds: THRESHOLDS,
         userVote: 'approve',
       });
-      // Los conteos salen en vivo a los miembros, en cuanto se guarda el voto.
+      expect(result.votes.tally()).toEqual({ approved: 1, rejected: 0 });
+      // La votación sale en vivo a los miembros, en cuanto se guarda el voto.
       expect(ctx.gateway.emitVotes).toHaveBeenCalledWith(result);
       await ctx.queue.drain();
       expect(ctx.messages.insert).not.toHaveBeenCalled();
@@ -316,7 +577,8 @@ describe('ChatService', () => {
     it('al cruzar el umbral cierra con 2 operaciones y avisa después, una vez', async () => {
       const ctx = setup({ approves: 5 });
       const slow = slowTelegram();
-      ctx.telegram.sendMessageToGroup = slow.call;
+      ctx.telegram.sendMessageToGroup = slow.call as never;
+      ctx.chats.getAnnouncementMessageId.mockResolvedValue(321);
       ctx.chats.getRequestChatByUUID.mockImplementation(() => {
         ctx.requestChat.props.state = RequestChatState.Approved();
         return Promise.resolve(ctx.requestChat);
@@ -335,12 +597,59 @@ describe('ChatService', () => {
       resume();
       slow.release();
       await ctx.queue.drain();
-      expect(ctx.messages.insert).toHaveBeenCalledTimes(1);
+      // Sin mensaje de cierre en el chat: el solicitante ve la pantalla del resultado.
+      expect(ctx.messages.insert).not.toHaveBeenCalled();
       expect(ctx.gateway.emitRequestChatUpdate).toHaveBeenCalledTimes(1);
       expect(slow.call).toHaveBeenCalledTimes(1);
+      expect(ctx.telegram.unpinGroupMessage).toHaveBeenCalledWith(321);
+      expect(ctx.admission.issueInviteLink).toHaveBeenCalledWith(
+        ctx.requestChat.id,
+      );
       expect(ctx.telegram.sendInviteLinkToUser).toHaveBeenCalledWith(
         requester.telegramId,
+        'https://t.me/+enlace',
+        7,
       );
+    });
+
+    it('al cerrarse sin aprobar también desfija el aviso, y sin aviso guardado no desfija', async () => {
+      const rejected = setup({ approves: 0 });
+      rejected.chats.toggleVote.mockResolvedValue(
+        Votes.of(
+          Array.from({ length: 5 }, () => ({
+            voterId: UUID.generate(),
+            type: 'reject' as const,
+          })),
+        ),
+      );
+      rejected.chats.getAnnouncementMessageId.mockResolvedValue(321);
+      rejected.chats.getRequestChatByUUID.mockImplementation(() => {
+        rejected.requestChat.props.state = RequestChatState.Rejected();
+        return Promise.resolve(rejected.requestChat);
+      });
+
+      await rejected.service.voteOnRequestChat(
+        rejected.requestChat.id,
+        member,
+        'reject',
+      );
+      await rejected.queue.drain();
+
+      expect(rejected.telegram.unpinGroupMessage).toHaveBeenCalledWith(321);
+
+      const unannounced = setup({ approves: 5 });
+      unannounced.chats.getRequestChatByUUID.mockImplementation(() => {
+        unannounced.requestChat.props.state = RequestChatState.Approved();
+        return Promise.resolve(unannounced.requestChat);
+      });
+      await unannounced.service.voteOnRequestChat(
+        unannounced.requestChat.id,
+        member,
+        'approve',
+      );
+      await unannounced.queue.drain();
+
+      expect(unannounced.telegram.unpinGroupMessage).not.toHaveBeenCalled();
     });
 
     it('si Telegram falla al cerrar, la solicitud queda cerrada y avisada por socket', async () => {
@@ -350,7 +659,7 @@ describe('ChatService', () => {
         return Promise.resolve(ctx.requestChat);
       });
       ctx.telegram.sendMessageToGroup.mockRejectedValue(new Error('caído'));
-      ctx.telegram.sendInviteLinkToUser.mockRejectedValue(new Error('caído'));
+      ctx.admission.issueInviteLink.mockRejectedValue(new Error('caído'));
 
       const result = await ctx.service.voteOnRequestChat(
         ctx.requestChat.id,
@@ -360,15 +669,20 @@ describe('ChatService', () => {
       await ctx.queue.drain();
 
       expect(result.state).toBe('Approved');
-      expect(ctx.messages.insert).toHaveBeenCalledTimes(1);
+      // Sin mensaje de cierre en el chat: el solicitante ve la pantalla del resultado.
+      expect(ctx.messages.insert).not.toHaveBeenCalled();
       expect(ctx.gateway.emitRequestChatUpdate).toHaveBeenCalledTimes(1);
       expect(ctx.queueLogger.error).toHaveBeenCalledTimes(2);
     });
 
-    it('si otro voto la cerró primero, no repite el mensaje ni los avisos', async () => {
+    it('si otro voto la cerró primero, no repite los avisos', async () => {
       const ctx = setup({ approves: 5 });
       ctx.chats.close.mockResolvedValue(false);
-      ctx.requestChat.props.state = RequestChatState.Approved();
+      ctx.chats.findHeader.mockResolvedValue({
+        id: ctx.requestChat.id,
+        requesterId: requester.id,
+        state: 'Approved',
+      });
 
       const result = await ctx.service.voteOnRequestChat(
         ctx.requestChat.id,
@@ -384,7 +698,7 @@ describe('ChatService', () => {
     });
 
     it('si la solicitud ya no está en curso → 409', async () => {
-      const ctx = setup();
+      const ctx = setup({ state: 'Rejected' });
       ctx.chats.toggleVote.mockResolvedValue(null);
 
       await expect(
@@ -392,10 +706,21 @@ describe('ChatService', () => {
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
+    it('votar la propia solicitud → 403, aunque ya sea miembro', async () => {
+      const ctx = setup();
+      ctx.chats.toggleVote.mockResolvedValue(null);
+
+      await expect(
+        ctx.service.voteOnRequestChat(ctx.requestChat.id, requester, 'approve'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(ctx.chats.close).not.toHaveBeenCalled();
+      expect(ctx.gateway.emitVotes).not.toHaveBeenCalled();
+    });
+
     it('si la solicitud no existe → 404', async () => {
       const ctx = setup();
       ctx.chats.toggleVote.mockResolvedValue(null);
-      ctx.chats.getRequestChatByUUID.mockResolvedValue(null);
+      ctx.chats.findHeader.mockResolvedValue(null);
 
       await expect(
         ctx.service.voteOnRequestChat(UUID.generate(), member, 'approve'),

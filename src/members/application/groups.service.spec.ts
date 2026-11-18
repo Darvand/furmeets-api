@@ -32,7 +32,6 @@ function setup(storedIsMember = false) {
     updateMembership: jest.fn<Promise<void>, [UserEntity, boolean]>(() =>
       Promise.resolve(),
     ),
-    refreshBotUser: jest.fn(() => slow(undefined)),
     refreshAvatar: jest.fn(() => slow(undefined)),
   };
   // Rol resuelto (caché, plazo y respaldo viven en MembershipService).
@@ -63,7 +62,7 @@ describe('GroupsService.sync', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  it('con el rol en caché no espera a Telegram (fotos, grupo y bot tardan 2 s)', async () => {
+  it('con el rol en caché no espera a Telegram (fotos y grupo tardan 2 s)', async () => {
     const { service, user, groupRepository, userService } = setup();
 
     expect(await isSettled(service.sync(user))).toBe(true);
@@ -73,7 +72,6 @@ describe('GroupsService.sync', () => {
     // Los refrescos arrancaron en segundo plano, pero nadie los esperó.
     expect(groupRepository.refreshFromTelegram).toHaveBeenCalledTimes(1);
     expect(userService.refreshAvatar).toHaveBeenCalledWith(user);
-    expect(userService.refreshBotUser).toHaveBeenCalledTimes(1);
   });
 
   it('guarda la membresía según el rol resuelto y la devuelve', async () => {
@@ -88,14 +86,13 @@ describe('GroupsService.sync', () => {
     expect(userService.updateMembership).toHaveBeenCalledWith(user, false);
   });
 
-  it('refresca grupo, bot y avatar como máximo una vez por TTL', async () => {
+  it('refresca grupo y avatar como máximo una vez por TTL', async () => {
     const { service, user, groupRepository, userService } = setup();
 
     await service.sync(user);
     await service.sync(user);
 
     expect(groupRepository.refreshFromTelegram).toHaveBeenCalledTimes(1);
-    expect(userService.refreshBotUser).toHaveBeenCalledTimes(1);
     expect(userService.refreshAvatar).toHaveBeenCalledTimes(1);
   });
 

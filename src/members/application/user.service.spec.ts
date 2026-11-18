@@ -104,12 +104,9 @@ describe('UserService.authenticate', () => {
   });
 });
 
-const BOT = { id: 999, is_bot: true, first_name: 'FurBot', username: 'furbot' };
-
 describe('UserService (Telegram en segundo plano)', () => {
   let repository: ReturnType<typeof createRepository>;
   let telegram: {
-    getBotInfo: jest.Mock;
     getProfilePhoto: jest.Mock;
   };
   let media: { registerTelegramPhoto: jest.Mock };
@@ -118,7 +115,6 @@ describe('UserService (Telegram en segundo plano)', () => {
   beforeEach(() => {
     repository = createRepository();
     telegram = {
-      getBotInfo: jest.fn().mockResolvedValue(BOT),
       getProfilePhoto: jest
         .fn()
         .mockResolvedValue({ file_id: 'f160', file_unique_id: 'u160' }),
@@ -129,30 +125,6 @@ describe('UserService (Telegram en segundo plano)', () => {
       telegram as unknown as TelegramBotService,
       media as unknown as MediaService,
     );
-  });
-
-  it('getBotUser usa botInfo y la BD, sin pedir fotos a Telegram', async () => {
-    const bot = UserEntity.registerBot(
-      TelegramIdentity.create({ telegramId: 999, firstName: 'FurBot' }),
-    );
-    repository.getByTelegramId.mockResolvedValue(bot);
-
-    expect(await service.getBotUser()).toBe(bot);
-    expect(repository.getByTelegramId).toHaveBeenCalledWith(999);
-    expect(telegram.getProfilePhoto).not.toHaveBeenCalled();
-  });
-
-  it('getBotUser registra al bot como miembro si no existe', async () => {
-    repository.getByTelegramId.mockResolvedValue(null);
-
-    const bot = await service.getBotUser();
-
-    expect(repository.create).toHaveBeenCalledTimes(1);
-    expect(bot).toMatchObject({
-      telegramId: 999,
-      name: 'FurBot',
-      isMember: true,
-    });
   });
 
   it('refreshAvatar registra la foto en media y guarda su id solo si cambió', async () => {
@@ -190,18 +162,5 @@ describe('UserService (Telegram en segundo plano)', () => {
 
     expect(repository.updateMembership).toHaveBeenCalledTimes(1);
     expect(user.isMember).toBe(true);
-  });
-
-  it('refreshBotUser actualiza nombre y avatar del bot', async () => {
-    const bot = UserEntity.registerBot(
-      TelegramIdentity.create({ telegramId: 999, firstName: 'Viejo' }),
-    );
-    repository.getByTelegramId.mockResolvedValue(bot);
-
-    await service.refreshBotUser();
-
-    expect(bot.name).toBe('FurBot');
-    expect(repository.updateTelegramProfile).toHaveBeenCalledWith(bot);
-    expect(repository.updateAvatar).toHaveBeenCalledWith(bot);
   });
 });

@@ -20,15 +20,36 @@ export class RequestChatMessage {
   @Prop({ type: mongoose.Schema.Types.UUID, ref: User.name, required: true })
   authorId: string;
 
-  @Prop({ required: true })
+  /** Vacío si el mensaje es solo imágenes. */
+  @Prop({ default: '' })
   content: string;
+
+  /** Ids de `media`; falta si no tiene imágenes. */
+  @Prop({ type: [mongoose.Schema.Types.UUID], default: undefined })
+  imageIds?: string[];
 
   @Prop({ required: true })
   createdAt: Date;
+
+  /** Id del envío generado por el cliente (texto: no referencia a otro documento). */
+  @Prop()
+  clientMessageId?: string;
 }
 
 export const RequestChatMessageSchema =
   SchemaFactory.createForClass(RequestChatMessage);
 
-// El historial de una solicitud, en orden (y el último mensaje para el listado).
-RequestChatMessageSchema.index({ requestChatId: 1, createdAt: 1 });
+// El historial de una solicitud, en orden y paginado en los dos sentidos (y el último
+// mensaje para el listado). `_id` desempata los `createdAt` repetidos de los mensajes
+// migrados (T12). Reemplaza a `requestChatId_1_createdAt_1` (T18).
+RequestChatMessageSchema.index({ requestChatId: 1, createdAt: 1, _id: 1 });
+
+// Idempotencia (T16): un envío por autor y `clientMessageId` en cada solicitud. Los
+// mensajes sin id (bot, sistema, anteriores a T16) quedan fuera del índice.
+RequestChatMessageSchema.index(
+  { requestChatId: 1, authorId: 1, clientMessageId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { clientMessageId: { $exists: true } },
+  },
+);

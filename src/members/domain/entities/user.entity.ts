@@ -36,17 +36,6 @@ export class UserEntity extends Entity<UserProps> {
     });
   }
 
-  /** El usuario del bot: autor de los mensajes de sistema; siempre es miembro. */
-  static registerBot(identity: TelegramIdentity): UserEntity {
-    return new UserEntity({
-      telegramId: identity.telegramId,
-      name: identity.name,
-      username: identity.username,
-      isMember: true,
-      createdAt: new Date(),
-    });
-  }
-
   /** Refleja la membresía según Telegram. Devuelve si cambió. */
   updateMembership(isMember: boolean): boolean {
     if (this.props.isMember === isMember) {
