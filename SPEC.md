@@ -262,7 +262,7 @@ Alternativas documentadas (precios de referencia, verificar antes de usar):
 | `TELEGRAM_GROUP_ID` | Id del grupo principal |
 | `TELEGRAM_STORAGE_CHAT_ID` | **Nueva.** Canal privado donde el bot guarda imágenes |
 | `TELEGRAM_WEBHOOK_SECRET` | **Nueva.** Secreto para validar el webhook |
-| `TELEGRAM_BOT_LINK` | Deep link a la MiniApp |
+| `TELEGRAM_BOT_LINK` | Enlace del bot (`t.me/<bot>`); la MiniApp es su app principal, sin `/<app>` |
 | `PUBLIC_API_URL` | **Nueva.** URL pública de la API, para registrar el webhook |
 | `DB_URI` | Conexión a MongoDB |
 | `FRONTEND_URL` | Origen permitido por CORS |

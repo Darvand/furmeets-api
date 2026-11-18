@@ -12,17 +12,25 @@ import { ApplicationForm } from 'src/applications/domain/application-form';
 import type { LegacyApplication } from 'src/applications/domain/legacy-application';
 
 const TELEGRAM_BOT_LINK =
-  process.env.TELEGRAM_BOT_LINK || 't.me/furmeets_test_bot/furmeets_hub';
+  process.env.TELEGRAM_BOT_LINK || 't.me/furmeets_test_bot';
 
 /**
- * Enlace que abre la App en una solicitud (`startapp`). Lleva esquema porque las
- * entidades de Telegram lo exigen.
+ * Enlace a la App: `https://t.me/<bot>`. La App es la Mini App principal del bot, así que el
+ * enlace no lleva nombre de app (`t.me/<bot>/<app>` no abre: ese nombre no existe). Lleva
+ * siempre `https://` porque en un enlace Markdown Telegram no reconoce `t.me/...` sin
+ * esquema, y las entidades de Telegram también lo exigen. Si la variable trae una ruta
+ * `/<app>` o un esquema, se normaliza.
  */
+function botLink(): string {
+  const bot = TELEGRAM_BOT_LINK.replace(/^https?:\/\//, '')
+    .replace(/^t\.me\//, '')
+    .split(/[/?]/)[0];
+  return `https://t.me/${bot}`;
+}
+
+/** Enlace que abre la App en una solicitud (`startapp`). */
 export function requestChatDeepLink(requestChatId: string): string {
-  const link = /^https?:\/\//.test(TELEGRAM_BOT_LINK)
-    ? TELEGRAM_BOT_LINK
-    : `https://${TELEGRAM_BOT_LINK}`;
-  return `${link}?startapp=${requestChatId}`;
+  return `${botLink()}?startapp=${requestChatId}`;
 }
 
 /**
@@ -140,7 +148,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
         form?.howDidYouFindUs ?? legacy?.howDidYouFindUs,
       ) +
       line('¿Cuáles son sus intereses?', legacy?.interests) +
-      `[Ver solicitud](${TELEGRAM_BOT_LINK}?startapp=${this.id.value})`
+      `[Ver solicitud](${requestChatDeepLink(this.id.value)})`
     );
   }
 
@@ -179,7 +187,7 @@ export class RequestChatEntity extends Entity<RequestChatProps> {
 
   /** Aviso al solicitante de que tiene un mensaje nuevo. */
   static newMessageNotificationText(requester: UserEntity): string {
-    return `${escapeMarkdown(requester.name)}, tienes un mensaje nuevo en el [chat](${TELEGRAM_BOT_LINK}).`;
+    return `${escapeMarkdown(requester.name)}, tienes un mensaje nuevo en el [chat](${botLink()}).`;
   }
 
   isApproved(): boolean {
