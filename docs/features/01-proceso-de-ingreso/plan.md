@@ -66,7 +66,7 @@ T10 colección de mensajes ─ T11 operaciones atómicas ─ T12 migración (des
         │                                                   └─ T20 App: chats
         ├─ T45 equals ─ T21 votos ─ T22 avales ─ T23 inicio (API + App) ─ T24 App: votación y resumen
         ├─ T25 admisión ─ T26 App: aprobado/no aprobado
-        └─ T27 anuncios/republicación ─ T29 DMs y resultados
+        └─ T27 anuncios/republicación
 T30 webhook ─ T31 keep-alive · T32 CORS/env · T33 Dockerfile · T34 ambientes · T35 rendimiento · T36 limpieza App · T44 App: carga
 ```
 
@@ -156,7 +156,6 @@ Los IDs se mantienen estables; T37–T43 son las tareas de latencia, insertadas 
 - [x] T25: Admisión por solicitud de unión — falta revocar a mano los enlaces viejos y la prueba en staging
 - [x] T26: App: pantallas Aprobado y No aprobado — falta la prueba manual en staging
 - [x] T27: Puente: anuncios y republicación en el grupo — falta la prueba manual en staging
-- [ ] T29: Puente: DMs, resultados y `/faq`
 
 #### Checkpoint E: v1 funcional
 - [ ] Criterios de éxito 6, 7 y 8
@@ -200,7 +199,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-PRI-01 | Los votos son anónimos para todos, admins incluidos: nadie ve quién votó a favor ni en contra, solo los conteos y su propio voto. Ni API, ni socket, ni bot, ni logs dicen quién votó. Los avales sí llevan el nombre de su autor (decidido por el grupo el 2026-10-05). | Unitarias y e2e que serializan las salidas de los miembros y no encuentran a los votantes; revisión de logs | T21, T22, T24, T29 |
+| RNF-PRI-01 | Los votos son anónimos para todos, admins incluidos: nadie ve quién votó a favor ni en contra, solo los conteos y su propio voto. Ni API, ni socket, ni bot, ni logs dicen quién votó. Los avales sí llevan el nombre de su autor (decidido por el grupo el 2026-10-05). | Unitarias y e2e que serializan las salidas de los miembros y no encuentran a los votantes; revisión de logs | T21, T22, T24 |
 | RNF-PRI-02 | No se listan por nombre los miembros que faltan por votar. Solo la etiqueta personal "Falta tu voto". | e2e sobre la respuesta del listado | T21, T23 |
 | RNF-PRI-03 | Formulario, votos y avales solo visibles para miembros; el solicitante ve su formulario y su chat. Nada de la revisión viaja en las respuestas ni en los eventos de socket que recibe el solicitante (incluido `request-chat-update`, que va a la sala de su solicitud). | e2e por rol; prueba que serializa las salidas al solicitante (criterio de éxito 10) | T06, T21, T22 |
 | ~~RNF-PRI-04~~ | ~~El formulario advierte que los mensajes se comparten en el grupo y que el envío es definitivo.~~ Retirado el 2026-10-04: el formulario no muestra esos avisos. | — | — |
@@ -226,7 +225,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 | RNF-CON-01 | 0 mensajes perdidos con envíos concurrentes (20 concurrentes → 20 persistidos, en orden, con `createdAt` original). | e2e de concurrencia | T10, T11 |
 | RNF-CON-02 | Idempotencia de envíos por `clientMessageId`; ack con el mensaje persistido. | e2e: reenvío no duplica | T16 |
 | RNF-CON-03 | Recuperación de mensajes posteriores al último recibido al reconectar. | e2e de reconexión | T16 |
-| RNF-CON-04 | Persistir → emitir → notificar. Un fallo de Telegram (DM, republicación) nunca revierte ni oculta un mensaje. | e2e con Telegram simulado que falla | T27, T29 |
+| RNF-CON-04 | Persistir → emitir → notificar. Un fallo de Telegram (DM, republicación) nunca revierte ni oculta un mensaje. | e2e con Telegram simulado que falla | T27 |
 | RNF-CON-05 | Las lecturas no escriben. | Unitarias del servicio | T11 |
 | RNF-CON-06 | La migración es idempotente, se ensaya en staging, se corre con respaldo y conserva conteos. | Unitarias + conteos antes/después | T12 |
 | RNF-CON-07 | El voto que alcanza el umbral cierra la solicitud en el acto, sin carreras que permitan superar el umbral o cerrar dos veces. | Unitarias de dominio + e2e concurrente | T21 |
@@ -245,7 +244,7 @@ Necesarios para dar la funcionalidad por terminada. Cada uno indica cómo se ver
 
 | Id | Requerimiento | Verificación | Tareas |
 |---|---|---|---|
-| RNF-OBS-01 | Errores de llamadas a Telegram se registran con contexto (evento, id de solicitud). | Revisión de logs en staging | T27, T29 |
+| RNF-OBS-01 | Errores de llamadas a Telegram se registran con contexto (evento, id de solicitud). | Revisión de logs en staging | T27 |
 | RNF-OBS-02 | Autenticaciones y autorizaciones rechazadas se registran a nivel `warn`, sin el `initData` completo. | Revisión de logs | T03, T06 |
 | RNF-OBS-03 | La duración de cada ruta HTTP y de cada evento de socket queda registrada, para detectar regresiones de latencia. | Revisión de logs | T37 |
 
@@ -297,6 +296,7 @@ No hay preguntas abiertas.
 - ~~2026-10-03: nada es anónimo dentro del grupo. Votos, avales y comentarios muestran a su autor a todos los miembros.~~ Reemplazado el 2026-10-05.
 - 2026-10-03: `REJECT_THRESHOLD` pasa a 5, igual que `APPROVE_THRESHOLD`; siguen siendo dos variables (T21).
 - 2026-10-03: el formulario no pide pronombres. La API de T13 ya los acepta: se quitan en T14.
+- 2026-11-17: se cierra T29 (DMs, resultados y `/faq`) sin tarea propia: el aviso al solicitante cuando escribe un miembro (T16/T41), el anuncio de cierre en el grupo y el DM con el enlace al aprobado (T25) ya existen, y el criterio de éxito 8 lo prueba `send-vote-background.e2e-spec.ts`. No se avisa por DM al rechazado: lo ve en *No aprobado*. El contenido de `/faq` queda pendiente del grupo.
 - 2026-11-17: se quita T28 (respuestas desde el grupo al chat de la solicitud). T27 además fija el aviso de solicitud nueva mientras esté en curso y ningún mensaje del bot al grupo lleva vista previa.
 - 2026-10-03: sin reglas de convivencia también en *Aprobado* y en la pantalla de carga (T26, T44).
 

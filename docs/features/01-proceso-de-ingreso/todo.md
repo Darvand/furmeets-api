@@ -1373,31 +1373,9 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 - **Responder desde el grupo (T28) se quitó.** Telegram no deja impedir que alguien responda a un mensaje del bot en el grupo, pero esas respuestas se quedan en el grupo: no se leen ni llegan al chat de la solicitud. Por eso no se guarda el `message_id` de lo republicado.
 - **Fallos.** Va a `BackgroundQueue` después de guardar y emitir, con 3 intentos. Si Telegram no cede, solo se registra el error: el mensaje ya está guardado y emitido.
 - **Límite conocido.** Si un envío llegó a Telegram pero la respuesta se perdió, el reintento lo duplica en el grupo. Es poco común y preferible a perder el mensaje.
-- **Módulo.** `TelegramBridgeModule` no importa `ChatModule`: `ChatService` lo usa y guarda lo que devuelve.
+- **Módulo.** `TelegramBridgeModule` no importa `ChatModule`: `ChatService` lo usa.
 
 ---
-
-## Task 29: Puente: DMs, resultados y `/faq`
-
-**Repo:** API · **RNF:** CON-04, PRI-03, OBS-01 · **Deuda:** #7
-
-**Description:** DM al solicitante cuando escribe un miembro (si hay permiso). Anuncio en el grupo y DM al cerrar una solicitud. `/faq` responde un placeholder. El DM al solicitante no incluye votos ni avales, y ningún aviso dice quién votó.
-
-**Acceptance criteria:**
-- [ ] Sin permiso de DM, el mensaje se entrega por socket igual (criterio de éxito 8)
-- [ ] El DM de resultado al solicitante no nombra a quienes votaron
-
-**Verification:**
-- [ ] e2e con Telegram simulado que falla
-
-**Dependencies:** T27, T21
-
-**Files likely touched:**
-- `src/telegram-bridge/application/bridge.service.ts`
-- `src/telegram-bot/telegram-bot.service.ts`
-- `src/chat/application/chat.service.ts`
-
-**Estimated scope:** M
 
 ### Checkpoint E: v1 funcional
 - [ ] Criterios de éxito 6, 7 y 8
@@ -1420,7 +1398,7 @@ En el chat de miembros, una tarjeta "Resumen del solicitante" (especie · edad �
 **Verification:**
 - [ ] e2e del endpoint; manual en staging
 
-**Dependencies:** T29
+**Dependencies:** T27
 
 **Files likely touched:**
 - `src/telegram-bot/telegram-bot.server.ts`
