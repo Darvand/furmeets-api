@@ -151,7 +151,7 @@ describe('RequestChatEntity', () => {
     });
   });
 
-  it('los enlaces a la App llevan https://, sin él Telegram no los abre', () => {
+  it('los enlaces a la App son https://t.me/<bot>, sin nombre de app', () => {
     const request = RequestChatEntity.apply(
       requester,
       ApplicationForm.submit({ age: 20, city: 'Cali' }),
@@ -159,11 +159,11 @@ describe('RequestChatEntity', () => {
 
     expect(request.announceWelcomeMesssage()).toMatch(
       new RegExp(
-        `\\[Ver solicitud\\]\\(https://t\\.me/[^)]+\\?startapp=${request.id.value}\\)$`,
+        `\\[Ver solicitud\\]\\(https://t\\.me/[^/)?]+\\?startapp=${request.id.value}\\)$`,
       ),
     );
     expect(RequestChatEntity.newMessageNotificationText(requester)).toMatch(
-      /\[chat\]\(https:\/\/t\.me\/[^)]+\)/,
+      /\[chat\]\(https:\/\/t\.me\/[^/)?]+\)/,
     );
   });
 

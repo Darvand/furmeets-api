@@ -12,16 +12,20 @@ import { ApplicationForm } from 'src/applications/domain/application-form';
 import type { LegacyApplication } from 'src/applications/domain/legacy-application';
 
 const TELEGRAM_BOT_LINK =
-  process.env.TELEGRAM_BOT_LINK || 't.me/furmeets_test_bot/furmeets_hub';
+  process.env.TELEGRAM_BOT_LINK || 't.me/furmeets_test_bot';
 
 /**
- * Enlace a la App. Lleva siempre `https://`: en un enlace Markdown, Telegram no reconoce
- * `t.me/...` sin esquema, y las entidades de Telegram también lo exigen.
+ * Enlace a la App: `https://t.me/<bot>`. La App es la Mini App principal del bot, así que el
+ * enlace no lleva nombre de app (`t.me/<bot>/<app>` no abre: ese nombre no existe). Lleva
+ * siempre `https://` porque en un enlace Markdown Telegram no reconoce `t.me/...` sin
+ * esquema, y las entidades de Telegram también lo exigen. Si la variable trae una ruta
+ * `/<app>` o un esquema, se normaliza.
  */
 function botLink(): string {
-  return /^https?:\/\//.test(TELEGRAM_BOT_LINK)
-    ? TELEGRAM_BOT_LINK
-    : `https://${TELEGRAM_BOT_LINK}`;
+  const bot = TELEGRAM_BOT_LINK.replace(/^https?:\/\//, '')
+    .replace(/^t\.me\//, '')
+    .split(/[/?]/)[0];
+  return `https://t.me/${bot}`;
 }
 
 /** Enlace que abre la App en una solicitud (`startapp`). */
